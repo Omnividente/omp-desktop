@@ -200452,7 +200452,7 @@
       "id": "discovery-8230eeac54a968fb",
       "title": "Fix uncaught exception in useTranscript loadTranscriptPath",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "low",
       "focus": [
@@ -200517,6 +200517,12 @@
         "activity_created_at": "2026-10-15T20:35:05.417051Z",
         "session_id": "3641188227090480708",
         "dispatch_key": "280285f465f769fc29b0fe38"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-17T07:27:07Z",
+        "note": "Owner-authorized rejection after the completed eight-proposal review. Pinned product main 4f9e9db9f779f92fca1cb8d03fbd986c728b2adb. Path-only load rejects intentionally when no SessionSummary is available; App.onReadTranscript immediately catches and reports it. Swallowing rejection would hide failed navigation. New claim itself acknowledges previous rejection as correct. Verification: Actual App Read action on a synthetic resumed session: failed transcript read shows error toast, zero open dialogs, zero unhandledrejection. Evidence: https://github.com/Omnividente/omp-desktop/blob/4f9e9db9f779f92fca1cb8d03fbd986c728b2adb/src/useTranscript.ts. Preserve worker/source history; no implementation or worker dispatch authorized."
       }
     },
     {
