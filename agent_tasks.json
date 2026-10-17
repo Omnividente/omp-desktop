@@ -217619,7 +217619,7 @@
       "id": "research-sessions-persistence-ux-22",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -217729,16 +217729,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4805255857781358427",
         "dispatch_key": "4268292daac6ef6d964b4f1a",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-4268292daac6ef6d964b4f1a",
         "started_at": "2026-10-17T00:17:45.081124Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T01:08:10.853884Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -217911,13 +217911,103 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-17T00:46:19.926504Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T01:08:10.853884Z"
+      },
+      "research_result": {
+        "summary": "Investigated the session recovery UI focus restoration and keyboard navigation in `SessionControls`. Observed that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus is lost and resets to the document body when the recovery state resolves, as there is no mechanism to track and return focus to the session controls container upon the disappearance of the recovery interface.",
+        "observations": [
+          {
+            "scenario": "Focus restoration after 'Discard' or 'Send' button is clicked in SessionControls recovery banner",
+            "evidence": "Ran a synthetic test using jsdom testing `SessionControls` rendering with `switchRecovery` pending. Simulated focus on the 'Discard' button and clicked it. When the `switchRecovery` prop clears out, the active element becomes `document.body` instead of returning to a stable target within the component.",
+            "result": "Without focus tracking, removing the recovery buttons unexpectedly drops focus to the body, impacting keyboard-only user navigation. Adding a reference similar to `pinFocusRequestedRef` effectively restores focus to the parent `.session-controls` element."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+        ],
+        "proposed_task_ids": [
+          "discovery-943a4d2de20c736c"
+        ],
+        "completed_at": "2026-10-17T01:08:10.853884Z",
+        "source": {
+          "activity_id": "sessions/4805255857781358427/activities/caf5f83666584681b6355114c7a44fbf",
+          "report_sha256": "f37ea7c5ae7757ccc129bbf50b09349af8c43587c6fdebc3529dc8c08d2d55f2",
+          "activity_created_at": "2026-10-17T00:40:23.220555Z",
+          "session_id": "4805255857781358427",
+          "dispatch_key": "4268292daac6ef6d964b4f1a"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4805255857781358427/activities/caf5f83666584681b6355114c7a44fbf",
+          "report_sha256": "f37ea7c5ae7757ccc129bbf50b09349af8c43587c6fdebc3529dc8c08d2d55f2",
+          "activity_created_at": "2026-10-17T00:40:23.220555Z",
+          "session_id": "4805255857781358427",
+          "dispatch_key": "4268292daac6ef6d964b4f1a"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-943a4d2de20c736c"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-943a4d2de20c736c",
+      "title": "Restore focus after completing switch recovery actions in SessionControls",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "quality"
+      ],
+      "created_at": "2026-10-17T01:08:10.853884Z",
+      "acceptance": [
+        "When a user triggers a 'Send' or 'Discard' switch recovery action using keyboard/focus in SessionControls, focus should automatically return to the `.session-controls` wrapper container after the recovery banner disappears, rather than dropping to the document body.",
+        "A test should verify that clicking 'Discard' while focused on it successfully transitions focus to the container."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed via React testing that focus is entirely lost from `SessionControls` when `tab.switchRecovery` becomes null. Creating a `recoveryFocusRequestedRef` that mirrors `pinFocusRequestedRef` resolves the issue.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `SessionControls` with a valid `switchRecovery` state.",
+            "Focus the 'Discard' button.",
+            "Trigger 'Discard', and update the component properties so `switchRecovery` is null.",
+            "Observe that `document.activeElement` becomes `document.body`."
+          ],
+          "expected": "Focus returns to the `.session-controls` container.",
+          "actual": "Focus drops to `document.body`."
+        }
+      },
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionControls.test.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-22",
+        "activity_id": "sessions/4805255857781358427/activities/caf5f83666584681b6355114c7a44fbf",
+        "report_sha256": "f37ea7c5ae7757ccc129bbf50b09349af8c43587c6fdebc3529dc8c08d2d55f2",
+        "activity_created_at": "2026-10-17T00:40:23.220555Z",
+        "session_id": "4805255857781358427",
+        "dispatch_key": "4268292daac6ef6d964b4f1a"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T00:46:44.737512Z",
+    "last_poll_at": "2026-10-17T01:08:34.208818Z",
     "last_tick_at": "2026-10-17T00:46:58.746736Z",
     "run_id": "38987468067",
     "owner_recovery_requests": [
