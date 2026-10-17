@@ -219365,7 +219365,7 @@
       "id": "research-sessions-persistence-reliability-22",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -219488,16 +219488,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9309059117618914018",
         "dispatch_key": "7469afd5d2fe4fb0504bc082",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-7469afd5d2fe4fb0504bc082",
         "started_at": "2026-10-17T03:06:16.458297Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T04:05:53.052293Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -219670,13 +219670,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-17T03:38:29.672483Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T04:05:53.052293Z"
+      },
+      "research_result": {
+        "summary": "Investigated the session import recovery and transaction rollback mechanisms in `commit_import_with`. By injecting custom failure closures during the artifact backup and artifact swap phases using synthetic tests, it was observed that the transaction mechanism successfully restores the directory state to its original configuration without data loss or lingering temporary duplicates.",
+        "observations": [
+          {
+            "scenario": "Failure injected during the artifact swap phase of an import transaction",
+            "evidence": "Created and ran a synthetic Rust unit test inside `src-tauri/src/sessions.rs` that passed a custom `rename` closure to `commit_import_with`. The closure was programmed to return an error when attempting to rename `.session.artifacts-stage.test.1` to the target artifacts path. The test simulated a crash right after the original artifacts were moved to the backup path but before the new artifacts were swapped in.",
+            "result": "The inline rollback handler `recover_import_transaction_locked` was successfully triggered by the error. It recognized that the new staged artifacts were present but not swapped, so it safely moved the original artifacts from `.session.artifacts-backup` back to the active artifact path. The original `session.jsonl` was preserved unmodified, and all temporary staging and transaction markers were deleted. No duplicate operations or lost data occurred."
+          },
+          {
+            "scenario": "Failure injected during the artifact backup phase of an import transaction",
+            "evidence": "Created and ran another synthetic Rust unit test where the custom `rename` closure returned an error when attempting to rename the original artifacts to `.session.artifacts-backup`. This simulates a permission error or abrupt crash before any active files are touched.",
+            "result": "The rollback mechanism accurately determined that the original files had not yet been modified. It successfully discarded the staged `session.jsonl` and artifact directories without touching the active `session.jsonl` or its active artifacts directory. The session remained fully recoverable."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-17T04:05:53.052293Z",
+        "source": {
+          "activity_id": "sessions/9309059117618914018/activities/4a76b163371b4ce998491c452a5b5672",
+          "report_sha256": "8fc64c4815b5e206dfb178b89e91111680b68af47521c45b6e7b54802abe58d3",
+          "activity_created_at": "2026-10-17T03:39:01.608357Z",
+          "session_id": "9309059117618914018",
+          "dispatch_key": "7469afd5d2fe4fb0504bc082"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T03:38:59.734364Z",
+    "last_poll_at": "2026-10-17T04:06:20.948577Z",
     "last_tick_at": "2026-10-17T03:39:12.643874Z",
     "run_id": "38998927625",
     "owner_recovery_requests": [
