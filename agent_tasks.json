@@ -220662,7 +220662,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T05:36:18.646201Z"
+        "observed_at": "2026-10-17T05:36:18.646201Z",
+        "released_attempt_ref": "autonomous/attempt-724753dd96a63e9fad03ba65"
       },
       "research_result": {
         "summary": "Investigated the empty state clear search focus behavior previously hypothesized as broken. Established that the focus restoration actually succeeds natively when `visibleEntries` is empty because the search input is still present in the DOM (rendered conditionally on `transcript.entries.length > 0`, not `visibleEntries.length`). Also investigated markdown URL parsing in `contentLinks.ts` and discovered that the backend file scheme and labeled URI matching logic successfully protects paths like `local://` and `.md` file references while passing them safely, but no new regressions were observed. I have no new actionable proposals as the previously noted empty state focus loss issue is fundamentally invalid based on actual component render logic observed via synthetic tests.",
