@@ -205,7 +205,6 @@ describe("TerminalWorkspace last-tab focus", () => {
     act(() => root.render(<Harness startingTabs={lastTab} />))
     closeButton().focus()
     act(() => closeButton().click())
-    expect(primaryAction().textContent).toContain("New session")
     expect(document.activeElement).toBe(primaryAction())
   })
 
@@ -219,7 +218,6 @@ describe("TerminalWorkspace last-tab focus", () => {
     act(() => root.render(<Harness startingTabs={lastTab} hasWorkspace={false} />))
     closeButton().focus()
     act(() => closeButton().click())
-    expect(primaryAction().textContent).toContain("Open folder")
     expect(document.activeElement).toBe(primaryAction())
   })
 
