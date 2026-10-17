@@ -218486,6 +218486,120 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-behavior-22",
+      "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-17T01:37:33Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "behavior",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Investigated `recover_import_transaction` in `sessions.rs` to see if it properly cleans up when the backup artifact directory or target artifacts directory is read-only or locked during an interrupted import rollback. I verified through local test simulation `import_recovery_cleans_up_when_backup_is_read_only5` that if `remove_import_artifacts` fails due to a locked or read-only directory (e.g. Permission Denied), the function handles it gracefully by returning an error message containing the failure reason (e.g., 'Не удалось удалить артефакты'), propagating it to `recover_imports_in_directory`, which then safely logs the failure as a `SessionScanWarning` and correctly marks the destination as `blocked`. This confirms the previous hypothesis that the recovery safely aborts and warns instead of crashing or leaving data corrupted.",
+            "observations": [
+              {
+                "scenario": "recover_import_transaction with read-only target_artifacts during rollback",
+                "evidence": "Ran a synthetic test `import_recovery_cleans_up_when_backup_is_read_only5` that creates an interrupted import intent (`ImportTransaction::Prepared`), moves the staged artifacts into the target path, and makes the target artifacts read-only to simulate a lock or permission issue. Calling `recover_imports_in_directory` gracefully yields a `SessionScanWarning` containing 'Permission denied (os error 13)' without panicking, and correctly inserts the destination into the `blocked` set.",
+                "result": "The recovery correctly aborts the rollback when the artifact directory cannot be deleted due to permissions, yielding a warning and blocking the session instead of crashing or corrupting the directory structure."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming an active Codex session file while it is being actively written to by the external agent causes data loss or hanging file locks on Windows."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T02:44:07.326504Z",
+            "source": {
+              "activity_id": "sessions/14408096629591518926/activities/eac1806d4f9145a096080496464b241a",
+              "report_sha256": "645241b9e3f47da8a11530f094061ad76742f5bcbe6e5471dfabad40c2709473",
+              "activity_created_at": "2026-10-16T02:17:38.622813Z",
+              "session_id": "14408096629591518926",
+              "dispatch_key": "83ca8ca2be1c69c427224ca3"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the performance of session parsing on the Rust backend (`scan_sessions`) and session listing on the React frontend (`SessionList`). By crafting a temporary mock of 1000 and 10000 sessions respectively, observed that both systems scale well. However, `scan_sessions` in `src-tauri/src/sessions.rs` has no concurrent evaluation, meaning that reading 1000 sessions one-by-one from the disk synchronously takes nearly ~1 second locally, leaving room for async/rayon speedups for huge folders.",
+            "observations": [
+              {
+                "scenario": "Rust backend session scanning time complexity for large lists",
+                "evidence": "Ran a synthetic test inserting 1000 mocked local sessions (a `header.json` and a 100-line `transcript.jsonl` each) in a temp directory, and measured `scan_sessions(root)`. It took around 788-965 ms to complete on the test environment.",
+                "result": "Since `scan_sessions` processes all subdirectories linearly using `std::fs::read_dir`, taking almost ~1ms per session directory file I/O locally, a very large amount of active sessions could noticeably block or delay the application on startup. Refactoring the recursive scan loop into parallel execution (e.g., using `rayon`) could dramatically reduce load times."
+              },
+              {
+                "scenario": "React frontend SessionList rendering performance for large lists",
+                "evidence": "Ran a synthetic jsdom test simulating `SessionList` rendering 10000 mocked sessions. The initial `render` took ~258ms, while `rerender` triggering a single selection update took ~34ms.",
+                "result": "The UI handles a massive session count fairly well due to virtualization via `useVirtualList`, keeping rerenders efficient. The tree-building `useMemo` blocks handle flattened 10k lists under ~30ms, meaning UI stuttering shouldn't be pronounced on large workspaces."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if converting the session parsing loop inside `scan_sessions` to use `rayon` parallel iteration would significantly speed up application startup in scenarios with 10,000+ sessions."
+            ],
+            "proposed_task_ids": [
+              "discovery-40f4b03c32eedf09"
+            ],
+            "completed_at": "2026-10-16T22:18:40.826628Z",
+            "source": {
+              "activity_id": "sessions/7726250843483829957/activities/e644347f40284118b9684083dfac070d",
+              "report_sha256": "9e2b603c2dbd92f6eb6b8626e4a5f65da9a0a3835c689e72cbe5a6ac732ed1fc",
+              "activity_created_at": "2026-10-16T22:07:30.707851Z",
+              "session_id": "7726250843483829957",
+              "dispatch_key": "0201a2e594d38bdb41a27190"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the session recovery UI focus restoration and keyboard navigation in `SessionControls`. Observed that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus is lost and resets to the document body when the recovery state resolves, as there is no mechanism to track and return focus to the session controls container upon the disappearance of the recovery interface.",
+            "observations": [
+              {
+                "scenario": "Focus restoration after 'Discard' or 'Send' button is clicked in SessionControls recovery banner",
+                "evidence": "Ran a synthetic test using jsdom testing `SessionControls` rendering with `switchRecovery` pending. Simulated focus on the 'Discard' button and clicked it. When the `switchRecovery` prop clears out, the active element becomes `document.body` instead of returning to a stable target within the component.",
+                "result": "Without focus tracking, removing the recovery buttons unexpectedly drops focus to the body, impacting keyboard-only user navigation. Adding a reference similar to `pinFocusRequestedRef` effectively restores focus to the parent `.session-controls` element."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+            ],
+            "proposed_task_ids": [
+              "discovery-943a4d2de20c736c"
+            ],
+            "completed_at": "2026-10-17T01:08:10.853884Z",
+            "source": {
+              "activity_id": "sessions/4805255857781358427/activities/caf5f83666584681b6355114c7a44fbf",
+              "report_sha256": "f37ea7c5ae7757ccc129bbf50b09349af8c43587c6fdebc3529dc8c08d2d55f2",
+              "activity_created_at": "2026-10-17T00:40:23.220555Z",
+              "session_id": "4805255857781358427",
+              "dispatch_key": "4268292daac6ef6d964b4f1a"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
