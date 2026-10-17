@@ -220174,7 +220174,7 @@
       "id": "research-transcript-links-behavior-21",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -220481,16 +220481,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14738550020907438285",
         "dispatch_key": "724753dd96a63e9fad03ba65",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-724753dd96a63e9fad03ba65",
         "started_at": "2026-10-17T04:39:42.683773Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T05:36:18.646201Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -220661,13 +220661,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-17T05:06:21.735331Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T05:36:18.646201Z"
+      },
+      "research_result": {
+        "summary": "Investigated the empty state clear search focus behavior previously hypothesized as broken. Established that the focus restoration actually succeeds natively when `visibleEntries` is empty because the search input is still present in the DOM (rendered conditionally on `transcript.entries.length > 0`, not `visibleEntries.length`). Also investigated markdown URL parsing in `contentLinks.ts` and discovered that the backend file scheme and labeled URI matching logic successfully protects paths like `local://` and `.md` file references while passing them safely, but no new regressions were observed. I have no new actionable proposals as the previously noted empty state focus loss issue is fundamentally invalid based on actual component render logic observed via synthetic tests.",
+        "observations": [
+          {
+            "scenario": "Execute the 'clearSearch' operation from an empty state where transcript filtering yields zero visible entries.",
+            "evidence": "Executed Vitest interaction test mounting `TranscriptModal` with `transcript.entries.length = 1` but `visibleEntries.length = 0` (due to active search). The main toolbar search input remains mounted because it is keyed on `transcript.entries.length > 0`. Clicking the empty-state 'Clear search' button successfully triggers `clearSearch()`, which resolves `searchRef.current` and calls `focus({ preventScroll: true })`. Verified that `document.activeElement` matches the searchbox.",
+            "result": "Established that search focus restoration correctly handles the zero-match filter empty state without dropping focus, as the search input remains mounted. The previous hypothesis claiming dropping focus was incorrect. (Evidence mode: mock_or_model)"
+          },
+          {
+            "scenario": "Observe contentLinks label matcher behavior with escaped strings and mixed boundaries",
+            "evidence": "Observed via `contentLinks.test.ts` executing Vitest that `contentLinks` properly extracts `local://` and `.md` references and preserves escaped literal brackets inside markdown label matching without consuming the boundary.",
+            "result": "Established that contentLinks markdown parser matches expectations for labeled resources. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Using screen readers to navigate empty state might get stuck on aria-live regions without proper focus transition.",
+          "The empty state layout contains an unintended DOM structure that impacts screen readers."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-17T05:36:18.646201Z",
+        "source": {
+          "activity_id": "sessions/14738550020907438285/activities/9b8d25090b704f9b85afb2bfda30785b",
+          "report_sha256": "ec8d0c0461c33d785e529197f73ddfc2727765343c2683005c19c137c54a33a4",
+          "activity_created_at": "2026-10-17T05:01:57.235779Z",
+          "session_id": "14738550020907438285",
+          "dispatch_key": "724753dd96a63e9fad03ba65"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T05:06:45.877508Z",
+    "last_poll_at": "2026-10-17T05:36:49.994260Z",
     "last_tick_at": "2026-10-17T05:06:56.123333Z",
     "run_id": "39004666968",
     "owner_recovery_requests": [
