@@ -218491,7 +218491,7 @@
       "id": "research-sessions-persistence-behavior-22",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -218602,16 +218602,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13420067612745993829",
         "dispatch_key": "acdc7ff3120865804446edfc",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-acdc7ff3120865804446edfc",
         "started_at": "2026-10-17T01:37:33.209111Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T02:08:16.247703Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -218784,13 +218784,85 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-17T01:37:33.209111Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T02:08:16.247703Z"
+      },
+      "research_result": {
+        "summary": "Investigated the session recovery UI focus restoration in `SessionControls`. Verified that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus resets to the document body when the recovery interface is removed due to a state update. Added a tracking mechanism (`recoveryFocusRequestedRef`) that restores focus to the parent container (`.session-controls`) when the switch recovery panel unmounts, fixing the accessibility issue and meeting the findings of the previous report.",
+        "observations": [
+          {
+            "scenario": "Focus restoration after 'Discard' or 'Send' button is clicked in SessionControls recovery banner",
+            "evidence": "Ran a synthetic test `test-session-controls-focus.test.tsx` using jsdom that renders `SessionControls` with a pending `switchRecovery`. Focused on the 'Discard' button and clicked it. Simulating the subsequent state update that clears `switchRecovery` resulted in the active element becoming `document.body`. Added `recoveryFocusRequestedRef` in `SessionControls` to track if a recovery action was triggered by the keyboard focus, restoring it to the `controlsRef` container upon resolution. Re-ran the test successfully.",
+            "result": "Without focus tracking, removing the recovery buttons drops focus to the body. Using a ref restores focus correctly to the session controls container."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-17T02:08:16.247703Z",
+        "source": {
+          "activity_id": "sessions/13420067612745993829/activities/967d8a74024240babf714fd74d6a1ddd",
+          "report_sha256": "99655384ee461dd1f33f83282258bed22281b078012173d66310d26a29144dc2",
+          "activity_created_at": "2026-10-17T01:56:56.940323Z",
+          "session_id": "13420067612745993829",
+          "dispatch_key": "acdc7ff3120865804446edfc"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus after interacting with switch recovery in SessionControls",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-943a4d2de20c736c; not established as a duplicate. {\"detail\": \"Observed in `src/SessionControls.tsx` during synthetic testing that focus is lost to `document.body` after the `switchRecovery` state is cleared upon clicking action buttons.\", \"reproduction\": {\"actual\": \"The active element becomes `document.body`.\", \"expected\": \"The focus should move back to the session controls container.\", \"steps\": [\"Render `SessionControls` with a valid `switchRecovery` state.\", \"Focus the 'Discard' button in the banner and click it.\", \"Update the component props to clear the `switchRecovery` state.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionControls.tsx"
+            ],
+            "acceptance": [
+              "When the user clicks 'Send' or 'Discard' in the switch recovery banner, focus should return to the `.session-controls` element once the banner is removed, rather than falling back to `document.body`."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/13420067612745993829/activities/967d8a74024240babf714fd74d6a1ddd",
+          "report_sha256": "99655384ee461dd1f33f83282258bed22281b078012173d66310d26a29144dc2",
+          "activity_created_at": "2026-10-17T01:56:56.940323Z",
+          "session_id": "13420067612745993829",
+          "dispatch_key": "acdc7ff3120865804446edfc"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-9a134f6a7fb688ca",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-943a4d2de20c736c"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus after interacting with switch recovery in SessionControls",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-943a4d2de20c736c; not established as a duplicate. {\"detail\": \"Observed in `src/SessionControls.tsx` during synthetic testing that focus is lost to `document.body` after the `switchRecovery` state is cleared upon clicking action buttons.\", \"reproduction\": {\"actual\": \"The active element becomes `document.body`.\", \"expected\": \"The focus should move back to the session controls container.\", \"steps\": [\"Render `SessionControls` with a valid `switchRecovery` state.\", \"Focus the 'Discard' button in the banner and click it.\", \"Update the component props to clear the `switchRecovery` state.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionControls.tsx"
+              ],
+              "acceptance": [
+                "When the user clicks 'Send' or 'Discard' in the switch recovery banner, focus should return to the `.session-controls` element once the banner is removed, rather than falling back to `document.body`."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T01:42:32.243097Z",
+    "last_poll_at": "2026-10-17T02:08:45.160899Z",
     "last_tick_at": "2026-10-17T01:42:43.880299Z",
     "run_id": "38990978367",
     "owner_recovery_requests": [
