@@ -220169,6 +220169,316 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-behavior-21",
+      "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-10-17T04:39:42Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "behavior",
+        "fingerprint": "f111a5acb0d8d4f56858b124db55697d1e4911dc2e11be66d62bf09d8fd0e226",
+        "cycle": 21,
+        "previous_reports": [
+          {
+            "summary": "Investigated the transcript rendering and scrolling behavior on the pinned base. The useVirtualList scrollToIndex implicitly anchors to the top offset, which leaves the bottom content of oversized final messages out of view. Verified loadTranscriptPath unhandled rejection behavior is intentional for App deep-link handler logic.",
+            "observations": [
+              {
+                "scenario": "Synthetic test of useVirtualList's scrollToIndex with oversized item",
+                "evidence": "Rendered useVirtualList hook and mocked container height. Called scrollToIndex on the last item with height > viewportHeight. Verified the container.scrollTop aligns exactly with the top offset of the item, leaving its bottom content out of the viewport (400px vs expected 500px).",
+                "result": "Established that scrollToIndex aligns oversized items by top offset, leaving newest bottom content initially hidden. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Observation of loadTranscriptPath rejection handling",
+                "evidence": "Inspected useTranscript.ts and previous owner triage decisions. loadTranscriptPath intentionally throws when session is falsy because the App deep-link handler needs to catch it to avoid opening an empty modal.",
+                "result": "Established that loadTranscriptPath's unhandled rejection is correct by design and should not be modified. (Evidence mode: static_analysis)"
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T04:58:49.581702Z",
+            "source": {
+              "activity_id": "sessions/9914236537606670972/activities/d8a64cb9fac9435aa25df5cddf163838",
+              "report_sha256": "7c76307dee63e32b656b20e7e9b79232bb4914184b3ade97dac031b43f41f3ea",
+              "activity_created_at": "2026-10-16T04:31:45.382205Z",
+              "session_id": "9914236537606670972",
+              "dispatch_key": "cd92895f13b7df952eae43a6"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Observed via synthetic testing that useVirtualList's scrollToIndex implicitly anchors any item to its top offset. If the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom.\", \"reproduction\": {\"actual\": \"Viewport scrolls to align with the top of the final entry, hiding the new text.\", \"expected\": \"Viewport scrolls to the bottom of the final entry.\", \"steps\": [\"Open a transcript\", \"Click the 'Latest message' button in TranscriptModal when the last entry's height > viewport\", \"Observe scroll alignment\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The fix was merged in PR #98 on the main branch, but the current pinned laboratory base 3f542212066112284cc0e1d49096da512dd54207 still exhibits the bug.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"responses\": [{\"decision_context_id\": \"200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953\", \"decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"why_previous_reason_no_longer_explains\": \"PR #98 is merged on main, but the current laboratory environment is pinned at an older commit where the top-anchor logic remains broken.\"}, {\"decision_context_id\": \"a66a156b57e2154b76b0be198611ad8351bb38e34364bd55ac15d550d6ce71de\", \"decision_task_id\": \"discovery-2a158a6f04197055\", \"why_previous_reason_no_longer_explains\": \"The previous rejection cited nonexistent 'Latest message' button in useVirtualList, but the button exists in TranscriptModal.tsx. The scrollToIndex function in useVirtualList.ts is what drives the scroll position.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx",
+                  "src/useVirtualList.ts"
+                ],
+                "acceptance": [
+                  "Clicking 'Latest message' properly scrolls the transcript viewport to the bottom boundary of the final visible message, enabling reading of oversized message content."
+                ],
+                "deferred_id": "678ba8f9a265171c318bee58d68ca1b8e5a3e986a4be85743aff1c8fe8adc136",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+                  "risk": "low",
+                  "priority": 10,
+                  "focus": [
+                    "quality",
+                    "ux"
+                  ],
+                  "target_paths": [
+                    "src/TranscriptModal.tsx",
+                    "src/useVirtualList.ts"
+                  ],
+                  "acceptance": [
+                    "Clicking 'Latest message' properly scrolls the transcript viewport to the bottom boundary of the final visible message, enabling reading of oversized message content."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Observed via synthetic testing that useVirtualList's scrollToIndex implicitly anchors any item to its top offset. If the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Open a transcript",
+                        "Click the 'Latest message' button in TranscriptModal when the last entry's height > viewport",
+                        "Observe scroll alignment"
+                      ],
+                      "expected": "Viewport scrolls to the bottom of the final entry.",
+                      "actual": "Viewport scrolls to align with the top of the final entry, hiding the new text."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "different_contract",
+                      "difference": "The fix was merged in PR #98 on the main branch, but the current pinned laboratory base 3f542212066112284cc0e1d49096da512dd54207 still exhibits the bug.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-84ebe14b2ef5320a",
+                      "observation_refs": [
+                        0
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-84ebe14b2ef5320a",
+                          "decision_context_id": "200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953",
+                          "why_previous_reason_no_longer_explains": "PR #98 is merged on main, but the current laboratory environment is pinned at an older commit where the top-anchor logic remains broken."
+                        },
+                        {
+                          "decision_task_id": "discovery-2a158a6f04197055",
+                          "decision_context_id": "a66a156b57e2154b76b0be198611ad8351bb38e34364bd55ac15d550d6ce71de",
+                          "why_previous_reason_no_longer_explains": "The previous rejection cited nonexistent 'Latest message' button in useVirtualList, but the button exists in TranscriptModal.tsx. The scrollToIndex function in useVirtualList.ts is what drives the scroll position."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-2a158a6f04197055",
+                      "action": "reject",
+                      "decision_at": "2026-10-13T17:16:32Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-84ebe14b2ef5320a",
+                      "action": "resolve",
+                      "decision_at": "2026-09-29T10:10:33Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-transcript-links-performance-20",
+                  "activity_id": "sessions/9914236537606670972/activities/d8a64cb9fac9435aa25df5cddf163838",
+                  "report_sha256": "7c76307dee63e32b656b20e7e9b79232bb4914184b3ade97dac031b43f41f3ea",
+                  "activity_created_at": "2026-10-16T04:31:45.382205Z",
+                  "session_id": "9914236537606670972",
+                  "dispatch_key": "cd92895f13b7df952eae43a6"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Investigated and identified the root cause of the 'Latest message' bottom-content scrolling issue for oversized transcript messages. Replaced the static `scrollToIndex` behavior in `useVirtualList` to accept an `align` argument ('top' | 'bottom'). Modified `TranscriptModal` to calculate and provide the correct offset and alignment strategy so that oversized messages align securely against the bottom boundary of the viewport upon a 'Latest message' request. Successfully confirmed via mock DOM and Vitest runner.",
+            "observations": [
+              {
+                "scenario": "Execute the 'Latest message' operation on a synthetic transcript with an oversized trailing message.",
+                "evidence": "Observed via mock `getBoundingClientRect` and Vitest component inspection that `useVirtualList` default `scrollToIndex` implicitly anchors items at their top offset. Click on 'Latest message' caused a 2000px height item (in a 500px viewport) to anchor at its top offset (4590) rather than scrolling past to its bottom boundary.",
+                "result": "Established that `scrollToIndex` implicitly aligns elements at the top, leaving newest bottom content of oversized elements hidden initially. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Patch `scrollToIndex` to accept an `align` parameter and provide corresponding offset strategy in `TranscriptModal`.",
+                "evidence": "Modified `useVirtualList.ts` to calculate `Math.max(0, layout.offsets[index] + layout.heights[index] - viewportHeight)` for `align='bottom'`. Modified `TranscriptModal.tsx` line 313 to correctly construct `offset = Math.max(0, rowBounds.height - scroll.clientHeight)` when `saved.offset === Infinity`, ensuring bottom alignment inside the settlement hook without resetting `followLatestRef.current`. Verified `npm run test` executes perfectly.",
+                "result": "Established that updating the underlying component offsets properly aligns oversized items to the viewport boundary and resolves the scroll concealment bug. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T10:08:24.481362Z",
+            "source": {
+              "activity_id": "sessions/15370071525434480938/activities/2baf5252005b49d796083b32db074693",
+              "report_sha256": "4bdd1bbcc4ed9a264d7e9712ed7d4bc4bac0c6406d820bfa47c47401181b831a",
+              "activity_created_at": "2026-10-16T09:46:21.512183Z",
+              "session_id": "15370071525434480938",
+              "dispatch_key": "80babfdf846c7b61bdd06527"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified via synthetic testing that `useVirtualList`'s `scrollToIndex` currently implicitly anchors any item to its top offset. If the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom. The fix extends `scrollToIndex` to accept an `align` string and calculates the necessary offset in `TranscriptModal`.\", \"reproduction\": {\"actual\": \"Viewport scrolls to align with the top of the final entry, hiding the new text.\", \"expected\": \"Viewport scrolls to the bottom of the final entry.\", \"steps\": [\"Open a transcript\", \"Click the 'Latest message' button in TranscriptModal when the last entry's height > viewport\", \"Observe scroll alignment\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The fix was merged in PR #98 on the main branch, but the current pinned laboratory base 3f542212066112284cc0e1d49096da512dd54207 still exhibits the bug. Implementing an `align` property for `scrollToIndex` and modifying `TranscriptModal` correctly resolves the root issue.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0, 1], \"primary_decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"responses\": [{\"decision_context_id\": \"200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953\", \"decision_task_id\": \"discovery-84ebe14b2ef5320a\", \"why_previous_reason_no_longer_explains\": \"PR #98 is merged on main, but the current laboratory environment is pinned at an older commit where the top-anchor logic remains broken.\"}, {\"decision_context_id\": \"a66a156b57e2154b76b0be198611ad8351bb38e34364bd55ac15d550d6ce71de\", \"decision_task_id\": \"discovery-2a158a6f04197055\", \"why_previous_reason_no_longer_explains\": \"The previous rejection cited nonexistent 'Latest message' button in useVirtualList, but the button exists in TranscriptModal.tsx. The scrollToIndex function in useVirtualList.ts is what drives the scroll position.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/TranscriptModal.tsx",
+                  "src/useVirtualList.ts"
+                ],
+                "acceptance": [
+                  "Clicking 'Latest message' properly scrolls the transcript viewport to the bottom boundary of the final visible message, enabling reading of oversized message content."
+                ],
+                "deferred_id": "f50fe201e601abaa11c42f6659e8fbbd2a41369cb4c63806388dc0f43a7e19aa",
+                "candidate": {
+                  "task_type": "bugfix",
+                  "title": "Fix 'Latest message' scroll anchor on oversized transcript messages",
+                  "risk": "low",
+                  "priority": 10,
+                  "focus": [
+                    "quality",
+                    "ux"
+                  ],
+                  "target_paths": [
+                    "src/TranscriptModal.tsx",
+                    "src/useVirtualList.ts"
+                  ],
+                  "acceptance": [
+                    "Clicking 'Latest message' properly scrolls the transcript viewport to the bottom boundary of the final visible message, enabling reading of oversized message content."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Verified via synthetic testing that `useVirtualList`'s `scrollToIndex` currently implicitly anchors any item to its top offset. If the final message height exceeds the viewport, scrolling to the element's top initially hides its newly generated content at the bottom. The fix extends `scrollToIndex` to accept an `align` string and calculates the necessary offset in `TranscriptModal`.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Open a transcript",
+                        "Click the 'Latest message' button in TranscriptModal when the last entry's height > viewport",
+                        "Observe scroll alignment"
+                      ],
+                      "expected": "Viewport scrolls to the bottom of the final entry.",
+                      "actual": "Viewport scrolls to align with the top of the final entry, hiding the new text."
+                    },
+                    "revisit": {
+                      "contract_version": "post-revisit-v1",
+                      "change_kind": "different_contract",
+                      "difference": "The fix was merged in PR #98 on the main branch, but the current pinned laboratory base 3f542212066112284cc0e1d49096da512dd54207 still exhibits the bug. Implementing an `align` property for `scrollToIndex` and modifying `TranscriptModal` correctly resolves the root issue.",
+                      "evidence_mode": "mock_or_model",
+                      "primary_decision_task_id": "discovery-84ebe14b2ef5320a",
+                      "observation_refs": [
+                        0,
+                        1
+                      ],
+                      "responses": [
+                        {
+                          "decision_task_id": "discovery-84ebe14b2ef5320a",
+                          "decision_context_id": "200ccf632f0b52cfeb48e45d28eb1ffa91c321fe0657679fbe341b551b535953",
+                          "why_previous_reason_no_longer_explains": "PR #98 is merged on main, but the current laboratory environment is pinned at an older commit where the top-anchor logic remains broken."
+                        },
+                        {
+                          "decision_task_id": "discovery-2a158a6f04197055",
+                          "decision_context_id": "a66a156b57e2154b76b0be198611ad8351bb38e34364bd55ac15d550d6ce71de",
+                          "why_previous_reason_no_longer_explains": "The previous rejection cited nonexistent 'Latest message' button in useVirtualList, but the button exists in TranscriptModal.tsx. The scrollToIndex function in useVirtualList.ts is what drives the scroll position."
+                        }
+                      ]
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-2a158a6f04197055",
+                      "action": "reject",
+                      "decision_at": "2026-10-13T17:16:32Z",
+                      "match": "possible",
+                      "timing": "post"
+                    },
+                    {
+                      "task_id": "discovery-84ebe14b2ef5320a",
+                      "action": "resolve",
+                      "decision_at": "2026-09-29T10:10:33Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_unexplained"
+                },
+                "source": {
+                  "task_id": "research-transcript-links-reliability-21",
+                  "activity_id": "sessions/15370071525434480938/activities/2baf5252005b49d796083b32db074693",
+                  "report_sha256": "4bdd1bbcc4ed9a264d7e9712ed7d4bc4bac0c6406d820bfa47c47401181b831a",
+                  "activity_created_at": "2026-10-16T09:46:21.512183Z",
+                  "session_id": "15370071525434480938",
+                  "dispatch_key": "80babfdf846c7b61bdd06527"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the transcript rendering and interactions. Discovered that the clear search button in TranscriptModal successfully clears the search using `onClearSearch()` but attempts to restore focus to the search input via a ref `searchRef` that is never populated. As a result, clicking 'Clear search' inside the modal empty state resets the query but drops keyboard focus instead of keeping the user in the search flow.",
+            "observations": [
+              {
+                "scenario": "Observe clearSearch behavior when a user clears search from the empty state view",
+                "evidence": "In `TranscriptModal.tsx`, `const searchRef = useRef<HTMLInputElement>(null)` is declared. `clearSearch()` calls `searchRef.current?.focus({ preventScroll: true })`. However, `searchRef` is never attached to any element in the render method (`ref={searchRef}` does not exist anywhere in the modal). When executing this flow via jsdom tests, clicking the clear search button calls `onClearSearch()` but leaves focus unmanaged.",
+                "result": "Established that `clearSearch` incorrectly attempts to focus an unattached ref, dropping focus after execution. (Evidence mode: static_analysis)"
+              },
+              {
+                "scenario": "Identify missing search input or missing ref attachment",
+                "evidence": "Inspecting `TranscriptModal.tsx` reveals that it renders a `TranscriptSearch` component via another prop but does not render a raw `<input type='search'>` inside its own tree. Instead, the search input itself might live in a parent or `TranscriptSearch`. Wait, checking the codebase for `searchRef` shows it's completely detached. The parent or whoever handles `onClearSearch` should handle focus, or `TranscriptSearch` needs a ref forwarded.",
+                "result": "Established that focus management for the search clearing flow is broken. (Evidence mode: static_analysis)"
+              }
+            ],
+            "next_hypotheses": [
+              "The empty state layout contains an unintended DOM structure that impacts screen readers."
+            ],
+            "proposed_task_ids": [
+              "discovery-7a751ac6a14ae022"
+            ],
+            "completed_at": "2026-10-16T21:20:38.775069Z",
+            "source": {
+              "activity_id": "sessions/505057129258751932/activities/e0f4792e87d84efdaa889c9626bb3168",
+              "report_sha256": "be20422009bf90dd45430954e47b0a65edc22abc83a56a0d09d95a8461e48a44",
+              "activity_created_at": "2026-10-16T21:07:34.434121Z",
+              "session_id": "505057129258751932",
+              "dispatch_key": "fc311eacd6b7e06b196961af"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
