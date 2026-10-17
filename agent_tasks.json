@@ -223018,7 +223018,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T08:06:36.172526Z"
+        "observed_at": "2026-10-17T08:06:36.172526Z",
+        "released_attempt_ref": "autonomous/attempt-1e7c18dd97eae4c85b30b9b2"
       },
       "research_result": {
         "summary": "Verified that when the last session tab in TerminalWorkspace is closed, focus drops to the document body instead of shifting back to the newly rendered WorkspaceHome view, demonstrating an accessibility issue.",
