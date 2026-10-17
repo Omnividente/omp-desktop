@@ -220096,7 +220096,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T04:39:42.683773Z"
+        "observed_at": "2026-10-17T04:39:42.683773Z",
+        "released_attempt_ref": "autonomous/attempt-1a784e8d8f3466c88409954f"
       },
       "research_result": {
         "summary": "Verified that keyboard focus incorrectly drops to the document body when closing the last session tab in TerminalWorkspace, which mounts the WorkspaceHome view.",
