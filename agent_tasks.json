@@ -219671,7 +219671,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T04:05:53.052293Z"
+        "observed_at": "2026-10-17T04:05:53.052293Z",
+        "released_attempt_ref": "autonomous/attempt-7469afd5d2fe4fb0504bc082"
       },
       "research_result": {
         "summary": "Investigated the session import recovery and transaction rollback mechanisms in `commit_import_with`. By injecting custom failure closures during the artifact backup and artifact swap phases using synthetic tests, it was observed that the transaction mechanism successfully restores the directory state to its original configuration without data loss or lingering temporary duplicates.",
