@@ -218374,7 +218374,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T01:37:33.209111Z"
+        "observed_at": "2026-10-17T01:37:33.209111Z",
+        "released_attempt_ref": "autonomous/attempt-50533fcb4eaf54d5f506debc"
       },
       "research_result": {
         "summary": "Investigated terminal continuity handling of stale events and output batcher disposal behavior.",
