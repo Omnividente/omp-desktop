@@ -209495,7 +209495,7 @@
       "id": "discovery-47799e83a647884f",
       "title": "Localize hardcoded workspace shortcuts for macOS",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "low",
       "focus": [
@@ -209563,6 +209563,12 @@
         "activity_created_at": "2026-10-16T05:12:18.724609Z",
         "session_id": "2815797627340740573",
         "dispatch_key": "1a9d1a4281c193e58b009687"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-17T07:28:26Z",
+        "note": "Owner-authorized rejection after the completed eight-proposal review. Pinned product main 4f9e9db9f779f92fca1cb8d03fbd986c728b2adb. WorkspaceHome and ProjectRail render platform-aware formatShortcut; macos replacement is present. Claim itself acknowledges correct wrapper. Verification: Actual Chrome with runtime.platform=macos: sidebar hints render ⌘ + B; current source wraps folder shortcut with same formatter. Evidence: https://github.com/Omnividente/omp-desktop/blob/4f9e9db9f779f92fca1cb8d03fbd986c728b2adb/src/WorkspaceHome.tsx. Preserve worker/source history; no implementation or worker dispatch authorized."
       }
     },
     {
