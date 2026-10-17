@@ -221694,7 +221694,7 @@
       "id": "research-transcript-links-performance-21",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -221907,16 +221907,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6390792274771223913",
         "dispatch_key": "b484bbfd9ea51b154a104fb4",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-b484bbfd9ea51b154a104fb4",
         "started_at": "2026-10-17T06:32:56.395615Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T07:02:57.986526Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -222087,13 +222087,42 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-17T06:32:56.395615Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T07:02:57.986526Z"
+      },
+      "research_result": {
+        "summary": "Investigated performance and behavior of transcript rendering and scrolling, specifically around `useVirtualList` rendering scale and `contentLinks` regex latency. Measured `useVirtualList` layout calculations for 100,000 items (rendering in ~11ms initially) and `contentLinks` scanning of dense regex inputs (completing in ~65ms for 100 iterations of heavily nested strings). No new regressions were discovered. The previously identified 'Latest message' scroll anchoring issue remains deferred.",
+        "observations": [
+          {
+            "scenario": "Measure rendering performance and layout estimation latency for `useVirtualList` with 100,000 transcript elements.",
+            "evidence": "Executed synthetic component render benchmark with 100,000 simple virtual items. The initial hook invocation for `useVirtualList` layout calculation completed in ~11.42ms. The entire render pass including DOM updates in the mocked jsdom environment executed in ~84.87ms.",
+            "result": "Established that `useVirtualList` logic successfully bounds layout execution and performs efficiently under extreme element counts typical of large transcripts. (Evidence mode: mock_or_model)"
+          },
+          {
+            "scenario": "Measure the processing latency of `contentLinks` extracting complex labels and URLs iteratively.",
+            "evidence": "Executed native Node 22 performance test scanning heavily structured markdown string content using `contentLinks` matchers. 100 iterations on dense string with nested labels and URIs took ~65.17ms total.",
+            "result": "Established that `contentLinks` regular expression passes are properly bounded and scale reliably on large document lines. (Evidence mode: real_runtime)"
+          }
+        ],
+        "next_hypotheses": [
+          "Using screen readers to navigate empty state might get stuck on aria-live regions without proper focus transition.",
+          "The empty state layout contains an unintended DOM structure that impacts screen readers."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-17T07:02:57.986526Z",
+        "source": {
+          "activity_id": "sessions/6390792274771223913/activities/4a362b333d9448e0864269a7261f9859",
+          "report_sha256": "6c0dc921e6dc1fdbeccc6eafd5b517a42fdb5be6c2277b1be672765de7ed914c",
+          "activity_created_at": "2026-10-17T06:55:17.508644Z",
+          "session_id": "6390792274771223913",
+          "dispatch_key": "b484bbfd9ea51b154a104fb4"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T06:37:54.728928Z",
+    "last_poll_at": "2026-10-17T07:03:28.412696Z",
     "last_tick_at": "2026-10-17T06:38:06.561536Z",
     "run_id": "39009811352",
     "owner_recovery_requests": [
