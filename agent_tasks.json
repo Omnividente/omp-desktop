@@ -561360,6 +561360,15 @@
         },
         "receipt_id": "4b5c2ce976a94ea8a434d0dd7ce97a8b317dc80c370cb480f3c8c92390100676",
         "event_id": "e6c4f75d1a9e32096e7c6368160f9518f13bf9d330ac3c7209a8feb191cc8ddb"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-17T00:05:11.350633Z",
+        "decision_id": "325c93c92ad02d11b20e521c472e655d2824ff1e83585c14dd8b3a5a85347bb5",
+        "executor_claim_id": "ee7e620790aac0ae9c5408a11ac632ee8dae44e7fd489a0168ea2f1eff9805f7",
+        "receipt_id": "4b5c2ce976a94ea8a434d0dd7ce97a8b317dc80c370cb480f3c8c92390100676",
+        "frontier_seq": 719,
+        "event_id": "ff46d85f5458a6f31a31fd80a4623be29eec4c434054e0c31db44a26d18a71e1"
       }
     ]
   }
