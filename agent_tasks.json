@@ -222555,7 +222555,8 @@
             "session_id": "12198258243154153170",
             "dispatch_key": "9ca8ee32be3ca7501f64b6ba"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-9ca8ee32be3ca7501f64b6ba"
       },
       "research_result": {
         "summary": "Verified that closing the last terminal tab in TerminalWorkspace incorrectly drops focus to the document body when mounting WorkspaceHome. Also reviewed ProjectRail rendering with large synthetic datasets, observing linear scaling.",
