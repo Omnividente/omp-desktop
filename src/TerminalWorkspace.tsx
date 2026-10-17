@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { CompletedAnswers } from "./CompletedAnswers"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
@@ -79,6 +79,52 @@ export function TerminalWorkspace({
   onTogglePrimaryProviderPin,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
+  const stageRef = useRef<HTMLElement>(null)
+  const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
+  const focusOriginRef = useRef<HTMLElement | null>(null)
+  const previousTabCountRef = useRef(tabs.length)
+
+  useEffect(() => {
+    const cancelFocusRestoration = (event: Event) => {
+      if (
+        !focusOriginRef.current ||
+        !(event.target instanceof Node) ||
+        stageRef.current?.contains(event.target)
+      )
+        return
+      // Native dialogs and removed controls can leave focus on the body.
+      // An actual outside focus target or pointer action cancels restoration.
+      if (event.type === "focusin" && event.target === document.body) return
+      focusOriginRef.current = null
+    }
+    document.addEventListener("focusin", cancelFocusRestoration)
+    document.addEventListener("pointerdown", cancelFocusRestoration)
+    return () => {
+      document.removeEventListener("focusin", cancelFocusRestoration)
+      document.removeEventListener("pointerdown", cancelFocusRestoration)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    const hadTabs = previousTabCountRef.current > 0
+    previousTabCountRef.current = tabs.length
+    if (!hadTabs || tabs.length !== 0) return
+    const origin = focusOriginRef.current
+    focusOriginRef.current = null
+    if (
+      !origin ||
+      origin.isConnected ||
+      (document.activeElement !== document.body && document.activeElement !== origin)
+    )
+      return
+    const primary = homePrimaryActionRef.current
+    const target =
+      primary && !primary.disabled
+        ? primary
+        : stageRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+    target?.focus({ preventScroll: true })
+  }, [tabs.length])
+
   const homeSessions = useMemo(
     () =>
       buildSessionTree(workspaceSessions, runtime.platform).map((group) =>
@@ -89,9 +135,10 @@ export function TerminalWorkspace({
 
   if (tabs.length === 0) {
     return (
-      <main className="main-stage">
+      <main className="main-stage" ref={stageRef}>
         <WorkspaceHome
           lang={language}
+          primaryActionRef={homePrimaryActionRef}
           launching={launching}
           onLaunch={onLaunch}
           onOpenFolder={onOpenFolder}
@@ -110,7 +157,13 @@ export function TerminalWorkspace({
     ? (runtimeStatusByTerminal[activeTab.id] ?? "normal")
     : "normal"
   return (
-    <main className="main-stage">
+    <main
+      className="main-stage"
+      onFocusCapture={(event) => {
+        focusOriginRef.current = event.target
+      }}
+      ref={stageRef}
+    >
       <div className="terminal-workspace">
         <div className="terminal-tabs">
           <div className="terminal-tabs-scroll">
