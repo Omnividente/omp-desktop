@@ -204654,7 +204654,7 @@
       "id": "discovery-e9de62af54c0f3b6c561e36513d2ac5d473682b835f552cc11dccb852c82a9cc",
       "title": "Fix terminal continuity generation changes during failure recovery",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -204722,6 +204722,12 @@
         "activity_created_at": "2026-10-16T00:21:59.331446Z",
         "session_id": "12265608988274003985",
         "dispatch_key": "29a79bf59180b8bf49b93574"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-17T07:27:39Z",
+        "note": "Owner-authorized rejection after the completed eight-proposal review. Pinned product main 4f9e9db9f779f92fca1cb8d03fbd986c728b2adb. A mismatched generation changes helper baseline and reports generationChanged; native output generation is fixed per TerminalOutputState and a new process gets a new terminal ID. Model switch generation is a different counter. No normal same-ID backward output-generation transition established. Verification: Real exported helpers: constant-generation sequencing, replay dedup and new-ID isolation pass. Native producer reachability inspected statically; no injected corrupt native events. Evidence: https://github.com/Omnividente/omp-desktop/blob/4f9e9db9f779f92fca1cb8d03fbd986c728b2adb/src/terminalContinuity.ts. Preserve worker/source history; no implementation or worker dispatch authorized."
       }
     },
     {
