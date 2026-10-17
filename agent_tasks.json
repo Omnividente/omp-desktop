@@ -205659,7 +205659,7 @@
       "id": "discovery-5da399cc6364531a",
       "title": "Prevent data loss by flushing terminal output batcher before disposal",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 60,
       "risk": "medium",
       "focus": [
@@ -205726,6 +205726,12 @@
         "activity_created_at": "2026-10-16T01:42:54.440697Z",
         "session_id": "1378984091277568626",
         "dispatch_key": "b899d9e2f7ea1e521d01618c"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-17T07:27:54Z",
+        "note": "Owner-authorized rejection after the completed eight-proposal review. Pinned product main 4f9e9db9f779f92fca1cb8d03fbd986c728b2adb. Disposal intentionally cancels pending writes to a dying display. TerminalView flushes on exit and on attach; every new display attaches with null generation/afterSeq and requests full bounded native replay. Flush into the old xterm is not a persistence fix. Verification: Actual React App settings-recovery teardown/remount preserves a synthetic queued-output marker on the same terminal ID; both observed attach requests use null/null. Pure helper confirms cancellation and pending behavior. Replay transport was synthetic, native replay reset contract source-verified. Evidence: https://github.com/Omnividente/omp-desktop/blob/4f9e9db9f779f92fca1cb8d03fbd986c728b2adb/src/terminalOutputBatcher.ts. Preserve worker/source history; no implementation or worker dispatch authorized."
       }
     },
     {
