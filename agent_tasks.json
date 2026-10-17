@@ -221079,7 +221079,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T06:04:35.381432Z"
+        "observed_at": "2026-10-17T06:04:35.381432Z",
+        "released_attempt_ref": "autonomous/attempt-e6b3d0584aa9e299ec08f614"
       },
       "research_result": {
         "summary": "Investigated the terminal continuity generation baseline downgrade issue and the terminal output batcher data loss on disposal.",
