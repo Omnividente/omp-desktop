@@ -568398,6 +568398,16 @@
           "actor": "Omnividente"
         },
         "event_id": "273c43651939b375734c0ceee0132bb8fb01b97065cb0fd4bd99a20dffff0d0e"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-17T01:59:25.382296Z",
+        "decision_id": "f943452c0ad1a6a8dd557f243fea856fc2a29c4192390145631a136f9fb665de",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-17T01:59:23.721331Z"
+        },
+        "event_id": "141e3f3756aef3ac738d83d55e15127460edd103f6516514ce49b6ca666ff37b"
       }
     ]
   }
