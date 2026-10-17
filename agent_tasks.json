@@ -585153,6 +585153,16 @@
           "source_workflow": "Next b72be7723705cb6cfcdf46fbd46a44dd"
         },
         "event_id": "8f18400fbde55918964b4ff9aef90198b76d5a0723c5f108c8d9743f97e07d6c"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-17T07:25:44.447917Z",
+        "decision_id": "82eded6b9879cb992b708d9483da2103d194fbe5ac3e431d5d1b73c6ccc11d7e",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-17T07:25:42.705905Z"
+        },
+        "event_id": "40d6641bfc624bc8b41aab1268895f9b9d9251fed806be401a04886fe986b45d"
       }
     ]
   }
