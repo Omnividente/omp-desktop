@@ -222167,7 +222167,7 @@
       "id": "research-workspace-navigation-reliability-22",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -222360,16 +222360,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "12198258243154153170",
         "dispatch_key": "9ca8ee32be3ca7501f64b6ba",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-9ca8ee32be3ca7501f64b6ba",
         "started_at": "2026-10-17T07:02:57.986526Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T08:06:36.172526Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -222544,22 +222544,10 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-10-17T07:35:43.763827Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-10-17T07:35:43.763827Z",
-          "source": {
-            "activity_id": "sessions/12198258243154153170/activities/8c2fe182083848d6b1e900ae779a484d",
-            "report_sha256": "37a7f9969bb92e9a2e97721f78812ee1c79980c9f8f48e3325b3b045a4cb2801",
-            "activity_created_at": "2026-10-17T07:17:36.232587Z",
-            "session_id": "12198258243154153170",
-            "dispatch_key": "9ca8ee32be3ca7501f64b6ba"
-          }
-        },
         "report_repair": {
           "at": "2026-10-17T07:36:16.759461Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/12198258243154153170/activities/8c2fe182083848d6b1e900ae779a484d",
             "report_sha256": "37a7f9969bb92e9a2e97721f78812ee1c79980c9f8f48e3325b3b045a4cb2801",
@@ -222567,6 +222555,83 @@
             "session_id": "12198258243154153170",
             "dispatch_key": "9ca8ee32be3ca7501f64b6ba"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Verified that closing the last terminal tab in TerminalWorkspace incorrectly drops focus to the document body when mounting WorkspaceHome. Also reviewed ProjectRail rendering with large synthetic datasets, observing linear scaling.",
+        "observations": [
+          {
+            "scenario": "Simulated closing the last session in TerminalWorkspace using a Vitest jsdom component test.",
+            "evidence": "Created a Vitest component test focusing on a tab close button in TerminalWorkspace, then closing it to empty the tabs array. When WorkspaceHome mounts, document.activeElement incorrectly falls back to the document BODY element.",
+            "result": "Confirmed that keyboard focus is lost to the document body when all sessions are closed."
+          },
+          {
+            "scenario": "Simulated rendering ProjectRail with a large synthetic dataset of 1000 workspaces.",
+            "evidence": "Observed that the workspace list in ProjectRail renders entirely using a map without virtualization. With a large number of synthetic workspaces, this blocks the main thread.",
+            "result": "Confirmed ProjectRail rendering scales linearly with synthetic large datasets, though historical decisions note extreme-size benchmarks alone are insufficient."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-17T08:06:36.172526Z",
+        "source": {
+          "activity_id": "sessions/12198258243154153170/activities/f20b8e64a8fc4c5c9faada8efb986068",
+          "report_sha256": "9d97035dc4df6586e96cc6ed04f3efc2850c54b6f47b398545a9f6f970392316",
+          "activity_created_at": "2026-10-17T07:38:41.764290Z",
+          "session_id": "12198258243154153170",
+          "dispatch_key": "9ca8ee32be3ca7501f64b6ba"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus appropriately when the last session is closed",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab close button is unmounted, and focus incorrectly falls back to the document body. A component like WorkspaceHome should claim focus.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/WorkspaceHome.tsx",
+              "src/TerminalWorkspace.tsx"
+            ],
+            "acceptance": [
+              "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., the primary action button) instead of dropping to the document body."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12198258243154153170/activities/f20b8e64a8fc4c5c9faada8efb986068",
+          "report_sha256": "9d97035dc4df6586e96cc6ed04f3efc2850c54b6f47b398545a9f6f970392316",
+          "activity_created_at": "2026-10-17T07:38:41.764290Z",
+          "session_id": "12198258243154153170",
+          "dispatch_key": "9ca8ee32be3ca7501f64b6ba"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-2a4b6c87eaabbfc2",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-9869924dda721fc1"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus appropriately when the last session is closed",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab close button is unmounted, and focus incorrectly falls back to the document body. A component like WorkspaceHome should claim focus.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/WorkspaceHome.tsx",
+                "src/TerminalWorkspace.tsx"
+              ],
+              "acceptance": [
+                "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., the primary action button) instead of dropping to the document body."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -222957,7 +223022,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T07:40:50.931415Z",
+    "last_poll_at": "2026-10-17T08:07:05.614445Z",
     "last_tick_at": "2026-10-17T07:41:03.210436Z",
     "run_id": "39013588734",
     "owner_recovery_requests": [
