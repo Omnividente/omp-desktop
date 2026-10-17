@@ -206507,7 +206507,7 @@
       "id": "discovery-9869924dda721fc1",
       "title": "Restore focus appropriately when all sessions are closed",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 15,
       "risk": "low",
       "focus": [
@@ -206542,6 +206542,12 @@
         "activity_created_at": "2026-10-16T02:57:36.562599Z",
         "session_id": "8632232431682828690",
         "dispatch_key": "ac6c4759c1c6e8610bc9d49a"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-17T08:10:41Z",
+        "note": "Owner-authorized implementation by Main is complete. Merged https://github.com/Omnividente/omp-desktop/pull/132 into main as a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12 (https://github.com/Omnividente/omp-desktop/commit/a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12). Fixed owned keyboard focus restoration after the final terminal disappears, preserving cancellation and newer outside focus; Home uses its primary or enabled fallback action. Final signed source head 70677403a0949800c83dc01043255b3db871ff00 passed Linux/Windows Quality Gate https://github.com/Omnividente/omp-desktop/actions/runs/39015604950 and Rust/JS/TS CodeQL https://github.com/Omnividente/omp-desktop/actions/runs/39015604978. Local verification:374 frontend tests, final8 targeted tests,9 actual production React/xterm browser checks with synthetic IPC (not native OS-dialog proof). Version0.9.10 unchanged. No release, tag, installer, local installation, configuration or OMP runtime change. Original research and execution history are retained."
       }
     },
     {
