@@ -209416,7 +209416,7 @@
       "id": "discovery-d5e58df258611f91",
       "title": "Preserve renaming UI state on backend failure during workspace and session renaming",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 15,
       "risk": "low",
       "focus": [
@@ -209483,6 +209483,12 @@
         "activity_created_at": "2026-10-16T05:12:18.724609Z",
         "session_id": "2815797627340740573",
         "dispatch_key": "1a9d1a4281c193e58b009687"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-17T07:28:10Z",
+        "note": "Owner-authorized rejection after the completed eight-proposal review. Pinned product main 4f9e9db9f779f92fca1cb8d03fbd986c728b2adb. Actual App submitWorkspaceRename clears UI only after successful awaited response and current request check; session rename clears only if updateSessionTitlePin returns true. Failure preserves drafts. Verification: Actual Chrome: one failed workspace write and one failed session write retain inputs/drafts; no unhandled rejection. Evidence: https://github.com/Omnividente/omp-desktop/blob/4f9e9db9f779f92fca1cb8d03fbd986c728b2adb/src/App.tsx. Preserve worker/source history; no implementation or worker dispatch authorized."
       }
     },
     {
