@@ -219360,6 +219360,132 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-22",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-17T03:06:16Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Investigated the performance of session parsing on the Rust backend (`scan_sessions`) and session listing on the React frontend (`SessionList`). By crafting a temporary mock of 1000 and 10000 sessions respectively, observed that both systems scale well. However, `scan_sessions` in `src-tauri/src/sessions.rs` has no concurrent evaluation, meaning that reading 1000 sessions one-by-one from the disk synchronously takes nearly ~1 second locally, leaving room for async/rayon speedups for huge folders.",
+            "observations": [
+              {
+                "scenario": "Rust backend session scanning time complexity for large lists",
+                "evidence": "Ran a synthetic test inserting 1000 mocked local sessions (a `header.json` and a 100-line `transcript.jsonl` each) in a temp directory, and measured `scan_sessions(root)`. It took around 788-965 ms to complete on the test environment.",
+                "result": "Since `scan_sessions` processes all subdirectories linearly using `std::fs::read_dir`, taking almost ~1ms per session directory file I/O locally, a very large amount of active sessions could noticeably block or delay the application on startup. Refactoring the recursive scan loop into parallel execution (e.g., using `rayon`) could dramatically reduce load times."
+              },
+              {
+                "scenario": "React frontend SessionList rendering performance for large lists",
+                "evidence": "Ran a synthetic jsdom test simulating `SessionList` rendering 10000 mocked sessions. The initial `render` took ~258ms, while `rerender` triggering a single selection update took ~34ms.",
+                "result": "The UI handles a massive session count fairly well due to virtualization via `useVirtualList`, keeping rerenders efficient. The tree-building `useMemo` blocks handle flattened 10k lists under ~30ms, meaning UI stuttering shouldn't be pronounced on large workspaces."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if converting the session parsing loop inside `scan_sessions` to use `rayon` parallel iteration would significantly speed up application startup in scenarios with 10,000+ sessions."
+            ],
+            "proposed_task_ids": [
+              "discovery-40f4b03c32eedf09"
+            ],
+            "completed_at": "2026-10-16T22:18:40.826628Z",
+            "source": {
+              "activity_id": "sessions/7726250843483829957/activities/e644347f40284118b9684083dfac070d",
+              "report_sha256": "9e2b603c2dbd92f6eb6b8626e4a5f65da9a0a3835c689e72cbe5a6ac732ed1fc",
+              "activity_created_at": "2026-10-16T22:07:30.707851Z",
+              "session_id": "7726250843483829957",
+              "dispatch_key": "0201a2e594d38bdb41a27190"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the session recovery UI focus restoration and keyboard navigation in `SessionControls`. Observed that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus is lost and resets to the document body when the recovery state resolves, as there is no mechanism to track and return focus to the session controls container upon the disappearance of the recovery interface.",
+            "observations": [
+              {
+                "scenario": "Focus restoration after 'Discard' or 'Send' button is clicked in SessionControls recovery banner",
+                "evidence": "Ran a synthetic test using jsdom testing `SessionControls` rendering with `switchRecovery` pending. Simulated focus on the 'Discard' button and clicked it. When the `switchRecovery` prop clears out, the active element becomes `document.body` instead of returning to a stable target within the component.",
+                "result": "Without focus tracking, removing the recovery buttons unexpectedly drops focus to the body, impacting keyboard-only user navigation. Adding a reference similar to `pinFocusRequestedRef` effectively restores focus to the parent `.session-controls` element."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+            ],
+            "proposed_task_ids": [
+              "discovery-943a4d2de20c736c"
+            ],
+            "completed_at": "2026-10-17T01:08:10.853884Z",
+            "source": {
+              "activity_id": "sessions/4805255857781358427/activities/caf5f83666584681b6355114c7a44fbf",
+              "report_sha256": "f37ea7c5ae7757ccc129bbf50b09349af8c43587c6fdebc3529dc8c08d2d55f2",
+              "activity_created_at": "2026-10-17T00:40:23.220555Z",
+              "session_id": "4805255857781358427",
+              "dispatch_key": "4268292daac6ef6d964b4f1a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the session recovery UI focus restoration in `SessionControls`. Verified that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus resets to the document body when the recovery interface is removed due to a state update. Added a tracking mechanism (`recoveryFocusRequestedRef`) that restores focus to the parent container (`.session-controls`) when the switch recovery panel unmounts, fixing the accessibility issue and meeting the findings of the previous report.",
+            "observations": [
+              {
+                "scenario": "Focus restoration after 'Discard' or 'Send' button is clicked in SessionControls recovery banner",
+                "evidence": "Ran a synthetic test `test-session-controls-focus.test.tsx` using jsdom that renders `SessionControls` with a pending `switchRecovery`. Focused on the 'Discard' button and clicked it. Simulating the subsequent state update that clears `switchRecovery` resulted in the active element becoming `document.body`. Added `recoveryFocusRequestedRef` in `SessionControls` to track if a recovery action was triggered by the keyboard focus, restoring it to the `controlsRef` container upon resolution. Re-ran the test successfully.",
+                "result": "Without focus tracking, removing the recovery buttons drops focus to the body. Using a ref restores focus correctly to the session controls container."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-17T02:08:16.247703Z",
+            "source": {
+              "activity_id": "sessions/13420067612745993829/activities/967d8a74024240babf714fd74d6a1ddd",
+              "report_sha256": "99655384ee461dd1f33f83282258bed22281b078012173d66310d26a29144dc2",
+              "activity_created_at": "2026-10-17T01:56:56.940323Z",
+              "session_id": "13420067612745993829",
+              "dispatch_key": "acdc7ff3120865804446edfc"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus after interacting with switch recovery in SessionControls",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-943a4d2de20c736c; not established as a duplicate. {\"detail\": \"Observed in `src/SessionControls.tsx` during synthetic testing that focus is lost to `document.body` after the `switchRecovery` state is cleared upon clicking action buttons.\", \"reproduction\": {\"actual\": \"The active element becomes `document.body`.\", \"expected\": \"The focus should move back to the session controls container.\", \"steps\": [\"Render `SessionControls` with a valid `switchRecovery` state.\", \"Focus the 'Discard' button in the banner and click it.\", \"Update the component props to clear the `switchRecovery` state.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionControls.tsx"
+                ],
+                "acceptance": [
+                  "When the user clicks 'Send' or 'Discard' in the switch recovery banner, focus should return to the `.session-controls` element once the banner is removed, rather than falling back to `document.body`."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
