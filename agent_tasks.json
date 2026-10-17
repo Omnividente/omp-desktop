@@ -222569,6 +222569,202 @@
           }
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-22",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-17T07:35:43Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "fc6076e085a8453c50f9ddc6ef445087c30081adf591abdd77f76a20e76ebaf5",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Verified that focus is not properly restored when closing the last session tab. Examined historical decision context regarding workspace/session rename state and hardcoded shortcuts.",
+            "observations": [
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a component test.",
+                "evidence": "Created a component test simulating the last tab closing in TerminalWorkspace. When focus was on the close button and the tabs list was emptied, `document.activeElement` fell back to `BODY`. TerminalWorkspace correctly mounted `WorkspaceHome` for the empty state, but no active element was automatically focused to restore user accessibility context.",
+                "result": "Confirmed that focus drops to the document body when all sessions are closed, which degrades keyboard accessibility."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T06:09:28.550012Z",
+            "source": {
+              "activity_id": "sessions/8609622966353196508/activities/9d23d2a2915f402993a080c98cc80a7e",
+              "report_sha256": "d8949ee29459bbb106e0cb4f6271d0ec15380b49928ef6531f41bdf64987773d",
+              "activity_created_at": "2026-10-16T05:44:22.018075Z",
+              "session_id": "8609622966353196508",
+              "dispatch_key": "a61b48a3b97c95f752fe5e83"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus appropriately when the last session is closed",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body. A component like WorkspaceHome should claim focus or a wrapper should handle it.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TerminalWorkspace.tsx",
+                  "src/WorkspaceHome.tsx"
+                ],
+                "acceptance": [
+                  "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Measured ProjectRail rendering performance with a large number of workspaces, confirming a regression where rendering 1000 workspaces takes nearly 2 seconds in a synthetic test. Validated that focus drops to the document body when closing the last session tab.",
+            "observations": [
+              {
+                "scenario": "Simulated rendering ProjectRail with a large synthetic dataset of 1000 workspaces using a Vitest performance component test.",
+                "evidence": "Rendered ProjectRail with 1000 workspace objects and measured execution time. The render function call took ~1970ms, which scales linearly and causes significant main thread blocking (UI unresponsiveness) during project switching when user history is large.",
+                "result": "Confirmed ProjectRail rendering does not use virtualization and performs poorly with a large number of workspaces."
+              },
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a Vitest component test.",
+                "evidence": "Created a Vitest component test focusing on a tab close button in TerminalWorkspace, then unmounted the tabs array. The document active element incorrectly dropped to the document BODY element. WorkspaceHome successfully rendered, but focus was not restored.",
+                "result": "Confirmed that keyboard focus is lost to the document body when all sessions are closed."
+              }
+            ],
+            "next_hypotheses": [
+              "Virtualization libraries or pagination could be used in ProjectRail and SessionList to improve performance with large histories."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-16T06:59:17.190903Z",
+            "source": {
+              "activity_id": "sessions/10383861640053990390/activities/5e65f6ddc53a4e7682d3b2dc3aace81f",
+              "report_sha256": "6c39b2baa29975e2fcaba5b983da7dd9224f72700177abc40df13cd303c2f9fa",
+              "activity_created_at": "2026-10-16T06:30:31.450562Z",
+              "session_id": "10383861640053990390",
+              "dispatch_key": "4b1cd243c8d1b30d2b80551c"
+            },
+            "deferred_findings": [
+              {
+                "title": "Virtualize workspace list in ProjectRail to improve render performance",
+                "reason": "historical_post_context_missing",
+                "evidence": "{\"detail\": \"Rendered ProjectRail with 1000 synthetic workspaces in a jsdom environment. Rendering took ~1970ms, blocking the thread and leading to sluggish UI updates when a user has accumulated a large number of workspaces. Without virtualization, every workspace adds DOM nodes regardless of visibility.\", \"reproduction\": {\"actual\": \"Render blocks the main thread for over 1.9s.\", \"expected\": \"Render completes efficiently (e.g. < 50ms) regardless of the total workspaces array length, due to rendering only visible items.\", \"steps\": [\"Generate an array of 1000 synthetic workspaces.\", \"Mount ProjectRail passing the generated workspaces array.\", \"Measure performance.now() difference around the render call.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+                "target_paths": [
+                  "src/ProjectRail.tsx"
+                ],
+                "acceptance": [
+                  "ProjectRail renders efficiently with 1000+ workspaces without blocking the main thread for multiple seconds.",
+                  "The workspace list in ProjectRail utilizes a virtualization technique so only visible rows are fully rendered to the DOM."
+                ],
+                "deferred_id": "cd67303148c4b25795ab0aeb37d65bdb64dbc2229efeac74d8c181d220599f8a",
+                "candidate": {
+                  "task_type": "product_improvement",
+                  "title": "Virtualize workspace list in ProjectRail to improve render performance",
+                  "risk": "medium",
+                  "priority": 20,
+                  "focus": [
+                    "perf",
+                    "usability"
+                  ],
+                  "target_paths": [
+                    "src/ProjectRail.tsx"
+                  ],
+                  "acceptance": [
+                    "ProjectRail renders efficiently with 1000+ workspaces without blocking the main thread for multiple seconds.",
+                    "The workspace list in ProjectRail utilizes a virtualization technique so only visible rows are fully rendered to the DOM."
+                  ],
+                  "evidence": {
+                    "source": "autonomous_research",
+                    "detail": "Rendered ProjectRail with 1000 synthetic workspaces in a jsdom environment. Rendering took ~1970ms, blocking the thread and leading to sluggish UI updates when a user has accumulated a large number of workspaces. Without virtualization, every workspace adds DOM nodes regardless of visibility.",
+                    "status": "reported",
+                    "reproduction": {
+                      "steps": [
+                        "Generate an array of 1000 synthetic workspaces.",
+                        "Mount ProjectRail passing the generated workspaces array.",
+                        "Measure performance.now() difference around the render call."
+                      ],
+                      "expected": "Render completes efficiently (e.g. < 50ms) regardless of the total workspaces array length, due to rendering only visible items.",
+                      "actual": "Render blocks the main thread for over 1.9s."
+                    }
+                  }
+                },
+                "review_context": {
+                  "kind": "historical_decision_overlap",
+                  "matches": [
+                    {
+                      "task_id": "discovery-e0f2bce9ebc246e7",
+                      "action": "reject",
+                      "decision_at": "2026-09-19T05:29:15Z",
+                      "match": "possible",
+                      "timing": "post"
+                    }
+                  ],
+                  "rationale_status": "recorded",
+                  "post_gate": "historical_post_context_missing"
+                },
+                "source": {
+                  "task_id": "research-workspace-navigation-performance-21",
+                  "activity_id": "sessions/10383861640053990390/activities/5e65f6ddc53a4e7682d3b2dc3aace81f",
+                  "report_sha256": "6c39b2baa29975e2fcaba5b983da7dd9224f72700177abc40df13cd303c2f9fa",
+                  "activity_created_at": "2026-10-16T06:30:31.450562Z",
+                  "session_id": "10383861640053990390",
+                  "dispatch_key": "4b1cd243c8d1b30d2b80551c"
+                }
+              }
+            ]
+          },
+          {
+            "summary": "Verified that keyboard focus incorrectly drops to the document body when closing the last session tab in TerminalWorkspace, which mounts the WorkspaceHome view.",
+            "observations": [
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a Vitest jsdom component test.",
+                "evidence": "Created a Vitest component test focusing on a tab close button in TerminalWorkspace, then re-rendered with an empty tabs array. The document active element incorrectly dropped to the document BODY element. WorkspaceHome successfully rendered, but focus was not restored.",
+                "result": "Confirmed that keyboard focus is lost to the document body when all sessions are closed."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-17T04:39:42.683773Z",
+            "source": {
+              "activity_id": "sessions/6295373513348015143/activities/ee154f3ad2594acf9fccb0f82685e277",
+              "report_sha256": "907477b89919860f9cead700afddc50c208759755bd18fc4a65a04dc0f2929fd",
+              "activity_created_at": "2026-10-17T04:24:38.320562Z",
+              "session_id": "6295373513348015143",
+              "dispatch_key": "1a784e8d8f3466c88409954f"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus appropriately when the last session is closed",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/TerminalWorkspace.tsx"
+                ],
+                "acceptance": [
+                  "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
