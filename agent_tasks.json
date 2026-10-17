@@ -222639,7 +222639,7 @@
       "id": "research-workspace-navigation-ux-22",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -222832,16 +222832,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15276600533056956658",
         "dispatch_key": "1e7c18dd97eae4c85b30b9b2",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-1e7c18dd97eae4c85b30b9b2",
         "started_at": "2026-10-17T07:35:43.763827Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T08:06:36.172526Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -223016,13 +223016,98 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-17T07:35:43.763827Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T08:06:36.172526Z"
+      },
+      "research_result": {
+        "summary": "Verified that when the last session tab in TerminalWorkspace is closed, focus drops to the document body instead of shifting back to the newly rendered WorkspaceHome view, demonstrating an accessibility issue.",
+        "observations": [
+          {
+            "scenario": "Simulated closing the last session tab in TerminalWorkspace utilizing Vitest jsdom component testing.",
+            "evidence": "Ran a synthetic test that initialized TerminalWorkspace with one active tab, focused on the close button, and triggered its close handler. The test asserted that `document.activeElement` correctly shifted to `document.body` after the tabs array became empty, even though the `WorkspaceHome` UI successfully mounted in its place. The test confirms that TerminalWorkspace does not explicitly restore focus to a meaningful active element when transitioning to an empty session state.",
+            "result": "Confirmed that closing the last tab in TerminalWorkspace leaves keyboard focus marooned on the document body, hindering accessibility."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [
+          "discovery-0e57f7ee2aaf33e8"
+        ],
+        "completed_at": "2026-10-17T08:06:36.172526Z",
+        "source": {
+          "activity_id": "sessions/15276600533056956658/activities/02529a287b964720b6434bb915acb5f4",
+          "report_sha256": "b151a55ded0c5f37365960335e7bb8dd5e3a3d348bf8cf3b6f9602510f5d0384",
+          "activity_created_at": "2026-10-17T07:48:57.796399Z",
+          "session_id": "15276600533056956658",
+          "dispatch_key": "1e7c18dd97eae4c85b30b9b2"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15276600533056956658/activities/02529a287b964720b6434bb915acb5f4",
+          "report_sha256": "b151a55ded0c5f37365960335e7bb8dd5e3a3d348bf8cf3b6f9602510f5d0384",
+          "activity_created_at": "2026-10-17T07:48:57.796399Z",
+          "session_id": "15276600533056956658",
+          "dispatch_key": "1e7c18dd97eae4c85b30b9b2"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-0e57f7ee2aaf33e8"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-0e57f7ee2aaf33e8",
+      "title": "Restore focus to a logical element in WorkspaceHome when closing the last session tab",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-10-17T08:06:36.172526Z",
+      "acceptance": [
+        "When TerminalWorkspace transitions from having active tabs to zero active tabs due to closing the last session, focus must be restored to an interactive or logical wrapper element rather than dropping to the document body."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Verified using a Vitest component test that when the active session tab in TerminalWorkspace is closed and the internal tabs list empties, focus incorrectly falls to `document.body`. This behavior breaks keyboard navigation flows, as the user must tab through the entire document to regain their context in the newly mounted WorkspaceHome view.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render TerminalWorkspace with one session tab active.",
+            "Focus the tab's close button.",
+            "Close the tab, causing TerminalWorkspace to re-render with an empty tabs array."
+          ],
+          "expected": "Keyboard focus should shift to an element within WorkspaceHome (e.g., its wrapper container).",
+          "actual": "Keyboard focus drops to the document body."
+        }
+      },
+      "target_paths": [
+        "src/TerminalWorkspace.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-22",
+        "activity_id": "sessions/15276600533056956658/activities/02529a287b964720b6434bb915acb5f4",
+        "report_sha256": "b151a55ded0c5f37365960335e7bb8dd5e3a3d348bf8cf3b6f9602510f5d0384",
+        "activity_created_at": "2026-10-17T07:48:57.796399Z",
+        "session_id": "15276600533056956658",
+        "dispatch_key": "1e7c18dd97eae4c85b30b9b2"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T08:07:05.614445Z",
+    "last_poll_at": "2026-10-17T08:07:23.341078Z",
     "last_tick_at": "2026-10-17T07:41:03.210436Z",
     "run_id": "39013588734",
     "owner_recovery_requests": [
