@@ -219707,7 +219707,7 @@
       "id": "research-workspace-navigation-behavior-22",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -219913,16 +219913,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6295373513348015143",
         "dispatch_key": "1a784e8d8f3466c88409954f",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
         "starting_branch": "autonomous/attempt-1a784e8d8f3466c88409954f",
         "started_at": "2026-10-17T04:05:53.052293Z",
-        "finished_at": "",
+        "finished_at": "2026-10-17T04:39:42.683773Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -220095,13 +220095,83 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-17T04:05:53.052293Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-17T04:39:42.683773Z"
+      },
+      "research_result": {
+        "summary": "Verified that keyboard focus incorrectly drops to the document body when closing the last session tab in TerminalWorkspace, which mounts the WorkspaceHome view.",
+        "observations": [
+          {
+            "scenario": "Simulated closing the last session in TerminalWorkspace using a Vitest jsdom component test.",
+            "evidence": "Created a Vitest component test focusing on a tab close button in TerminalWorkspace, then re-rendered with an empty tabs array. The document active element incorrectly dropped to the document BODY element. WorkspaceHome successfully rendered, but focus was not restored.",
+            "result": "Confirmed that keyboard focus is lost to the document body when all sessions are closed."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-17T04:39:42.683773Z",
+        "source": {
+          "activity_id": "sessions/6295373513348015143/activities/ee154f3ad2594acf9fccb0f82685e277",
+          "report_sha256": "907477b89919860f9cead700afddc50c208759755bd18fc4a65a04dc0f2929fd",
+          "activity_created_at": "2026-10-17T04:24:38.320562Z",
+          "session_id": "6295373513348015143",
+          "dispatch_key": "1a784e8d8f3466c88409954f"
+        },
+        "deferred_findings": [
+          {
+            "title": "Restore focus appropriately when the last session is closed",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/TerminalWorkspace.tsx"
+            ],
+            "acceptance": [
+              "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6295373513348015143/activities/ee154f3ad2594acf9fccb0f82685e277",
+          "report_sha256": "907477b89919860f9cead700afddc50c208759755bd18fc4a65a04dc0f2929fd",
+          "activity_created_at": "2026-10-17T04:24:38.320562Z",
+          "session_id": "6295373513348015143",
+          "dispatch_key": "1a784e8d8f3466c88409954f"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-2a4b6c87eaabbfc2",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-9869924dda721fc1"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Restore focus appropriately when the last session is closed",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab is unmounted, and focus incorrectly falls back to the document body.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/TerminalWorkspace.tsx"
+              ],
+              "acceptance": [
+                "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., within WorkspaceHome or the main container) instead of dropping to the document body."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-17T04:10:57.007126Z",
+    "last_poll_at": "2026-10-17T04:40:06.641143Z",
     "last_tick_at": "2026-10-17T04:11:09.169903Z",
     "run_id": "39000669660",
     "owner_recovery_requests": [
