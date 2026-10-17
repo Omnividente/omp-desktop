@@ -203676,7 +203676,7 @@
       "id": "discovery-b91dce0f61224138ffbe0c4d6543bce33c2bd7e6dc32b16154e5edac12e1df01",
       "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "medium",
       "focus": [
@@ -203754,6 +203754,12 @@
         "activity_created_at": "2026-10-15T23:26:21.692167Z",
         "session_id": "5598259244570226372",
         "dispatch_key": "c2c598ec4f6c0bd9bfe4367b"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-17T07:27:24Z",
+        "note": "Owner-authorized rejection after the completed eight-proposal review. Pinned product main 4f9e9db9f779f92fca1cb8d03fbd986c728b2adb. Both components use inline traps, so historical helper-based rationale was inaccurate. But IncidentCenter disclosure contains only a summary and non-focusable pre; ResourceHealthPanel has no details at all. No hidden focusable target exists in the actual rendered components. Verification: Real Tab and Shift+Tab in own Chrome on open/closed long-reason details stay inside dialog and never focus hidden content; Resource panel wraps Close. Evidence: https://github.com/Omnividente/omp-desktop/blob/4f9e9db9f779f92fca1cb8d03fbd986c728b2adb/src/IncidentCenter.tsx. Preserve worker/source history; no implementation or worker dispatch authorized."
       }
     },
     {
