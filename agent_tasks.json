@@ -217912,7 +217912,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-17T01:08:10.853884Z"
+        "observed_at": "2026-10-17T01:08:10.853884Z",
+        "released_attempt_ref": "autonomous/attempt-4268292daac6ef6d964b4f1a"
       },
       "research_result": {
         "summary": "Investigated the session recovery UI focus restoration and keyboard navigation in `SessionControls`. Observed that when a user interacts with the 'Send' or 'Discard' buttons during a switch recovery failure, focus is lost and resets to the document body when the recovery state resolves, as there is no mechanism to track and return focus to the session controls container upon the disappearance of the recovery interface.",
