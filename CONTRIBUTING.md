@@ -40,6 +40,8 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+Concurrency regressions should prove blocked/released ordering and the resulting durable state with explicit synchronization, rather than assert a per-operation wall-clock budget. Retain bounded deadlock guards; disk latency and runner scheduling are not product correctness guarantees.
+
 Use `npm ci` rather than updating the lockfile unless dependency changes are part of the pull request.
 
 ## Publishing source changes
