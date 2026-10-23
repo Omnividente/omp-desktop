@@ -422,11 +422,13 @@ const host = process.env.TAURI_DEV_HOST
 export default defineConfig(async () => ({
   plugins: [react(), terminalDomRowsPlugin(), terminalWebglCellsPlugin()],
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks: {
-          react: ["react", "react-dom"],
-          xterm: ["@xterm/xterm", "@xterm/addon-fit"],
+        codeSplitting: {
+          groups: [
+            { name: "react", test: /[/\\]node_modules[/\\](?:react|react-dom)(?:[/\\]|$)/ },
+            { name: "xterm", test: /[/\\]node_modules[/\\]@xterm[/\\](?:xterm|addon-fit)(?:[/\\]|$)/ },
+          ],
         },
       },
     },

@@ -11,11 +11,15 @@ Thank you for helping improve OMP Desktop.
 
 ## Development setup
 
-Install Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.84 or newer, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then install the locked frontend dependencies:
+Install Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.95 or newer, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then install the locked frontend dependencies:
 
 ```bash
 npm ci
 ```
+
+The frontend uses Vite 8 with `@vitejs/plugin-react` 6; update these together because plugin-react 6 requires Vite 8. Both require Node.js `^20.19.0 || >=22.12.0`, so the repository's Node.js requirement above remains unchanged (jsdom 29 still requires at least 22.13.0 on Node.js 22). Vitest 4.1.10 supports Vite 8 without an upgrade. Vite 8 uses Rolldown/Oxc; keep the React and xterm chunk groups in `vite.config.ts` under `build.rolldownOptions.output.codeSplitting`, not the removed object form of `manualChunks`.
+
+The existing locked native graph already requires Rust 1.95 through `sysinfo` 0.39.6; this compiler floor is not introduced by the Vite migration.
 
 Run the desktop application during development with:
 
