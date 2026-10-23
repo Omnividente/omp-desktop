@@ -13,6 +13,7 @@ import type {
   SettingsSaveRequest,
   SettingsUnavailableDetails,
   TerminalAttachment,
+  TerminalCapture,
   TerminalStarted,
   TerminalRuntime,
   SwitchInputRecoveryMetadata,
@@ -182,6 +183,10 @@ export function detachTerminal(terminalId: string, attachmentId: string): Promis
   return invoke("detach_terminal", { request: { terminalId, attachmentId } })
 }
 
+export function saveTerminalCapture(terminalId: string): Promise<TerminalCapture> {
+  return invoke("save_terminal_capture", { terminalId })
+}
+
 export function writeTerminal(terminalId: string, data: string): Promise<void> {
   return invoke("write_terminal", { terminalId, data })
 }
@@ -306,6 +311,10 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   resource_health_failed: {
     ru: "Не удалось проверить системные ресурсы",
     en: "Failed to check system resources",
+  },
+  terminal_capture_failed: {
+    ru: "Не удалось сохранить вывод терминала",
+    en: "Failed to save terminal output",
   },
   session_active_rename: {
     ru: "Сначала остановите активную сессию OMP",
