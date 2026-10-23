@@ -214807,7 +214807,7 @@
       "id": "discovery-7a751ac6a14ae022",
       "title": "Fix dropped keyboard focus when clearing transcript search via empty state button",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 15,
       "risk": "low",
       "focus": [
@@ -214843,6 +214843,12 @@
         "activity_created_at": "2026-10-16T21:07:34.434121Z",
         "session_id": "505057129258751932",
         "dispatch_key": "fc311eacd6b7e06b196961af"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-23T20:33:21Z",
+        "note": "Owner-approved triage 2026-10-23: rejected as not reproduced on current main a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12. TranscriptModal attaches searchRef to the actual search input and clearSearch clears then focuses it. Actual App browser probes passed for toolbar Clear and empty-state Clear with Enter and Space. Source: https://github.com/Omnividente/omp-desktop/blob/a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12/src/TranscriptModal.tsx#L374-L376 and #L483-L485. No worker histories or accepted research reports changed."
       }
     },
     {
@@ -215786,7 +215792,7 @@
       "id": "discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a",
       "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 10,
       "risk": "medium",
       "focus": [
@@ -215863,6 +215869,12 @@
         "activity_created_at": "2026-10-16T22:32:24.267286Z",
         "session_id": "5249904510957400022",
         "dispatch_key": "d9860701078595c9f5de6112"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-23T20:33:25Z",
+        "note": "Owner-approved triage 2026-10-23: rejected as an old-lab/invalid-lifecycle claim, not a current-main regression. Actual exported applyRuntimeIncidentEvent resolves the initial error on the first fallback (recoveredThroughFallback); after 100 fallbacks the evicted error was resolved. A new error after saturation and a singleton error on another terminal are retained with health=error. Canonical prior fix: discovery-940b5f71f3979b02, merged PR95 https://github.com/Omnividente/omp-desktop/pull/95; prior duplicate decision discovery-c3c404bd71dbb2bb remains unchanged. Source: https://github.com/Omnividente/omp-desktop/blob/a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12/src/runtimeIncidents.ts#L81-L206 and #L377-L411. Three real exported-module probes passed; no execution identity/history changes."
       }
     },
     {
@@ -218014,7 +218026,7 @@
       "id": "discovery-943a4d2de20c736c",
       "title": "Restore focus after completing switch recovery actions in SessionControls",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 40,
       "risk": "low",
       "focus": [
@@ -218052,6 +218064,12 @@
         "activity_created_at": "2026-10-17T00:40:23.220555Z",
         "session_id": "4805255857781358427",
         "dispatch_key": "4268292daac6ef6d964b4f1a"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-23T20:33:23Z",
+        "note": "Owner-approved triage 2026-10-23: rejected as not reproduced on current main a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12. Actual App Send and Discard success handlers each request terminal focus; the focus request reaches the real xterm textarea. Both trusted-keyboard App probes passed. An isolated SessionControls prop-removal probe omits these parent consumers. Source: https://github.com/Omnividente/omp-desktop/blob/a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12/src/App.tsx#L1671-L1712 and /src/TerminalView.tsx#L810-L818. No worker history changes."
       }
     },
     {
@@ -223076,7 +223094,7 @@
       "id": "discovery-0e57f7ee2aaf33e8",
       "title": "Restore focus to a logical element in WorkspaceHome when closing the last session tab",
       "task_type": "bugfix",
-      "status": "proposed",
+      "status": "done",
       "priority": 30,
       "risk": "low",
       "focus": [
@@ -223111,6 +223129,12 @@
         "activity_created_at": "2026-10-17T07:48:57.796399Z",
         "session_id": "15276600533056956658",
         "dispatch_key": "1e7c18dd97eae4c85b30b9b2"
+      },
+      "proposal_decision": {
+        "action": "resolve",
+        "actor": "Omnividente",
+        "at": "2026-10-23T20:33:27Z",
+        "note": "Owner-approved triage 2026-10-23: already fixed externally by merged PR132 https://github.com/Omnividente/omp-desktop/pull/132, current main a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12. Actual App trusted Enter on Close for the final exited terminal removed the tab and focused the Home primary New session action. No new implementation or release is required. Source: https://github.com/Omnividente/omp-desktop/blob/a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12/src/TerminalWorkspace.tsx and /src/WorkspaceHome.tsx. Existing worker evidence and histories retained."
       }
     },
     {
