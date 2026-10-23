@@ -6,9 +6,9 @@ use crate::{
     session_lease::{SessionLease, SessionLeasePurpose},
     sessions::{
         apply_handoff_title_pins, apply_session_primary_provider_pin, apply_session_title_pin,
-        canonical_project_path, encode_session_dir_name, parse_session, path_key,
-        session_title_fallback_from_line, transfer_session_primary_provider_pin,
-        validated_session_file,
+        atomic_write_private_file, canonical_project_path, encode_session_dir_name,
+        harden_private_directory, parse_session, path_key, session_title_fallback_from_line,
+        transfer_session_primary_provider_pin, validated_session_file,
     },
     settings::{
         ensure_primary_provider_pin_overlay, ensure_proxy_provider_overlay, resolve_omp,
@@ -986,6 +986,31 @@ pub struct TerminalAttachment {
     pub exit_code: Option<u32>,
     pub success: bool,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalCapture {
+    pub path: String,
+    pub metadata_path: String,
+    pub bytes: usize,
+    pub first_seq: Option<u64>,
+    pub last_seq: Option<u64>,
+    pub truncated: bool,
+    pub dropped_bytes: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalCaptureMetadata<'a> {
+    terminal_id: &'a str,
+    captured_at: &'a str,
+    bytes: usize,
+    first_seq: Option<u64>,
+    last_seq: Option<u64>,
+    truncated: bool,
+    dropped_bytes: u64,
+    replay_window_bytes: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4146,6 +4171,192 @@ pub fn detach_terminal(
     Ok(())
 }
 
+/// Writes the bytes the engine actually sent to this terminal to a file, so a
+/// repaint problem (for example the anchored bottom region being committed to
+/// native scrollback under ConPTY) can be diagnosed from a capture instead of a
+/// live reproduction session.
+///
+/// The capture is the same replay window used for reattach, so it always covers
+/// the most recent [`MAX_REPLAY_OUTPUT`] bytes and never needs a live tee. A
+/// JSON sidecar records the sequence range and whether the window was truncated,
+/// because the raw `.bin` is meant to be replayed byte-for-byte through a
+/// terminal emulator and must stay free of headers.
+#[tauri::command]
+pub async fn save_terminal_capture(
+    terminal_id: String,
+    app: AppHandle,
+) -> Result<TerminalCapture, crate::models::AppError> {
+    crate::run_blocking(
+        "сохранения вывода терминала",
+        "terminal_capture_failed",
+        "Не удалось сохранить вывод терминала",
+        move || save_terminal_capture_blocking(&terminal_id, &app),
+    )
+    .await
+}
+
+fn save_terminal_capture_blocking(
+    terminal_id: &str,
+    app: &AppHandle,
+) -> Result<TerminalCapture, String> {
+    let terminals = app.state::<TerminalState>();
+    let output = {
+        let processes = lock_processes(&terminals);
+        processes
+            .get(terminal_id)
+            .ok_or_else(|| format!("Терминал не найден: {terminal_id}"))?
+            .output
+            .clone()
+    };
+    // `baseline_reset` drops the `after_seq` filter, giving the whole window.
+    let snapshot = lock_terminal_output(&output).replay.snapshot(None, true);
+
+    let log_directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| format!("не удалось определить каталог логов: {error}"))?;
+    save_terminal_capture_files(
+        &log_directory,
+        terminal_id,
+        &snapshot,
+        OffsetDateTime::now_utc(),
+    )
+}
+
+fn save_terminal_capture_files(
+    log_directory: &Path,
+    terminal_id: &str,
+    snapshot: &OutputReplaySnapshot,
+    captured_at: OffsetDateTime,
+) -> Result<TerminalCapture, String> {
+    let captured_at_text = captured_at
+        .format(&Rfc3339)
+        .map_err(|error| format!("не удалось записать время захвата: {error}"))?;
+    let metadata = TerminalCaptureMetadata {
+        terminal_id,
+        captured_at: &captured_at_text,
+        bytes: snapshot.data.len(),
+        first_seq: snapshot.first_seq,
+        last_seq: snapshot.last_seq,
+        truncated: snapshot.truncated,
+        dropped_bytes: snapshot.dropped_bytes,
+        replay_window_bytes: MAX_REPLAY_OUTPUT,
+    };
+    let encoded = serde_json::to_vec_pretty(&metadata)
+        .map_err(|error| format!("не удалось собрать метаданные захвата: {error}"))?;
+
+    let captures = log_directory.join("captures");
+    // Do not depend on diagnostics::init having run or succeeded. In particular,
+    // harden the parent before a new child can inherit its Windows DACL.
+    for directory in [log_directory, captures.as_path()] {
+        fs::create_dir_all(directory)
+            .map_err(|error| format!("не удалось создать {}: {error}", directory.display()))?;
+        harden_private_directory(directory).map_err(|error| {
+            format!(
+                "не удалось ограничить права каталога {}: {error}",
+                directory.display()
+            )
+        })?;
+    }
+    let stem = format!(
+        "omp-pty-{}-{}",
+        capture_file_component(terminal_id),
+        captured_at.unix_timestamp()
+    );
+    let directory = create_terminal_capture_directory(&captures, &stem)?;
+    write_terminal_capture_files(&directory, snapshot, &encoded)
+}
+
+fn create_terminal_capture_directory(captures: &Path, stem: &str) -> Result<PathBuf, String> {
+    let mut candidate = captures.join(stem);
+    for _ in 0..16 {
+        let builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        let mut builder = builder;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        // This exclusive filesystem operation, not the timestamp or randomness,
+        // establishes ownership. Never open, harden or clean up a colliding dir.
+        match builder.create(&candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                candidate = captures.join(format!("{stem}-{:016x}", rand::random::<u64>()));
+            }
+            Err(error) => {
+                return Err(format!(
+                    "не удалось создать каталог захвата {}: {error}",
+                    candidate.display()
+                ));
+            }
+        }
+    }
+    Err(format!(
+        "не удалось создать уникальный каталог захвата в {}",
+        captures.display()
+    ))
+}
+
+// The caller must have exclusively created this directory for this capture.
+fn write_terminal_capture_files(
+    directory: &Path,
+    snapshot: &OutputReplaySnapshot,
+    metadata: &[u8],
+) -> Result<TerminalCapture, String> {
+    let result = (|| {
+        harden_private_directory(directory).map_err(|error| {
+            format!(
+                "не удалось ограничить права каталога {}: {error}",
+                directory.display()
+            )
+        })?;
+        let path = directory.join("output.bin");
+        let metadata_path = directory.join("metadata.json");
+        // Each file is atomic; the pair is not a crash-safe transaction. Publish
+        // success only after both writes succeed. An ordinary error rolls back
+        // only our exclusive directory, including any atomic-write temporary.
+        atomic_write_private_file(&path, &snapshot.data)?;
+        atomic_write_private_file(&metadata_path, metadata)?;
+        Ok(TerminalCapture {
+            path: path.display().to_string(),
+            metadata_path: metadata_path.display().to_string(),
+            bytes: snapshot.data.len(),
+            first_seq: snapshot.first_seq,
+            last_seq: snapshot.last_seq,
+            truncated: snapshot.truncated,
+            dropped_bytes: snapshot.dropped_bytes,
+        })
+    })();
+    match result {
+        Ok(capture) => Ok(capture),
+        Err(error) => match fs::remove_dir_all(directory) {
+            Ok(()) => Err(error),
+            Err(cleanup_error) => Err(format!(
+                "{error}; не удалось удалить незавершённый захват {}: {cleanup_error}",
+                directory.display()
+            )),
+        },
+    }
+}
+
+/// Keeps a terminal id usable as a path component without changing the ids a
+/// reader would compare against the session files.
+fn capture_file_component(terminal_id: &str) -> String {
+    terminal_id
+        .chars()
+        .take(64)
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub fn write_terminal(
     terminal_id: String,
@@ -5676,6 +5887,182 @@ mod tests {
         assert_eq!(attachment.snapshot.dropped_bytes, 37);
         assert_eq!(attachment.snapshot.first_seq, Some(1));
         assert_eq!(attachment.snapshot.last_seq, Some(1));
+    }
+
+    fn terminal_capture_fixture_root() -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "omp-terminal-capture-{}-{:016x}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&root).expect("exclusive fixture directory should be creatable");
+        root
+    }
+
+    #[test]
+    fn terminal_capture_preserves_private_raw_replay_across_concurrent_collisions() {
+        let root = terminal_capture_fixture_root();
+        let terminal_id = "terminal/../../synthetic";
+        let captured_at = super::OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
+        let captures = root.join("captures");
+        let collision = captures.join(format!(
+            "omp-pty-{}-{}",
+            super::capture_file_component(terminal_id),
+            captured_at.unix_timestamp()
+        ));
+        fs::create_dir_all(&collision).unwrap();
+        let sentinel = collision.join("foreign.bin");
+        fs::write(&sentinel, b"not this capture").unwrap();
+
+        let mut replay = super::OutputReplay::default();
+        let mut raw = vec![0xff; MAX_REPLAY_OUTPUT + 37];
+        let ending = b"\0\x1b[31mAuthorization: synthetic-only\x1b[0m\r\n";
+        let start = raw.len() - ending.len();
+        raw[start..].copy_from_slice(ending);
+        replay.push(11, &raw);
+        let snapshot = replay.snapshot(None, true);
+        // No diagnostics initialization; all workers use the very same second.
+        let saved = thread::scope(|scope| {
+            let workers: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        super::save_terminal_capture_files(
+                            &root,
+                            terminal_id,
+                            &snapshot,
+                            captured_at,
+                        )
+                        .expect("concurrent capture should succeed")
+                    })
+                })
+                .collect();
+            workers
+                .into_iter()
+                .map(|worker| worker.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        let unique: std::collections::HashSet<_> = saved.iter().map(|item| &item.path).collect();
+        assert_eq!(unique.len(), saved.len());
+        assert_eq!(fs::read(&sentinel).unwrap(), b"not this capture");
+        assert_eq!(fs::read_dir(&collision).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&captures).unwrap().count(), saved.len() + 1);
+        for capture in saved {
+            let path = std::path::Path::new(&capture.path);
+            let metadata_path = std::path::Path::new(&capture.metadata_path);
+            let directory = path.parent().unwrap();
+            assert_eq!(metadata_path.parent(), Some(directory));
+            assert_eq!(directory.parent(), Some(captures.as_path()));
+            assert_eq!(fs::read_dir(directory).unwrap().count(), 2);
+            assert_eq!(fs::read(path).unwrap(), raw[37..]);
+            assert_eq!(capture.bytes, MAX_REPLAY_OUTPUT);
+            assert_eq!(capture.first_seq, Some(11));
+            assert_eq!(capture.last_seq, Some(11));
+            assert!(capture.truncated);
+            assert_eq!(capture.dropped_bytes, 37);
+            let metadata: serde_json::Value =
+                serde_json::from_slice(&fs::read(metadata_path).unwrap()).unwrap();
+            let returned = serde_json::to_value(&capture).unwrap();
+            for key in ["bytes", "firstSeq", "lastSeq", "truncated", "droppedBytes"] {
+                assert_eq!(metadata[key], returned[key]);
+            }
+            assert_eq!(metadata["terminalId"], terminal_id);
+            assert_eq!(metadata["replayWindowBytes"], MAX_REPLAY_OUTPUT);
+            assert_eq!(
+                metadata["capturedAt"],
+                captured_at.format(&super::Rfc3339).unwrap()
+            );
+            for private_path in [
+                root.as_path(),
+                captures.as_path(),
+                directory,
+                path,
+                metadata_path,
+            ] {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let metadata = fs::metadata(private_path).unwrap();
+                    assert_eq!(
+                        metadata.permissions().mode() & 0o777,
+                        if metadata.is_dir() { 0o700 } else { 0o600 }
+                    );
+                }
+                #[cfg(windows)]
+                assert_eq!(
+                    crate::sessions::windows_private_acl_summary(private_path).unwrap(),
+                    (true, 3, true, true, true)
+                );
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_capture_metadata_failure_removes_only_its_owned_directory() {
+        let root = terminal_capture_fixture_root();
+        let foreign = root.join("foreign.bin");
+        fs::write(&foreign, b"keep me").unwrap();
+        let owned = super::create_terminal_capture_directory(&root, "owned").unwrap();
+        // A real filesystem type failure on the second private atomic write,
+        // after output.bin has already been installed successfully.
+        fs::create_dir(owned.join("metadata.json")).unwrap();
+        let mut replay = super::OutputReplay::default();
+        replay.push(1, b"\0\xff\x1b[0m");
+        let error =
+            super::write_terminal_capture_files(&owned, &replay.snapshot(None, true), b"{}")
+                .expect_err("metadata destination directory must fail closed");
+        assert!(error.contains("metadata.json"));
+        assert!(!owned.exists());
+        assert_eq!(fs::read(&foreign).unwrap(), b"keep me");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn terminal_capture_rejects_a_non_directory_capture_root_without_removing_it() {
+        let root = terminal_capture_fixture_root();
+        let obstacle = root.join("captures");
+        fs::write(&obstacle, b"keep me").unwrap();
+        let snapshot = super::OutputReplay::default().snapshot(None, true);
+        assert!(super::save_terminal_capture_files(
+            &root,
+            "synthetic",
+            &snapshot,
+            super::OffsetDateTime::now_utc(),
+        )
+        .is_err());
+        assert_eq!(fs::read(&obstacle).unwrap(), b"keep me");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_capture_rejects_a_symlink_capture_root_before_writing_raw_bytes() {
+        use std::os::unix::{fs::symlink, fs::PermissionsExt};
+
+        let root = terminal_capture_fixture_root();
+        let foreign = terminal_capture_fixture_root();
+        fs::set_permissions(&foreign, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(foreign.join("sentinel"), b"keep me").unwrap();
+        symlink(&foreign, root.join("captures")).unwrap();
+        let mut replay = super::OutputReplay::default();
+        replay.push(1, b"synthetic raw output");
+        assert!(super::save_terminal_capture_files(
+            &root,
+            "synthetic",
+            &replay.snapshot(None, true),
+            super::OffsetDateTime::now_utc(),
+        )
+        .is_err());
+        assert_eq!(fs::read_dir(&foreign).unwrap().count(), 1);
+        assert_eq!(fs::read(foreign.join("sentinel")).unwrap(), b"keep me");
+        assert_eq!(
+            fs::metadata(&foreign).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(foreign).unwrap();
     }
 
     #[test]
