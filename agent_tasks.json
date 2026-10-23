@@ -215210,7 +215210,7 @@
       "id": "discovery-40f4b03c32eedf09",
       "title": "Parallelize session scanning in the backend for faster startup on large workspaces",
       "task_type": "product_improvement",
-      "status": "proposed",
+      "status": "done",
       "priority": 70,
       "risk": "medium",
       "focus": [
@@ -215244,6 +215244,12 @@
         "activity_created_at": "2026-10-16T22:07:30.707851Z",
         "session_id": "7726250843483829957",
         "dispatch_key": "0201a2e594d38bdb41a27190"
+      },
+      "proposal_decision": {
+        "action": "reject",
+        "actor": "Omnividente",
+        "at": "2026-10-23T21:04:21Z",
+        "note": "Owner-approved triage 2026-10-23: this threading implementation proposal is not accepted as a proven product fix. Preserve the question as tracked research https://github.com/Omnividente/omp-desktop/issues/133. Real current-main a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12 scan_sessions manual driver returned all 10000 valid synthetic JSONL sessions twice: cold summary cache 2.2893886 s, warm 0.7255098 s; existing cold<10s/warm<3s budgets passed. Cold is not a flushed OS cache and this flat minimal-header fixture cannot be directly compared with the original undocumented 1000-directory/788ms claim. Bootstrap already uses spawn_blocking and cached summaries. Research acceptance requires representative fixtures, consumer bootstrap latency and a controlled serial-versus-parallel comparison before any threading change. Rejecting the implementation claim does not erase its original evidence, approve implementation, dispatch Jules or close the linked research issue."
       }
     },
     {
