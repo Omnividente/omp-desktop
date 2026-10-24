@@ -500,11 +500,16 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
 2. Authenticate the original failed attempt-1 native run/artifact, frozen control,
    actor, correlation key, job outcome, archive and report digests. Its report must
    retain the exact `stopped/manual/state_write_failed` envelope and actual state SHA.
-   Read real executor-before/native/current Git objects and ancestry. Native and
-   current full bodies/journals must match. Original protected policy/history,
-   useful clocks, owner decisions, accepted results, unrelated attempt identities
-   and saved requests/receipts remain unchanged; only the original observed
-   `last_poll_at` may advance. Legitimate original intake/new-task deltas stay saved.
+   Read real executor-before/native/current Git objects and ancestry. Binding still
+   requires identical native/current full bodies and journals. GET-only observation
+   may retain later owner decisions only when replaying their recorded actor,
+   action, note and timestamp through `proposal_backlog.decide` on a copy of the
+   native checkpoint reproduces the **entire** current manifest exactly. This
+   cannot rewrite prior decisions or admit clock, policy, journal, saved-request,
+   unrelated identity/history or task-list drift. Original protected policy/history,
+   useful clocks, owner decisions, accepted results and saved requests/receipts stay
+   preserved; only the original observed `last_poll_at` may advance in the native
+   checkpoint. Legitimate original intake/new-task deltas stay saved.
 3. The observation workflow is GET-only and cannot save state. Fully paginate Jules
    ListSessions, select exactly one original canonical task/attempt marker, and Get
    that exact resource. Require actual ID/name/state and exact saved prompt, title,
@@ -512,6 +517,10 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
    agree. Missing, foreign, duplicate, contradictory or unreadable observations
    block recovery, never permit CreateSession. Retain only typed identities, state,
    hashes, source/native proof and UTC observation time, not prompt/prose/credentials.
+   Re-read the exact current state after GET; any concurrent change rejects the
+   observation. Its retained current state SHA may differ from the original native
+   report SHA. This diagnostic proof never grants binding or completion authority;
+   do not reset later owner decisions to make the stricter binding guard pass.
 4. Binding repeats those fresh checks and calls native `task_lifecycle.start` for
    the existing observed session. One non-retrying owner-bound CAS changes only
    `execution.state: dispatching -> dispatched` and the empty `execution.session_id`
