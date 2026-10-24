@@ -515,7 +515,7 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
    that exact resource. Require actual ID/name/state and exact saved prompt, title,
    repository/source and starting branch; the complete List/Get JSON hashes must
    agree. Missing, foreign, duplicate, contradictory or unreadable observations
-   block recovery, never permit CreateSession. Retain only typed identities, state,
+   block session binding, never permit CreateSession. Retain only typed identities, state,
    hashes, source/native proof and UTC observation time, not prompt/prose/credentials.
    Re-read the exact current state after GET; any concurrent change rejects the
    observation. Its retained current state SHA may differ from the original native
@@ -546,6 +546,49 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
    claims and denied old receiver/capability. Frozen readers fail closed on the new
    event. Then use separately authorized ordinary checked-main Sync/adoption and
    observe real continuation/intake; do not manufacture healthy monitor status.
+
+Exceptional **proven uncreated dispatch abort** is a different explicitly selected
+owner operation: `autonomous_abort_dispatch.yml`, invoking
+`recover_delivery.py --operation dispatch_abort` with only `expected_state_sha`
+and `decision_id`. Source development does not authorize publishing or running it.
+
+- Only frozen producer `4f9e9db9f779f92fca1cb8d03fbd986c728b2adb` is supported.
+  Its single CreateSession POST is behind `create_transport`'s guard; the original
+  authenticated failed-run archive must contain validated checkpoint diagnostics
+  with `quarantine_create_guard/state_write`. Other producers, missing/expired
+  artifacts or other stages cannot claim this source-order proof. This does not
+  recover the discarded underlying guard reason.
+- Authenticate the original executor, native report/Git ancestry and full current
+  queue as above. Replay only legitimate later owner decisions on a copy of the
+  native checkpoint; the **entire** manifest must match. Binding's stricter guard
+  is not widened. No queue reset or restoration of old owner decisions.
+- Perform a fresh authenticated **complete** ListSessions search. Any original
+  match, conflicting marker, duplicate, failed/invalid page or auth/transport
+  failure denies abort. A prior `session_missing` diagnostic alone is not write
+  authority. Retain only immutable attempt identity, request/list hashes, complete
+  pagination/authentication flags and UTC observation time, never raw listings.
+- One non-retrying CAS changes only the selected task's `status` to `blocked`,
+  `execution.state` to `dispatch_aborted`, its fixed explanatory `note`, and the
+  real `dispatch_aborted_at` timestamp. Append one
+  `OwnerDispatchAbort(reserved_dispatch_aborted_before_create)` journal receipt.
+  Preserve task/attempt/session/dispatch/base/branch/request identity, all prior
+  histories and receipts, accepted research and owner decisions, and controller
+  clocks. Keep the session empty and outcome/finished-at unchanged: no worker ran,
+  no research report was accepted and no successful or failed worker is invented.
+- The selected reservation cannot retry, bind a worker or receive a fake task
+  result. It remains visible as `dispatch_aborted` monitor attention, but does not
+  occupy the research lane. The typed receipt closes only the consumed NEXT,
+  advances its frontier once and denies the old sender/executor; it does not issue
+  an execution capability or handoff. Other work requires ordinary fresh ingress
+  and a separately approved resume; no replacement of this attempt is permitted.
+- Recheck the exact full state after provider reads; a changed state or CAS conflict
+  blocks without retries. Unknown acknowledgement never resends. Only the same
+  original owner event and inputs (rerun attempt may differ) can read
+  `already_aborted`, without new provider/artifact reads or another CAS. Without
+  that durable receipt, every rerun is blocked before artifact/provider reads;
+  only the original owner run attempt 1 can attempt the single CAS. Verify
+  the target-only delta, journal prefix, full conservation and old-right denial
+  before any separately authorized checked Sync or loop enable.
 
 The authenticated failed-save boundary does not reveal an underlying exception
 discarded by its original wrapper. Successful isolated validation/Git save or

@@ -65,7 +65,7 @@ def _session_hash(session: dict) -> str:
 
 def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
                               transport=urllib_transport, api_base=DEFAULT_API_BASE,
-                              now=None) -> dict:
+                              now=None, require_absence=False) -> dict:
     """Fail closed unless one original session survives authenticated list + get.
 
     No create authority is available. List/Get payloads must agree exactly, so a
@@ -118,7 +118,12 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
         try:
             response = transport(method, url, headers, payload)
             last_status = response.status
+            if (require_absence and last_status // 100 == 2 and isinstance(response.payload, dict)
+                    and not isinstance(response.payload.get("nextPageToken", ""), str)):
+                raise ObservationError("provider_invalid")
             return response
+        except ObservationError:
+            raise
         except Exception as exc:
             raise ObservationError("provider_unavailable") from exc
 
@@ -136,6 +141,10 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
     except (ValueError, RuntimeError, OSError) as exc:
         raise failed_read() from exc
 
+    identity = {"task_id": task["id"], "attempts": execution["attempts"],
+                "dispatch_key": key, "base_sha": execution["base_sha"],
+                "starting_branch": execution["starting_branch"],
+                "research_request_sha256": snapshot_hash}
     matches = {}
     for session in sessions:
         if not isinstance(session, dict):
@@ -152,9 +161,16 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
             raise RuntimeError("Jules ListSessions contains conflicting original session observations")
         matches[resource] = digest
     if not matches:
+        if require_absence:
+            return {"identity": identity, "proof": {**identity, "kind": "reserved_dispatch_absence",
+                    "repository": repository, "provider": "jules", "method": "GET", "authenticated": True,
+                    "pagination_complete": True, "request_sha256": request_hash,
+                    "sessions_sha256": sha256_json(sessions), "observed_at": iso(moment)}}
         raise ObservationError("session_missing")
     if len(matches) != 1:
         raise ObservationError("session_ambiguous")
+    if require_absence:
+        raise RuntimeError("dispatch abort cannot discard an existing original session")
     resource, listed_hash = next(iter(matches.items()))
     try:
         current = get_session(read_only, api_base, ring, resource)
@@ -168,10 +184,6 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
     if current_hash != listed_hash:
         raise RuntimeError("fresh Jules GetSession conflicts with the list observation")
 
-    identity = {"task_id": task["id"], "attempts": execution["attempts"],
-                "dispatch_key": key, "base_sha": execution["base_sha"],
-                "starting_branch": execution["starting_branch"],
-                "research_request_sha256": snapshot_hash}
     proof = {**identity, "kind": "reserved_dispatch_observation", "repository": repository,
              "provider": "jules", "method": "GET", "authenticated": True,
              "session_id": current["id"], "session_state": current["state"],

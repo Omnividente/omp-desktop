@@ -28,6 +28,8 @@ OWNER_REPORT_CHECKPOINT = "autonomous_complete_report_recovery.yml"
 OWNER_FAILED_NEXT_CHECKPOINT = "autonomous_complete_failed_next.yml"
 OWNER_DISPATCH_OBSERVATION = "autonomous_observe_dispatch.yml"
 OWNER_DISPATCH_BINDING = "autonomous_recover_dispatch.yml"
+OWNER_DISPATCH_ABORT = "autonomous_abort_dispatch.yml"
+DISPATCH_ABORT_KIND = "reserved_dispatch_aborted_before_create"
 OWNER_TRIGGER_FIELDS = frozenset((
     "run_id", "run_attempt", "event_name", "control_sha", "repository", "actor",
     "workflow", "ref", "expected_state_sha", "decision_id",
@@ -544,14 +546,14 @@ def _reserved_dispatch_receipt(event):
     })
 
 
-def _valid_reserved_dispatch(event, intent, executor, state):
+def _valid_reserved_identity(event, intent, executor, state, *, workflow, diagnostic=False):
     from build_jules_request import dispatch_key
-    from jules_dispatch import session_resource
     trigger = _owner_trigger(event.get("owner_trigger"), intent["decision_id"],
-                             event.get("before_state_sha"), workflow=OWNER_DISPATCH_BINDING)
-    proof, evidence = event.get("proof"), event.get("evidence")
-    identity, provider, report = event.get("identity"), event.get("provider_proof"), event.get("native_report")
+                             event.get("before_state_sha"), workflow=workflow)
+    proof, identity, report = event.get("proof"), event.get("identity"), event.get("native_report")
     fields = {"producer", "workflow", "ref", "artifact_id", "artifact_name", "artifact_sha256", "report_sha256"}
+    if diagnostic:
+        fields.add("checkpoint_diagnostics")
     identity_fields = {"task_id", "attempts", "dispatch_key", "base_sha", "starting_branch", "research_request_sha256"}
     if (intent["workflow"] != NEXT or intent["source_kind"] != "sender"
             or intent["normalized_inputs"].get("automatic") is not True
@@ -586,6 +588,15 @@ def _valid_reserved_dispatch(event, intent, executor, state):
             or identity["starting_branch"] != "autonomous/attempt-" + identity["dispatch_key"]
             or not DIGEST.fullmatch(str(identity["research_request_sha256"]))):
         raise ValueError("reserved dispatch recovery requires the immutable original failed attempt")
+    return trigger
+
+
+def _valid_reserved_dispatch(event, intent, executor, state):
+    from jules_dispatch import session_resource
+    trigger = _valid_reserved_identity(event, intent, executor, state, workflow=OWNER_DISPATCH_BINDING)
+    evidence, report = event["evidence"], event["native_report"]
+    identity, provider = event["identity"], event["provider_proof"]
+    identity_fields = set(identity)
     provider_fields = identity_fields | {"kind", "repository", "provider", "method", "authenticated", "session_id",
                                         "session_state", "session_resource", "request_sha256", "session_sha256",
                                         "list_session_sha256", "observed_at"}
@@ -613,6 +624,47 @@ def _valid_reserved_dispatch(event, intent, executor, state):
             or not all(DIGEST.fullmatch(str(evidence[field])) for field in ("checkpoint_digest", "after_digest"))
             or evidence["checkpoint_digest"] == evidence["after_digest"]):
         raise ValueError("reserved dispatch recovery cannot masquerade as an unchanged no-effect completion")
+    return trigger
+
+
+def _aborted_dispatch_receipt(event):
+    return _receipt_id(event["decision_id"], event["executor_claim_id"], DISPATCH_ABORT_KIND, {
+        name: event[name] for name in ("owner_trigger", "before_state_sha", "before_digest", "after_digest",
+                                      "identity", "provider_proof", "proof", "native_report", "evidence")
+    })
+
+
+def _valid_aborted_dispatch(event, intent, executor, state):
+    from checkpoint_diagnostics import validate_diagnostics
+    from next_no_effect_artifact import ABORTED_DISPATCH_PRODUCER
+    trigger = _valid_reserved_identity(event, intent, executor, state, workflow=OWNER_DISPATCH_ABORT, diagnostic=True)
+    proof, provider, identity = event["proof"], event["provider_proof"], event["identity"]
+    diagnostic = proof["checkpoint_diagnostics"]
+    if (trigger["run_attempt"] != "1" or executor["trigger"]["control_sha"] != ABORTED_DISPATCH_PRODUCER
+            or not validate_diagnostics(diagnostic) or diagnostic["checkpoint_stage"] != "quarantine_create_guard"
+            or diagnostic["exception_category"] != "state_write"):
+        raise ValueError("dispatch abort requires the authenticated frozen pre-create guard")
+    fields = set(identity) | {"kind", "repository", "provider", "method", "authenticated", "pagination_complete",
+                              "request_sha256", "sessions_sha256", "observed_at"}
+    if (not isinstance(provider, dict) or set(provider) != fields
+            or any(provider[key] != value for key, value in identity.items())
+            or provider["kind"] != "reserved_dispatch_absence" or provider["repository"] != trigger["repository"]
+            or provider["provider"] != "jules" or provider["method"] != "GET"
+            or provider["authenticated"] is not True or provider["pagination_complete"] is not True
+            or not all(DIGEST.fullmatch(str(provider[key])) for key in ("request_sha256", "sessions_sha256"))
+            or _timestamp(provider["observed_at"]) > _timestamp(event["at"])):
+        raise ValueError("dispatch abort requires a fresh complete authenticated absence observation")
+    evidence, report = event["evidence"], event["native_report"]
+    if (not isinstance(evidence, dict) or set(evidence) != {"status", "reason", "before_state_sha", "after_state_sha",
+            "before_digest", "checkpoint_digest", "after_digest"}
+            or evidence["status"] != "aborted_before_create" or evidence["reason"] != "state_write_failed"
+            or evidence["before_state_sha"] != executor["before_state_sha"]
+            or evidence["after_state_sha"] != report["state_sha"] or evidence["before_digest"] != executor["before_digest"]
+            or evidence["checkpoint_digest"] != event.get("before_digest")
+            or evidence["after_digest"] != event.get("after_digest")
+            or not all(DIGEST.fullmatch(str(evidence[key])) for key in ("checkpoint_digest", "after_digest"))
+            or evidence["checkpoint_digest"] == evidence["after_digest"]):
+        raise ValueError("dispatch abort cannot claim worker completion or an unchanged body")
     return trigger
 
 
@@ -817,6 +869,21 @@ def materialize(journal: dict) -> dict:
                     or event.get("receipt_id") != _reserved_dispatch_receipt(event)
                     or event.get("frontier_seq") != state["frontier_seq"] + 1):
                 raise ValueError("invalid reserved dispatch receipt identity or frontier")
+            state["completions"][decision_id] = event
+            state["completed_receipts"].add(event["receipt_id"])
+            state["source_ids"].add(_source_identity(owner))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
+        elif kind == "OwnerDispatchAbort":
+            owner = _valid_aborted_dispatch(event, intent, executor, state)
+            if (set(event) != {"type", "at", "event_id", "decision_id", "executor_claim_id", "kind", "owner_trigger",
+                              "before_state_sha", "before_digest", "after_digest", "identity", "provider_proof",
+                              "proof", "native_report", "evidence", "frontier_seq", "receipt_id"}
+                    or event["kind"] != DISPATCH_ABORT_KIND
+                    or event["receipt_id"] != _aborted_dispatch_receipt(event)
+                    or event["frontier_seq"] != state["frontier_seq"] + 1):
+                raise ValueError("invalid pre-create dispatch abort receipt or frontier")
             state["completions"][decision_id] = event
             state["completed_receipts"].add(event["receipt_id"])
             state["source_ids"].add(_source_identity(owner))
@@ -1379,7 +1446,7 @@ class JournalStore:
                 "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
 
     def _reserved_dispatch_baseline(self, data, state_sha, state, decision_id, expected_state_sha, trigger, config):
-        from next_no_effect_artifact import authenticated_failed_save_checkpoint
+        from next_no_effect_artifact import authenticated_aborted_dispatch, authenticated_failed_save_checkpoint
         from proposal_backlog import authorize, decide
         from state_store import _git
         authorize(config, trigger["actor"])
@@ -1396,8 +1463,9 @@ class JournalStore:
                 or _source_identity(trigger) in state["source_ids"]
                 or trigger["repository"] != executor["trigger"].get("repository")):
             raise JournalConflict("reserved dispatch recovery requires the original unfinished automatic NEXT")
-        proof = authenticated_failed_save_checkpoint(config["repository"], executor["trigger"],
-                                                      decision_id, intent["correlation_key"])
+        authenticate = (authenticated_aborted_dispatch if trigger["workflow"] == OWNER_DISPATCH_ABORT
+                        else authenticated_failed_save_checkpoint)
+        proof = authenticate(config["repository"], executor["trigger"], decision_id, intent["correlation_key"])
         report = proof.pop("report")
         before, native = self._checkpoint_state(executor["before_state_sha"]), self._checkpoint_state(report["state_sha"])
         for older, newer in ((executor["before_state_sha"], report["state_sha"]), (report["state_sha"], state_sha)):
@@ -1410,10 +1478,9 @@ class JournalStore:
                 or native_state["active_intent"] != intent or native_state["executor_claims"].get(decision_id) != executor):
             raise JournalConflict("reserved dispatch native body or original execution changed")
         if native != data:
-            if trigger["workflow"] != OWNER_DISPATCH_OBSERVATION:
+            if trigger["workflow"] not in {OWNER_DISPATCH_OBSERVATION, OWNER_DISPATCH_ABORT}:
                 raise JournalConflict("reserved dispatch binding requires the unchanged full native checkpoint")
-            # Read-only observation may retain later owner decisions, never reset
-            # them to the failed checkpoint or infer permission to bind a session.
+            # Reconstruct only authentic later decisions, without resetting the queue.
             retained = copy.deepcopy(native)
             native_tasks = {item["id"]: item for item in native["tasks"]}
             try:
@@ -1495,6 +1562,62 @@ class JournalStore:
         except (ValueError, RuntimeError, OSError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
             exc.checkpoint_stage = stage
             raise
+
+    def abort_reserved_dispatch(self, *, decision_id, expected_state_sha, owner_trigger, config, api_keys,
+                                transport=None, api_base=None):
+        """Park a proven pre-create failure and close only its spent NEXT with one CAS."""
+        from dispatch_recovery import observe_reserved_dispatch
+        from proposal_backlog import authorize
+        from task_lifecycle import abort_dispatch
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha, workflow=OWNER_DISPATCH_ABORT)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("dispatch abort repository differs from configured authority")
+        data, state_sha = self._load()
+        state = materialize(data["dispatch_journal"])
+        prior = state["completions"].get(decision_id)
+        if prior is not None:
+            if (prior.get("type") != "OwnerDispatchAbort" or prior["before_state_sha"] != expected_state_sha
+                    or {key: value for key, value in prior["owner_trigger"].items() if key != "run_attempt"}
+                    != {key: value for key, value in trigger.items() if key != "run_attempt"}):
+                raise JournalConflict("dispatch abort replay changed the original owner authorization")
+            return {"outcome": "already_aborted", "decision_id": decision_id, "receipt_id": prior["receipt_id"],
+                    "state_sha": state_sha, "frontier_seq": prior["frontier_seq"]}
+        if trigger["run_attempt"] != "1":
+            raise JournalConflict("dispatch abort rerun may only reconcile its durable original receipt")
+        intent, executor, task, proof, report = self._reserved_dispatch_baseline(
+            data, state_sha, state, decision_id, expected_state_sha, trigger, config)
+        authorize(config, executor["trigger"]["actor"])
+        options = {key: value for key, value in (("transport", transport), ("api_base", api_base)) if value is not None}
+        observation = observe_reserved_dispatch(task, config["repository"], api_keys=api_keys, require_absence=True, **options)
+        moment = _now()
+        candidate = copy.deepcopy(data)
+        abort_dispatch(candidate, task["id"], dispatch_key=observation["identity"]["dispatch_key"], now=_timestamp(moment))
+        restored = copy.deepcopy(candidate)
+        restored_task = next(item for item in restored["tasks"] if item["id"] == task["id"])
+        restored_task["status"] = task["status"]
+        for field in ("state", "note"):
+            restored_task["execution"][field] = task["execution"][field]
+        restored_task["execution"].pop("dispatch_aborted_at")
+        if restored != data:
+            raise JournalConflict("dispatch abort changed more than the selected reservation state")
+        fields = dict(decision_id=decision_id, executor_claim_id=executor["claim_id"], kind=DISPATCH_ABORT_KIND,
+                      owner_trigger=trigger, before_state_sha=state_sha, before_digest=substantive_digest(data),
+                      after_digest=substantive_digest(candidate), identity=observation["identity"],
+                      provider_proof=observation["proof"], proof=proof, native_report=report,
+                      evidence={"status": "aborted_before_create", "reason": "state_write_failed",
+                                "before_state_sha": executor["before_state_sha"], "after_state_sha": report["state_sha"],
+                                "before_digest": executor["before_digest"], "checkpoint_digest": substantive_digest(data),
+                                "after_digest": substantive_digest(candidate)}, frontier_seq=state["frontier_seq"] + 1)
+        event = _event("OwnerDispatchAbort", at=moment, receipt_id=_aborted_dispatch_receipt(fields), **fields)
+        candidate["dispatch_journal"]["events"].append(event)
+        materialize(candidate["dispatch_journal"])
+        current, current_sha = self._load()
+        if current_sha != state_sha or current != data:
+            raise JournalConflict("dispatch abort state moved before the single owner CAS")
+        saved = self._write(candidate)
+        return {"outcome": "aborted", "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "state_sha": saved, "frontier_seq": event["frontier_seq"]}
 
     def bind_reserved_dispatch(self, *, decision_id, expected_state_sha, owner_trigger, config, api_keys,
                                transport=None, api_base=None):
