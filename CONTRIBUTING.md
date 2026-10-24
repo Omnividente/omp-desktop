@@ -42,6 +42,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Use `npm ci` rather than updating the lockfile unless dependency changes are part of the pull request.
 
+For keyring concurrency regressions, use a controlled backend barrier to prove
+that newer saves finish while an old native mutation is still blocked, then
+verify the final persisted state after release. A harness watchdog detects a
+deadlock; a subsecond wall-clock assertion also measures durable journal I/O
+and Windows ACL/filesystem scheduling, so it cannot establish this ordering.
+
 ## Publishing source changes
 
 A Desktop fix or feature request authorizes only the stated local source scope;
