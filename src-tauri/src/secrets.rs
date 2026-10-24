@@ -724,7 +724,7 @@ mod tests {
             let barrier = test_lock(&self.before_write).take();
             if let Some((entered, release)) = barrier {
                 entered.send(()).unwrap();
-                release.recv_timeout(Duration::from_secs(10)).unwrap();
+                release.recv().unwrap();
             }
             if self.unavailable.load(Ordering::SeqCst)
                 || self.fail_write.load(Ordering::SeqCst) == call
@@ -1012,7 +1012,6 @@ mod tests {
         let (release_tx, release_rx) = mpsc::sync_channel(1);
         *test_lock(&backend.before_write) = Some((entered_tx, release_rx));
         let coordinator = KeyringCoordinator::new(backend.clone());
-        let first_started = Instant::now();
         let (stored, outcome) = coordinator
             .store(
                 &path,
@@ -1024,41 +1023,54 @@ mod tests {
             .unwrap();
         entered_rx.recv_timeout(TEST_TIMEOUT).unwrap();
         assert!(outcome.is_err());
-        assert!(first_started.elapsed() < Duration::from_millis(500));
         assert_eq!(stored.values.len(), 1);
-        // A is blocked *before* its OS mutation, not just its reply. B (and all
-        // superseded saves) returns without another worker or blocking OS call.
-        for _ in 0..16 {
-            let started = Instant::now();
-            let (stored, outcome) = coordinator
-                .store(
-                    &path,
-                    &["SYNTH_REMOVED".to_owned()],
-                    snapshot(&[]),
-                    false,
-                    TEST_TIMEOUT,
-                )
-                .unwrap();
-            assert!(outcome.is_err());
-            assert!(stored.values.is_empty());
-            assert!(started.elapsed() < Duration::from_millis(500));
-        }
         let newest = snapshot(&[("SYNTH_CURRENT", "newest-worker")]);
-        let (latest, outcome) = coordinator
-            .store(
-                &path,
-                &["SYNTH_REMOVED".to_owned()],
-                newest.clone(),
-                false,
-                TEST_TIMEOUT,
-            )
-            .unwrap();
-        assert!(outcome.is_err());
-        assert!(!latest.keys.as_ref().unwrap().contains("SYNTH_REMOVED"));
-        assert_eq!(backend.writes.load(Ordering::SeqCst), 1);
-        assert_eq!(backend.deletes.load(Ordering::SeqCst), 0);
-        assert_eq!(read_fallback(&path).unwrap().unwrap().values, newest.values);
-        release_tx.send(()).unwrap();
+        // Superseding saves must finish before A is allowed to mutate the OS.
+        // An infinite reconciliation timeout exposes accidental waits for A;
+        // the harness watchdog is not a latency budget for durable journal I/O.
+        let returned_before_release = thread::scope(|scope| {
+            let (returned_tx, returned_rx) = mpsc::sync_channel(1);
+            let coordinator = &coordinator;
+            let backend = &backend;
+            let path = &path;
+            let newest = &newest;
+            scope.spawn(move || {
+                for _ in 0..16 {
+                    let (stored, outcome) = coordinator
+                        .store(
+                            path,
+                            &["SYNTH_REMOVED".to_owned()],
+                            snapshot(&[]),
+                            false,
+                            Duration::MAX,
+                        )
+                        .unwrap();
+                    assert!(outcome.is_err());
+                    assert!(stored.values.is_empty());
+                }
+                let (latest, outcome) = coordinator
+                    .store(
+                        path,
+                        &["SYNTH_REMOVED".to_owned()],
+                        newest.clone(),
+                        false,
+                        Duration::MAX,
+                    )
+                    .unwrap();
+                assert!(outcome.is_err());
+                assert!(!latest.keys.as_ref().unwrap().contains("SYNTH_REMOVED"));
+                assert_eq!(backend.writes.load(Ordering::SeqCst), 1);
+                assert_eq!(backend.deletes.load(Ordering::SeqCst), 0);
+                assert_eq!(read_fallback(path).unwrap().unwrap().values, newest.values);
+                returned_tx.send(()).unwrap();
+            });
+            let returned = returned_rx.recv_timeout(Duration::from_secs(30));
+            // Release before asserting/joining, including timeout and panic paths.
+            release_tx.send(()).unwrap();
+            returned
+        });
+        returned_before_release
+            .expect("superseding saves must return while the old native write remains blocked");
         wait_idle(&coordinator);
         assert_eq!(*test_lock(&backend.values), newest.values);
         assert!(!path.exists());
