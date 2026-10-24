@@ -521,6 +521,15 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
    observation. Its retained current state SHA may differ from the original native
    report SHA. This diagnostic proof never grants binding or completion authority;
    do not reset later owner decisions to make the stricter binding guard pass.
+   A blocked observation keeps its existing result envelope and may retain the
+   bounded `checkpoint-diagnostics.json` sidecar. It uses the existing validated
+   diagnostic format: a closed observer stage, exception category/causal chain and
+   safe Git metadata, never exception messages, provider bodies or credentials.
+   Distinguish state/native-proof failures, provider authentication/unavailability,
+   a fully read missing session and ambiguous sessions; an opaque blocked result
+   alone proves none of these. The sidecar grants no binding, closure or retry
+   authority. Failure to retain optional diagnostics must not mask the blocked
+   result or overwrite the checked source, config, queue or revision files.
 4. Binding repeats those fresh checks and calls native `task_lifecycle.start` for
    the existing observed session. One non-retrying owner-bound CAS changes only
    `execution.state: dispatching -> dispatched` and the empty `execution.session_id`

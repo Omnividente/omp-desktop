@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1472,19 +1473,28 @@ class JournalStore:
                                   transport=None, api_base=None):
         """Read one authentic original session without granting any state or provider write."""
         from dispatch_recovery import observe_reserved_dispatch
-        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha, workflow=OWNER_DISPATCH_OBSERVATION)
-        data, state_sha = self._load()
-        state = materialize(data["dispatch_journal"])
-        _, _, task, proof, report = self._reserved_dispatch_baseline(
-            data, state_sha, state, decision_id, expected_state_sha, trigger, config)
-        options = {name: value for name, value in (("transport", transport), ("api_base", api_base)) if value is not None}
-        observation = observe_reserved_dispatch(task, config["repository"], api_keys=api_keys, **options)
-        current, current_sha = self._load()
-        if current_sha != state_sha or current != data:
-            raise JournalConflict("reserved dispatch state moved during read-only provider observation")
-        return {"outcome": "observed", "decision_id": decision_id, "state_sha": state_sha,
-                "frontier_seq": state["frontier_seq"], "identity": observation["identity"],
-                "provider_proof": observation["proof"], "native_proof": proof, "native_report": report}
+        stage = "observer_context"
+        try:
+            trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha, workflow=OWNER_DISPATCH_OBSERVATION)
+            stage = "observer_state_read"
+            data, state_sha = self._load()
+            state = materialize(data["dispatch_journal"])
+            stage = "observer_native_proof"
+            _, _, task, proof, report = self._reserved_dispatch_baseline(
+                data, state_sha, state, decision_id, expected_state_sha, trigger, config)
+            options = {name: value for name, value in (("transport", transport), ("api_base", api_base)) if value is not None}
+            stage = "observer_provider_read"
+            observation = observe_reserved_dispatch(task, config["repository"], api_keys=api_keys, **options)
+            stage = "observer_state_recheck"
+            current, current_sha = self._load()
+            if current_sha != state_sha or current != data:
+                raise JournalConflict("reserved dispatch state moved during read-only provider observation")
+            return {"outcome": "observed", "decision_id": decision_id, "state_sha": state_sha,
+                    "frontier_seq": state["frontier_seq"], "identity": observation["identity"],
+                    "provider_proof": observation["proof"], "native_proof": proof, "native_report": report}
+        except (ValueError, RuntimeError, OSError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
+            exc.checkpoint_stage = stage
+            raise
 
     def bind_reserved_dispatch(self, *, decision_id, expected_state_sha, owner_trigger, config, api_keys,
                                transport=None, api_base=None):

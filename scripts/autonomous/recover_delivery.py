@@ -22,6 +22,7 @@ from pathlib import Path
 from datetime import datetime
 
 from build_jules_request import dispatch_key
+from checkpoint_diagnostics import MAX_DIAGNOSTIC_BYTES, diagnostic_for_failure, validate_diagnostics
 from dispatch_journal import (DIGEST, SHA, JournalConflict, JournalStore, JournalUncertain)
 from jules_dispatch import KeyRing
 from proposal_backlog import authorize
@@ -255,6 +256,7 @@ def main(argv=None):
     args = None
     attempted = False
     out = None
+    failure = None
     try:
         # Retain a safe rejection even if the full argument parser rejects input.
         output_parser = _Parser(add_help=False, allow_abbrev=False)
@@ -297,14 +299,29 @@ def main(argv=None):
         result = (_observed_result(value, args.decision_id, args.expected_state_sha, config)
                   if operation == "dispatch_observation" else
                   _acknowledged_result(value, args.decision_id, operation))
-    except (JournalUncertain, StateUncertain):
+    except (JournalUncertain, StateUncertain) as exc:
+        failure = exc
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] + "_acknowledgement_unknown"}
-    except (JournalConflict, StateConflict):
+    except (JournalConflict, StateConflict) as exc:
+        failure = exc
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] + "_conflict"}
     except (ValueError, KeyError, TypeError, AttributeError, OSError, RuntimeError,
-            subprocess.SubprocessError):
+            subprocess.SubprocessError) as exc:
+        failure = exc
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] +
                   ("_acknowledgement_unknown" if attempted else "_context_rejected")}
+    if operation == "dispatch_observation" and attempted and failure is not None and out is not None:
+        # Optional causal facts must not alter the blocked envelope or expose errors.
+        try:
+            diagnostic = diagnostic_for_failure(getattr(failure, "checkpoint_stage", "unknown"), failure)
+            encoded = (json.dumps(diagnostic, separators=(",", ":")) + "\n").encode("utf-8")
+            diagnostic_args = argparse.Namespace(**vars(args))
+            diagnostic_args.out = out.with_name("checkpoint-diagnostics.json")
+            path = _output_path(diagnostic_args)
+            if path != out and validate_diagnostics(diagnostic) and len(encoded) <= MAX_DIAGNOSTIC_BYTES:
+                _atomic_bytes(path, encoded)
+        except (OSError, ValueError, TypeError):
+            pass
     text = json.dumps(result, indent=2) + "\n"
     if out is not None:
         try:
