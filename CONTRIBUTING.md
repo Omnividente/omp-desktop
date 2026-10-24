@@ -44,9 +44,34 @@ Use `npm ci` rather than updating the lockfile unless dependency changes are par
 
 ## Publishing source changes
 
-For a requested Desktop fix or feature, branch from current `main`, verify the affected behavior and relevant checks, publish the commits to GitHub in a reviewable pull request, and merge the verified change into `main` after required CI. Accepted Jules findings follow the same product-code path after manual review and testing; the autonomous lab's proposal/acceptance process remains separate and never merges product code automatically. Do not leave accepted changes only in a local worktree or `autonomous/lab`.
+A Desktop fix or feature request authorizes only the stated local source scope;
+it does not implicitly authorize commits, pushes, a GitHub PR or merge. Pin the
+base, preserve unrelated work, and report verification and limitations. Publish
+only when the owner separately authorizes the relevant Git/GitHub operations.
 
-Publishing source code does **not** imply a version bump, installer build, tag, GitHub Release, or replacement of an installed Desktop. Perform those separately only when explicitly requested for that task. Without a release request, deliver the code change and its GitHub PR/main result, not new binaries.
+Keep the three agent modes separate: Jules discovery is read-only; a separately
+approved Jules implementation proposes into `autonomous/lab`; an explicitly
+authorized Dot task uses its own `dot/<task-id>-<slug>` branch and a **Draft** PR
+into `main` through the current GitHub plugin, without Codex or ChatGPT Work.
+See [Dot workflow](docs/dot/WORKFLOW.md) for full evidence, overlap/rename checks,
+branch leases, scope limits and unknown-acknowledgement handling. Standing R1 is
+**NOT ACTIVE**; documenting its template activates neither R1 nor a product pilot.
+
+Draft publication, owner acceptance of an exact head SHA, merge, packaging,
+release and installation are separate permissions. Dot never approves or marks
+its PR ready, merges, enables auto-merge or dispatches Actions. The owner records
+acceptance outside the Dot-editable PR body and performs the separately approved
+merge after exact-revision required checks and any local/native acceptance.
+Accepted Jules proposals do not automatically become accepted product on `main`.
+
+The first maintainer PR introducing event isolation still runs under the old
+graph. Before publishing it, obtain the separate bootstrap decision in the
+[Dot workflow](docs/dot/WORKFLOW.md#first-maintainer-pr-bootstrap-and-cutover).
+A blocked NEXT is not a safety switch; no live recovery is authorized here.
+
+Source publication does **not** authorize a version bump, installer build, tag,
+GitHub Release or replacement of an installed Desktop. Perform each only under
+its own explicit request; do not turn a source-only task into binary delivery.
 
 ## Pull requests
 
