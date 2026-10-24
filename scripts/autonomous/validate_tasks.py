@@ -28,7 +28,7 @@ VALID_OUTCOMES = {
     "", "merged", "no_change", "researched", "review_required", "report_invalid", "closed_unmerged", "failed", "stale",
 }
 VALID_EXECUTION_STATES = {
-    "", "dispatching", "dispatched", "quarantined", "completed", "retry", "exhausted", "awaiting_review", "awaiting_report",
+    "", "dispatching", "dispatched", "quarantined", "dispatch_aborted", "completed", "retry", "exhausted", "awaiting_review", "awaiting_report",
 }
 
 MAX_PREVIOUS_REPORTS = 3
@@ -791,6 +791,16 @@ def validate(manifest: Any) -> list:
                 errors.append(prefix + ".dispatching requires one reserved unbound attempt")
             if state == "quarantined" and outcome != "stale":
                 errors.append(prefix + ".quarantined execution requires stale outcome")
+            if state == "dispatch_aborted" and (
+                task.get("task_type") != "project_discovery" or status != "blocked"
+                or execution.get("session_id") != "" or "session_state" in execution
+                or outcome or execution.get("finished_at") or execution.get("pull_request")
+                or "research_result" in task or not _utc_timestamp(execution.get("dispatch_aborted_at"))
+                or type(execution.get("attempts")) is not int or execution["attempts"] < 1
+            ):
+                errors.append(prefix + ".dispatch_aborted requires a parked original attempt without a worker result")
+            if "dispatch_aborted_at" in execution and state != "dispatch_aborted":
+                errors.append(prefix + ".dispatch_aborted_at cannot authorize retry or execution")
             source = (task.get("research_result") or {}).get("source") if isinstance(task.get("research_result"), dict) else None
             if isinstance(source, dict) and any(source.get(field) != execution.get(field) for field in ("session_id", "dispatch_key")):
                 errors.append(prefix + ".research_result.source must belong to the stored attempt")

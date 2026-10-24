@@ -250,6 +250,288 @@ class ReservedDispatchCheckpointTests(unittest.TestCase):
         self.assertEqual(validate(self.before), [])
         self.assertEqual(validate(self.native), [])
 
+    def prepare_abort(self):
+        producer = "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb"
+        with patch.dict(globals(), CONTROL=producer), patch.object(journal_fixture, "CONTROL", producer):
+            self.prepare()
+        for record in (self.source.run, self.source.attempt, *self.source.jobs,
+                       self.source.artifacts[0]["workflow_run"], self.source.detail["workflow_run"]):
+            record["head_sha"] = producer
+        from checkpoint_diagnostics import StateWriteError, diagnostic_for_failure
+        from next_no_effect_artifact_test import zip_bytes
+        self.abort_diagnostic = diagnostic_for_failure("quarantine_create_guard", StateWriteError("private"))
+        self.source.set_archive(zip_bytes(self.source.raw, extra=(
+            "checkpoint-diagnostics.json", json.dumps(self.abort_diagnostic).encode())))
+        self.provider = self.provider_transport([page()])
+        self.abort_owner = self.owner_trigger("autonomous_abort_dispatch.yml")
+
+    def abort_command(self, *, owner=None, store=None):
+        with self.transport():
+            return (store or self.store).abort_reserved_dispatch(
+                decision_id=self.intent["decision_id"], expected_state_sha=self.abort_owner["expected_state_sha"],
+                owner_trigger=self.abort_owner if owner is None else owner, config=self.config,
+                api_keys=[PRIMARY], transport=self.provider, api_base=API_BASE)
+
+    def test_precreate_abort_preserves_original_attempt_and_later_decisions_without_worker_result(self):
+        from select_task import select
+        self.data["tasks"].extend(proposal("abort-later-" + str(index)) for index in range(5))
+        self.data["tasks"].append(self.new_task("next-unrelated"))
+        self.prepare_abort()
+        current = copy.deepcopy(self.native)
+        for index, action in enumerate(("reject", "reject", "reject", "reject", "resolve")):
+            decide(current, self.config, action=action, task_id="abort-later-" + str(index), actor="owner-a",
+                   note="SYNTHETIC later owner decision", now="2026-10-06T10:10:00Z")
+        self.raw_commit(current, publish=True)
+        self.abort_owner = self.owner_trigger("autonomous_abort_dispatch.yml")
+        before = copy.deepcopy(current)
+        with patch.object(self.store, "_write", wraps=self.store._write) as write:
+            result = self.abort_command()
+        self.assertEqual((result["outcome"], write.call_count), ("aborted", 1))
+        after = self.checkpoint(result["state_sha"])
+        task = self.target(after)
+        self.assertEqual((task["status"], task["execution"]["state"], task["execution"]["outcome"]),
+                         ("blocked", "dispatch_aborted", ""))
+        self.assertEqual(task["execution"]["dispatch_aborted_at"], NOW.isoformat().replace("+00:00", "Z"))
+        restored = copy.deepcopy(after)
+        original = self.target(before)
+        self.target(restored)["status"] = original["status"]
+        for field in ("state", "note"):
+            self.target(restored)["execution"][field] = original["execution"][field]
+        self.target(restored)["execution"].pop("dispatch_aborted_at")
+        event = restored["dispatch_journal"]["events"].pop()
+        self.assertEqual(restored, before)
+        self.assertEqual((event["type"], event["kind"]), ("OwnerDispatchAbort", "reserved_dispatch_aborted_before_create"))
+        self.assertEqual(event["proof"]["checkpoint_diagnostics"], self.abort_diagnostic)
+        state = materialize(after["dispatch_journal"])
+        self.assertIsNone(state["active_intent"])
+        self.assertEqual(state["frontier_seq"], 1)
+        self.assertEqual(state["effects"], {})
+        self.assertEqual(validate(after), [])
+        self.assertEqual(select(after, task_id=TARGET)["selected"], False)
+        self.assertEqual(select(after)["task_id"], "next-unrelated")
+        from loop_health import assess_health
+        report = assess_health(after, self.config, main_sha=CONTROL, lab_sha=CONTROL, main_is_ancestor=True,
+                               fingerprints={}, runs=[], sync_runs=[], pull_requests=[], enabled=False, now=NOW)
+        self.assertIn({"reason": "dispatch_aborted", "task_id": TARGET,
+                       "observed_at": task["execution"]["dispatch_aborted_at"]}, report["attention"])
+        self.assertNotIn("session_state", task["execution"])
+        self.assertNotIn("research_result", task)
+        self.assert_get_only()
+        self.assert_private(event)
+
+    def test_abort_refuses_unsupported_native_producer_before_provider_read(self):
+        self.prepare()
+        self.abort_owner = self.owner_trigger("autonomous_abort_dispatch.yml")
+        before = self.authoritative()
+        with self.assertRaises(ValueError):
+            self.abort_command()
+        self.assertEqual(self.authoritative(), before)
+        self.assertEqual(self.provider.calls, [])
+        self.assertEqual(self.source.calls, [])
+
+    def test_abort_retains_full_body_guards_after_later_owner_decisions(self):
+        self.data["tasks"].append(proposal("abort-later"))
+        self.prepare_abort()
+        current = copy.deepcopy(self.native)
+        decide(current, self.config, action="reject", task_id="abort-later", actor="owner-a",
+               note="SYNTHETIC later owner decision", now="2026-10-06T10:10:00Z")
+        current["protected"]["history"].append({"foreign": "body drift"})
+        self.raw_commit(current, publish=True)
+        self.abort_owner = self.owner_trigger("autonomous_abort_dispatch.yml")
+        before = self.authoritative()
+        with self.assertRaises(JournalConflict):
+            self.abort_command()
+        self.assertEqual(self.authoritative(), before)
+        self.assertEqual(self.provider.calls, [])
+
+
+    def test_abort_rejects_missing_or_wrong_native_guard_even_with_complete_absence(self):
+        from next_no_effect_artifact_test import zip_bytes
+        self.prepare_abort()
+        before = self.authoritative()
+        cases = [None, {**self.abort_diagnostic, "checkpoint_stage": "created_session_binding"},
+                 {**self.abort_diagnostic, "exception_category": "runtime"}]
+        for diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                extra = None if diagnostic is None else ("checkpoint-diagnostics.json", json.dumps(diagnostic).encode())
+                self.source.set_archive(zip_bytes(self.source.raw, extra=extra))
+                with patch.object(self.store, "_write", wraps=self.store._write) as write:
+                    with self.assertRaises(ValueError):
+                        self.abort_command()
+                self.assertEqual(write.call_count, 0)
+                self.assertEqual(self.authoritative(), before)
+                self.assertEqual(self.provider.calls, [])
+        self.source.set_archive(zip_bytes(self.source.raw, extra=("checkpoint-diagnostics.json", json.dumps(self.abort_diagnostic).encode())))
+        self.source.artifacts[0]["expired"] = True
+        with self.assertRaises(ValueError):
+            self.abort_command()
+        self.assertEqual(self.authoritative(), before)
+        self.assertEqual(self.provider.calls, [])
+
+    def test_abort_rejects_existing_ambiguous_unreadable_and_incomplete_provider_search(self):
+        self.prepare_abort()
+        before = self.authoritative()
+        duplicate = copy.deepcopy(self.session)
+        duplicate.update(id="other-8", name="sessions/other-8")
+        cases = ([page(self.session)], [page(self.session, duplicate)], [Response(403)],
+                 [page(token="next"), Response(403)], [page(token="next"), page(token="next")])
+        for responses in cases:
+            with self.subTest(responses=len(responses)):
+                self.provider = self.provider_transport(responses)
+                with patch.object(self.store, "_write", wraps=self.store._write) as write:
+                    with self.assertRaises((ValueError, RuntimeError)):
+                        self.abort_command()
+                self.assertEqual(write.call_count, 0)
+                self.assertEqual(self.authoritative(), before)
+                self.assert_get_only()
+
+    def test_abort_cannot_treat_falsy_invalid_page_tokens_as_complete_absence(self):
+        self.prepare_abort()
+        before = self.authoritative()
+        for token in (False, 0, [], {}):
+            self.provider = self.provider_transport([Response(200, {"sessions": [], "nextPageToken": token})])
+            with self.subTest(token=type(token).__name__), patch.object(self.store, "_write", wraps=self.store._write) as write:
+                with self.assertRaises(RuntimeError):
+                    self.abort_command()
+                self.assertEqual(write.call_count, 0)
+            self.assertEqual(self.authoritative(), before)
+            self.assert_get_only()
+
+    def test_abort_unknown_ack_reads_only_same_owner_receipt_and_revokes_original_rights(self):
+        self.prepare_abort()
+        native_write = self.store._write
+
+        def written_without_ack(data):
+            native_write(data)
+            raise JournalUncertain("SYNTHETIC_PRIVATE lost acknowledgement")
+
+        with patch.object(self.store, "_write", side_effect=written_without_ack) as write:
+            with self.assertRaises(JournalUncertain):
+                self.abort_command()
+        self.assertEqual(write.call_count, 1)
+        after = self.authoritative()
+        calls, downloads = len(self.provider.calls), list(self.source.downloads)
+        with patch.object(self.store, "_write", wraps=self.store._write) as write:
+            replay = self.abort_command(owner={**self.abort_owner, "run_attempt": "2"})
+            self.assertEqual(replay["outcome"], "already_aborted")
+            with self.assertRaises(JournalConflict):
+                self.abort_command(owner={**self.abort_owner, "run_id": "501"})
+        self.assertEqual(write.call_count, 0)
+        self.assertEqual(self.authoritative(), after)
+        self.assertEqual((len(self.provider.calls), self.source.downloads), (calls, downloads))
+        for capability in (self.send, self.execution):
+            with self.assertRaises(JournalConflict):
+                capability.consume()
+            with self.assertRaises(JournalConflict):
+                capability.observer_context()
+        _, old_capability = self.store.admit(NEXT, self.intent["normalized_inputs"], key=self.intent["correlation_key"],
+                                           trigger=self.executor["trigger"], control_sha=self.executor["trigger"]["control_sha"])
+        self.assertIsNone(old_capability)
+        self.assertEqual(self.authoritative(), after)
+        receipt = replay["receipt_id"]
+        _, successor = self.store.reserve_send(CONTINUE, {}, basis={"receipt_id": receipt},
+                                                trigger=self.trigger("600"), control_sha=CONTROL)
+        self.assertIsNotNone(successor)
+        self.assertEqual(self.store.current()["active_intent"]["predecessor_decision_id"], self.intent["decision_id"])
+
+
+    def test_abort_rerun_without_durable_receipt_cannot_repeat_uncertain_cas(self):
+        self.prepare_abort()
+        self.provider = self.provider_transport([page(), page()])
+        before = self.authoritative()
+        with patch.object(self.store, "_write", side_effect=JournalUncertain("SYNTHETIC unknown publication")):
+            with self.assertRaises(JournalUncertain):
+                self.abort_command()
+        self.assertEqual(self.authoritative(), before)
+        calls, source_calls = len(self.provider.calls), list(self.source.calls)
+        with patch.object(self.store, "_write", wraps=self.store._write) as write:
+            with self.assertRaises(JournalConflict):
+                self.abort_command(owner={**self.abort_owner, "run_attempt": "2"})
+        self.assertEqual(write.call_count, 0)
+        self.assertEqual((len(self.provider.calls), self.source.calls), (calls, source_calls))
+        self.assertEqual(self.authoritative(), before)
+
+    def test_abort_single_cas_conflict_does_not_reobserve_or_retry(self):
+        self.prepare_abort()
+        competitor = self.reader("abort-cas-race")
+        original_write = self.store._write
+        raced = []
+
+        def conflict(data):
+            competitor.observe_delivery(self.intent["decision_id"], {"kind": "concurrent CAS"})
+            raced.append(self.authoritative())
+            return original_write(data)
+
+        with patch.object(self.store, "_write", side_effect=conflict) as write:
+            with self.assertRaises(state_store.StateConflict):
+                self.abort_command()
+        self.assertEqual(write.call_count, 1)
+        self.assertEqual(len(self.provider.calls), 1)
+        self.assertEqual(self.authoritative(), raced[0])
+        self.assertEqual(self.store.current()["completions"], {})
+
+    def test_abort_rechecks_full_state_after_absence_before_single_cas(self):
+        self.prepare_abort()
+        competitor = self.reader("abort-read-race")
+        original_provider = self.provider
+        raced = []
+
+        def race(*arguments):
+            response = original_provider(*arguments)
+            competitor.observe_delivery(self.intent["decision_id"], {"kind": "concurrent observation"})
+            raced.append(self.authoritative())
+            return response
+
+        self.provider = race
+        with patch.object(self.store, "_write", wraps=self.store._write) as write:
+            with self.assertRaises(JournalConflict):
+                self.abort_command()
+        self.assertEqual(write.call_count, 0)
+        self.assertEqual(self.authoritative(), raced[0])
+        self.assertEqual(self.store.current()["completions"], {})
+
+    def test_aborted_reservation_cannot_acquire_a_result_session_or_automatic_retry(self):
+        self.prepare_abort()
+        result = self.abort_command()
+        after = self.checkpoint(result["state_sha"])
+        from task_lifecycle import complete, reconcile, start
+        original = copy.deepcopy(after)
+        self.assertFalse(complete(after, TARGET, outcome="no_change", now=NOW)["changed"])
+        self.assertFalse(reconcile(after, now=NOW)["changed"])
+        with self.assertRaises(ValueError):
+            start(after, TARGET, session_id="invented", dispatch_key=self.target(after)["execution"]["dispatch_key"])
+        self.assertEqual(after, original)
+        for field, value in (("session_id", "invented"), ("session_state", "COMPLETED"),
+                             ("outcome", "no_change"), ("state", "retry"), ("dispatch_aborted_at", "invalid")):
+            changed = copy.deepcopy(after)
+            self.target(changed)["execution"][field] = value
+            self.assertTrue(validate(changed), field)
+
+    def test_abort_fold_rejects_forged_absence_stage_identity_and_frontier(self):
+        self.prepare_abort()
+        result = self.abort_command()
+        after = self.checkpoint(result["state_sha"])
+        for change in ("provider", "complete", "identity", "stage", "frontier", "source", "rerun"):
+            changed = copy.deepcopy(after["dispatch_journal"])
+            event = changed["events"][-1]
+            if change == "provider":
+                event["provider_proof"]["method"] = "POST"
+            elif change == "complete":
+                event["provider_proof"]["pagination_complete"] = False
+            elif change == "identity":
+                event["identity"]["attempts"] += 1
+            elif change == "stage":
+                event["proof"]["checkpoint_diagnostics"]["checkpoint_stage"] = "created_session_binding"
+            elif change == "frontier":
+                event["frontier_seq"] += 1
+            elif change == "rerun":
+                event["owner_trigger"]["run_attempt"] = "2"
+            else:
+                event["owner_trigger"]["workflow"] = journal.OWNER_DISPATCH_BINDING
+            event["receipt_id"] = journal._aborted_dispatch_receipt(event)
+            event["event_id"] = digest({key: value for key, value in event.items() if key != "event_id"})
+            self.assertTrue(validate_journal(changed), change)
+
     def test_get_observation_preserves_entire_body_journal_history_and_remote(self):
         self.prepare()
         self.assert_original_lineage()

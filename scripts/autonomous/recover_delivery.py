@@ -7,9 +7,10 @@ no-op, failed queued report checkpoint, or proven automatic pre-mutation save
 failure against its immutable baseline. Reserved
 dispatch observation is GET-only; original-session binding may change only the
 selected task's execution.state and execution.session_id by one native state CAS,
-appending only its typed owner recovery receipt to the journal.
+appending only its typed owner recovery receipt to the journal. A separately
+selected pre-create abort parks the original reservation without a worker result.
 None creates a provider session, switches the loop, issues execution rights, or
-changes task attempts, requests, history, receipts, outcomes, or clocks.
+changes task attempts, requests, prior history, receipts, outcomes or controller clocks.
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from dispatch_journal import (DIGEST, SHA, JournalConflict, JournalStore, Journa
 from jules_dispatch import KeyRing
 from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
-from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
+from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_ABORT, OWNER_DISPATCH_BINDING,
                                 OWNER_DISPATCH_OBSERVATION, OWNER_FAILED_NEXT_CHECKPOINT,
                                 OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
                                 add_arguments, context, recheck_context)
@@ -46,6 +47,8 @@ OPERATIONS = {
                              frozenset(("observed",))),
     "dispatch_binding": (OWNER_DISPATCH_BINDING, "owner_dispatch_binding",
                          frozenset(("bound", "already_bound"))),
+    "dispatch_abort": (OWNER_DISPATCH_ABORT, "owner_dispatch_abort",
+                       frozenset(("aborted", "already_aborted"))),
 }
 
 
@@ -287,10 +290,11 @@ def main(argv=None):
                            "report_checkpoint": store.complete_failed_report_checkpoint,
                            "failed_next_checkpoint": store.complete_failed_next_checkpoint,
                            "dispatch_observation": store.observe_reserved_dispatch,
-                           "dispatch_binding": store.bind_reserved_dispatch}[operation]
+                           "dispatch_binding": store.bind_reserved_dispatch,
+                           "dispatch_abort": store.abort_reserved_dispatch}[operation]
         parameters = dict(decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
                           owner_trigger=binding.trigger, config=config)
-        if operation in {"dispatch_observation", "dispatch_binding"}:
+        if operation in {"dispatch_observation", "dispatch_binding", "dispatch_abort"}:
             # Reuse the existing Jules keyring, with no endpoint override or secret output.
             parameters["api_keys"] = KeyRing([os.environ.get("JULES_API_KEY", ""),
                                              os.environ.get("JULES_API_KEY_BACKUP", "")])

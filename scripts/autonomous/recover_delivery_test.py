@@ -793,7 +793,10 @@ class ObservationOutputTests(unittest.TestCase):
                 self.validate(value)
 
 
-class ReservedDispatchOwnerEntryTests(unittest.TestCase):
+class ReservedDispatchOwnerFixture(unittest.TestCase):
+    def prepare_fixture(self, fixture):
+        fixture.prepare()
+
     def setUp(self):
         from reserved_dispatch_checkpoint_test import ReservedDispatchCheckpointTests
         from dispatch_recovery_test import PRIMARY
@@ -805,7 +808,7 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         f.git(f.repo, "add", "autonomous-project.json")
         f.git(f.repo, "commit", "-m", "synthetic checked owner config")
         self.control = f.git(f.repo, "rev-parse", "HEAD")
-        f.prepare()
+        self.prepare_fixture(f)
         self.expected = f.pin
         f.git(f.repo, "remote", "set-url", "origin", "https://github.com/" + f.config["repository"])
         native_git = state_store._git
@@ -906,6 +909,48 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         self.assertEqual(self.fixture.authoritative(), before)
         self.assertEqual(self.pushes, pushes)
 
+
+class ReservedDispatchAbortEntryTests(ReservedDispatchOwnerFixture):
+    def prepare_fixture(self, fixture):
+        fixture.prepare_abort()
+
+    def test_abort_cli_preserves_identity_and_returns_only_one_durable_receipt(self):
+        self.select("dispatch_abort")
+        before = self.fixture.authoritative()
+        with patch.dict(os.environ, {"GITHUB_ACTOR": "foreign", "GITHUB_TRIGGERING_ACTOR": "foreign"}):
+            self.assert_blocked_unchanged("owner_dispatch_abort_context_rejected")
+        self.assertEqual(self.fixture.provider.calls, [])
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"], self.pushes), (0, "aborted", 1))
+        self.assertEqual(set(result), {"outcome", "decision_id", "receipt_id", "state_sha", "frontier_seq"})
+        after = self.fixture.authoritative()
+        self.assertNotEqual(after[0], before[0])
+        task = self.fixture.target(json.loads(after[1]))
+        self.assertEqual((task["status"], task["execution"]["state"], task["execution"]["attempts"]),
+                         ("blocked", "dispatch_aborted", 1))
+        self.assertEqual(task["execution"]["research_request"], self.fixture.target(self.fixture.native)["execution"]["research_request"])
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        status, replay = self.invoke()
+        self.assertEqual((status, replay["outcome"], replay["receipt_id"]), (0, "already_aborted", result["receipt_id"]))
+        self.assertEqual(self.fixture.authoritative(), after)
+        self.assertEqual((self.pushes, len(self.fixture.provider.calls)), (1, 1))
+
+    def test_abort_cli_lost_push_ack_never_repeats_provider_lookup_or_cas(self):
+        self.select("dispatch_abort")
+        self.lose_ack = True
+        status, result = self.invoke()
+        self.assertEqual((status, result), (1, {"outcome": "blocked", "reason": "owner_dispatch_abort_acknowledgement_unknown"}))
+        self.assertEqual(self.pushes, 1)
+        after = self.fixture.authoritative()
+        self.lose_ack = False
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "already_aborted"))
+        self.assertEqual(self.fixture.authoritative(), after)
+        self.assertEqual((self.pushes, len(self.fixture.provider.calls)), (1, 1))
+
+
+class ReservedDispatchOwnerEntryTests(ReservedDispatchOwnerFixture):
     def test_get_only_cli_observation_retains_proof_without_state_push(self):
         before = self.fixture.authoritative()
         status, result = self.invoke()

@@ -282,6 +282,26 @@ def quarantine(manifest: dict, task_id: str, *, reason: str, now: datetime | Non
             "status": task.get("status"), "attempts": attempts_of(task)}
 
 
+def abort_dispatch(manifest: dict, task_id: str, *, dispatch_key: str, now: datetime) -> dict:
+    """Park a proven pre-CreateSession failure without fabricating a worker outcome."""
+    task = find_task(manifest, task_id)
+    block = (task or {}).get("execution") or {}
+    if (task is None or task.get("task_type") != "project_discovery"
+            or task.get("status") != STATUS_IN_PROGRESS or block.get("state") != "dispatching"
+            or block.get("dispatch_key") != dispatch_key or block.get("session_id") != ""
+            or block.get("outcome") or block.get("session_state") or block.get("pull_request")
+            or block.get("finished_at") or "research_result" in task
+            or validate_task_request(task, required=True)):
+        raise ValueError("dispatch abort requires the original unbound research reservation")
+    started = parse_iso(block.get("started_at"))
+    if started is None or now.tzinfo is None or now.utcoffset() is None or now < started:
+        raise ValueError("dispatch abort requires a real aware time after the reservation")
+    task["status"] = STATUS_BLOCKED
+    block.update(state="dispatch_aborted", note="owner confirmed guard failure before CreateSession",
+                 dispatch_aborted_at=iso(now))
+    return {"changed": True, "reason": "dispatch_aborted", "task_id": task_id}
+
+
 def start(
     manifest: dict,
     task_id: Any,
