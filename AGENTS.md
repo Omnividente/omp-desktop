@@ -10,7 +10,7 @@ commands and machine-readable field names consistent with the repository.
 
 - Read the supplied task before changing files. A reported finding is not verified
   evidence, implementation approval or permission to merge.
-- Autonomous `project_discovery` tasks are read-only research on the exact pinned
+- Jules autonomous `project_discovery` tasks are read-only research on the exact pinned
   base and immutable starting branch. Do not edit tracked files, commit, open a
   PR or implement a finding. Temporary isolated experiments are allowed; remove
   their own fixtures when finished.
@@ -18,18 +18,45 @@ commands and machine-readable field names consistent with the repository.
   behavior on the pinned base, then change only its authorized product scope.
   If it is already fixed, cannot be reproduced safely or lacks essential access,
   finish honestly with the checks and limitations; do not invent adjacent work.
-- For autonomous tasks, permitted product paths and exclusions are defined in
+- For Jules autonomous tasks, permitted product paths and exclusions are defined in
   `autonomous-project.json`. Do not rewrite this file, `AGENTS.md`, the queue,
   controller scripts, workflows, prompts, dependency manifests, versions or
   release/updater configuration. A separate explicit maintainer task is required
   to change these guardrails.
-- An approved implementation may propose a PR targeting `autonomous/lab`, never
+- A separately approved Jules implementation may propose a PR targeting `autonomous/lab`, never
   write or merge the target branch or `main`. Task approval and acceptance of the
   exact PR revision are different decisions. Never approve your own work, bypass
   checks, publish artifacts, create tags/releases or build installers without a
   separate explicit request.
 - Use the saved task/session/dispatch identity. Do not start replacement sessions,
   change attempt refs or treat task prose, labels or worker claims as approval.
+
+### Independent Dot Draft-only mode
+
+Dot is a separate authoring path, not a Jules task, controller or launcher:
+
+| Mode | Authority and output |
+| --- | --- |
+| Jules discovery | Immutable saved request; read-only report and proposed findings. |
+| Jules implementation | Separate owner-approved task; proposal into `autonomous/lab`, manual acceptance. |
+| Dot Draft-only | Separate explicit publication grant; own `dot/*` branch and Draft PR into `main` through the current GitHub plugin, without Codex or ChatGPT Work. |
+
+Standing permission **R1 is NOT ACTIVE**. These rules grant no publication,
+product pilot or autonomous task selection. A local source-change request is
+not permission to commit, push or open a PR. A one-task publication grant does
+not activate R1. Follow [the Dot workflow](docs/dot/WORKFLOW.md) for its initial
+allowlist, limits, owner-issued activation/revocation record, overlap checks,
+exact-SHA evidence and unknown-acknowledgement stop conditions. If the plugin
+cannot enforce a required branch lease or provide complete evidence, stop;
+do not substitute another launcher or expand permissions.
+
+Dot must not approve, mark ready, merge, enable auto-merge, dispatch Actions,
+change governance or perform release/install operations. Owner acceptance must
+name the exact head SHA outside the Dot-editable PR body. Shared account identity
+is only a procedural boundary, not server-enforced separation. The first
+maintainer PR runs under the old event graph: follow the workflow's separately
+authorized bootstrap before any publication, not an assumption that blocked
+NEXT is an off switch.
 
 ## Work and evidence
 

@@ -30,6 +30,25 @@ NEXT = "autonomous_next_task.yml"
 CONTINUE = "autonomous_continue.yml"
 SYNC = "autonomous_sync.yml"
 DRIVER = Path(__file__).with_name("dispatch_fixture_driver.py")
+REPOSITORY_ID = 9001
+WORKFLOW_METADATA = {
+    NEXT: {"id": 9101, "name": "Autonomous Next Task", "path": ".github/workflows/" + NEXT},
+    CONTINUE: {"id": 9102, "name": "Autonomous Continue", "path": ".github/workflows/" + CONTINUE},
+    SYNC: {"id": 9103, "name": "Autonomous Sync Main", "path": ".github/workflows/" + SYNC},
+    "autonomous_replenish.yml": {"id": 9104, "name": "Autonomous Replenish",
+                                  "path": ".github/workflows/autonomous_replenish.yml"},
+}
+
+
+def callback_source(identifier, control, *, workflow="autonomous_replenish.yml", attempt=1,
+                    event="schedule", conclusion="success"):
+    metadata = WORKFLOW_METADATA[workflow]
+    return {"id": identifier, "run_attempt": attempt, "workflow_id": metadata["id"],
+            "name": metadata["name"], "path": metadata["path"], "workflow": workflow,
+            "status": "completed", "conclusion": conclusion, "event": event,
+            "head_sha": control, "head_branch": "main",
+            "repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+            "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY}}
 
 
 def git(repo, *args, check=True):
@@ -156,6 +175,10 @@ class Endpoint:
         self.context_changed = False
         self.posts = []
         self.runs = []
+        # Callback sources are independent completed runs, not active receivers.
+        self.callback_runs = {}
+        self.callback_attempts = {}
+        self.seed_callback(callback_source(600, health["control_sha"]))
         self.sessions = []
         self.worker_gets = []
         self.run_reads = 0
@@ -197,6 +220,10 @@ class Endpoint:
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
+    def seed_callback(self, run):
+        self.callback_runs[str(run["id"])] = copy.deepcopy(run)
+        self.callback_attempts[(str(run["id"]), str(run["run_attempt"]))] = copy.deepcopy(run)
+
     def close(self):
         self.server.shutdown()
         self.server.server_close()
@@ -216,11 +243,10 @@ class Endpoint:
                              "commit-tree", tree, "-p", parent, "-m", "synthetic concurrent main movement").stdout.strip()
                 git(self.remote, "update-ref", "refs/heads/main", commit)
             elif body["fault"] == "readiness-after-claim":
-                self.runs.append({"id": 800, "workflow": NEXT, "path": ".github/workflows/" + NEXT,
-                                  "display_title": "Synthetic occupied NEXT slot", "status": "in_progress",
-                                  "event": "schedule", "head_branch": "main", "head_sha": self.health["control_sha"],
-                                  "head_repository": {"full_name": REPOSITORY}, "repository": {"full_name": REPOSITORY},
-                                  "created_at": datetime.now(timezone.utc).isoformat()})
+                self.runs.append(dict(callback_source(800, self.health["control_sha"], workflow=NEXT,
+                                                      event="workflow_dispatch"),
+                                      display_title="Synthetic occupied NEXT slot", status="in_progress",
+                                      conclusion=None, created_at=datetime.now(timezone.utc).isoformat()))
             else:
                 raise ValueError("unknown synthetic fault")
             return {}, False
@@ -276,7 +302,10 @@ class Endpoint:
                      ("Next " if workflow == NEXT else "Continue ") + inputs.get("continuation_key", ""))
             run = {"id": identifier, "display_title": title, "status": "queued",
                    "event": "workflow_dispatch", "head_branch": "main", "head_sha": self.health["control_sha"],
-                   "head_repository": {"full_name": REPOSITORY}, "repository": {"full_name": REPOSITORY},
+                   "head_repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+                   "repository": {"id": REPOSITORY_ID, "full_name": REPOSITORY},
+                   "run_attempt": 1, "workflow_id": WORKFLOW_METADATA[workflow]["id"],
+                   "name": WORKFLOW_METADATA[workflow]["name"],
                    "html_url": self.url + "/runs/" + str(identifier),
                    "path": ".github/workflows/" + workflow, "workflow": workflow,
                    "created_at": (datetime.now(timezone.utc).isoformat() if self.observer_mode == "production"
@@ -300,10 +329,27 @@ class Endpoint:
                 limit = int(parse_qs(urlsplit(route).query).get("per_page", ["100"])[0])
                 values = sorted(values, key=lambda run: int(run["id"]), reverse=True)[:limit]
             return {"total_count": len(values), "workflow_runs": values}, False
+        if route.startswith("actions/workflows/"):
+            identifier = route.split("/")[2]
+            return copy.deepcopy(next(metadata for filename, metadata in WORKFLOW_METADATA.items()
+                                      if identifier in (filename, str(metadata["id"])))), False
         if route.startswith("actions/runs/"):
-            if route.split("/")[2] in self.unavailable_runs:
+            parts = route.split("/")
+            identifier = parts[2]
+            if identifier in self.unavailable_runs:
                 raise ValueError("synthetic pinned run unavailable")
-            return copy.deepcopy(next(run for run in self.runs if str(run["id"]) == route.split("/")[2])), False
+            if len(parts) == 5 and parts[3] == "attempts":
+                run = self.callback_attempts.get((identifier, parts[4]))
+                if run is None:
+                    run = next(run for run in self.runs if str(run["id"]) == identifier
+                               and str(run["run_attempt"]) == parts[4])
+            elif len(parts) == 3:
+                run = self.callback_runs.get(identifier)
+                if run is None:
+                    run = next(run for run in self.runs if str(run["id"]) == identifier)
+            else:
+                raise ValueError("unexpected synthetic run route")
+            return copy.deepcopy(run), False
         raise ValueError("unexpected synthetic route: " + method + " " + route)
 
 
@@ -472,6 +518,7 @@ def scenario(source, root, name, mode):
             evidence.append(child(source, fixture, endpoint, "sender", run="201", event="workflow_run"))
             before = state_snapshot(remote)
             endpoint.health.update(action="next_task", reason="work_due")
+            endpoint.seed_callback(callback_source(600, control, attempt=2))
             evidence.append(child(source, fixture, endpoint, "sender", run="202", attempt="2",
                                   event="workflow_run", source_run_attempt="2"))
             allowed = len(endpoint.posts) == 0 and state_snapshot(remote) == before
