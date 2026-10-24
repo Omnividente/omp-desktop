@@ -19,6 +19,8 @@ from dispatch_journal import (CONTINUE, NEXT, JournalConflict, JournalUncertain,
                               _reserved_dispatch_receipt, digest, materialize, substantive_digest, validate_journal)
 from dispatch_recovery_test import API_BASE, NOW, PRIMARY, Transport, page, provider_session
 from jules_dispatch import Response
+from proposal_backlog import decide
+from proposal_backlog_test import proposal
 from next_no_effect_artifact_test import FailedCheckpointSource
 from research_request import CONTRACT_VERSION, sha256_json, snapshot
 from state_store import load_state
@@ -192,7 +194,7 @@ class ReservedDispatchCheckpointTests(unittest.TestCase):
         sha = state_store._commit(self.repo, (json.dumps(data, sort_keys=True) + "\n").encode(), parent)
         if publish:
             self.git(self.repo, "push", "--force-with-lease=" + STATE_REF + ":" + self.pin,
-                     "origin", sha + ":" + STATE_REF)
+                     str(self.remote), sha + ":" + STATE_REF)
             self.pin = sha
             self.owner["expected_state_sha"] = sha
         return sha
@@ -279,6 +281,66 @@ class ReservedDispatchCheckpointTests(unittest.TestCase):
         self.assertEqual(self.source.downloads, ["actions/artifacts/301/zip"])
         self.assert_get_only()
         self.assert_private(observed)
+
+    def test_observation_after_later_owner_decisions_preserves_current_queue_without_binding(self):
+        proposals = [proposal("later-decision-" + str(index)) for index in range(5)]
+        self.data["tasks"].extend(proposals)
+        self.prepare()
+        changed = copy.deepcopy(self.native)
+        for index, action in enumerate(("approve", "reject", "resolve", "resolve", "resolve")):
+            decide(changed, self.config, action=action, task_id=proposals[index]["id"],
+                   actor="owner-a" if index % 2 == 0 else "owner-b",
+                   note="SYNTHETIC owner decision after the failed checkpoint",
+                   now="2026-10-06T10:10:00Z")
+        self.raw_commit(changed, publish=True)
+        before = self.authoritative()
+        with patch.object(self.store, "_write", wraps=self.store._write) as write:
+            observed = self.owner_command(observe=True)
+        self.assertEqual(write.call_count, 0)
+        self.assertEqual(observed["outcome"], "observed")
+        self.assertEqual(observed["state_sha"], self.pin)
+        self.assertEqual(observed["native_report"]["state_sha"], self.native_sha)
+        self.assertEqual(observed["provider_proof"]["session_id"], self.session["id"])
+        self.assertEqual(observed["identity"]["research_request_sha256"],
+                         sha256_json(self.target(self.native)["execution"]["research_request"]))
+        self.assertEqual(self.authoritative(), before)
+        self.assertEqual(self.checkpoint(self.pin), changed)
+        self.assertEqual(len(self.provider.calls), 2)
+        self.assert_get_only()
+        self.assert_private(observed)
+        self.assert_rejected_unchanged()
+        self.assertEqual(len(self.provider.calls), 2, "observation must not widen the binding guard")
+
+    def test_later_owner_decision_cannot_hide_foreign_actor_or_protected_body_drift(self):
+        self.data["tasks"].append(proposal("later-decision"))
+        self.prepare()
+        decided = copy.deepcopy(self.native)
+        decide(decided, self.config, action="reject", task_id="later-decision", actor="owner-a",
+               note="SYNTHETIC legitimate later decision", now="2026-10-06T10:10:00Z")
+        for change in ("actor", "clock", "history"):
+            with self.subTest(change=change):
+                changed = copy.deepcopy(decided)
+                if change == "actor":
+                    self.target(changed, "later-decision")["proposal_decision"]["actor"] = "stranger"
+                elif change == "clock":
+                    changed["controller"]["last_tick_at"] = "2026-10-06T10:10:00Z"
+                else:
+                    changed["protected"]["history"].append({"result": "SYNTHETIC rewritten history"})
+                self.raw_commit(changed, publish=True)
+                self.assert_rejected_unchanged(observe=True)
+                self.assertEqual(self.provider.calls, [])
+                self.reset_native()
+
+    def test_later_owner_decision_cannot_rewrite_an_existing_closed_decision(self):
+        self.data["tasks"].append(proposal("already-resolved"))
+        decide(self.data, self.config, action="resolve", task_id="already-resolved", actor="owner-a",
+               note="SYNTHETIC original owner decision", now="2026-10-06T10:00:00Z")
+        self.prepare()
+        changed = copy.deepcopy(self.native)
+        self.target(changed, "already-resolved")["proposal_decision"]["note"] = "SYNTHETIC rewritten decision"
+        self.raw_commit(changed, publish=True)
+        self.assert_rejected_unchanged(observe=True)
+        self.assertEqual(self.provider.calls, [])
 
     def test_bind_changes_only_original_execution_identity_and_one_typed_frontier_event(self):
         self.prepare()

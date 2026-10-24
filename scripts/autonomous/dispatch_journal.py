@@ -1379,7 +1379,7 @@ class JournalStore:
 
     def _reserved_dispatch_baseline(self, data, state_sha, state, decision_id, expected_state_sha, trigger, config):
         from next_no_effect_artifact import authenticated_failed_save_checkpoint
-        from proposal_backlog import authorize
+        from proposal_backlog import authorize, decide
         from state_store import _git
         authorize(config, trigger["actor"])
         if trigger["repository"] != config.get("repository") or state_sha != expected_state_sha:
@@ -1404,10 +1404,28 @@ class JournalStore:
                 raise JournalConflict("reserved dispatch native checkpoint is not in the original state lineage")
         before_events = before["dispatch_journal"]["events"]
         native_state = materialize(native["dispatch_journal"])
-        if (substantive_digest(before) != executor["before_digest"] or native != data
+        if (substantive_digest(before) != executor["before_digest"]
                 or native["dispatch_journal"]["events"][:len(before_events)] != before_events
                 or native_state["active_intent"] != intent or native_state["executor_claims"].get(decision_id) != executor):
             raise JournalConflict("reserved dispatch native body or original execution changed")
+        if native != data:
+            if trigger["workflow"] != OWNER_DISPATCH_OBSERVATION:
+                raise JournalConflict("reserved dispatch binding requires the unchanged full native checkpoint")
+            # Read-only observation may retain later owner decisions, never reset
+            # them to the failed checkpoint or infer permission to bind a session.
+            retained = copy.deepcopy(native)
+            native_tasks = {item["id"]: item for item in native["tasks"]}
+            try:
+                for current_task in data["tasks"]:
+                    if current_task == native_tasks.get(current_task["id"]):
+                        continue
+                    decision = current_task["proposal_decision"]
+                    decide(retained, config, action=decision["action"], task_id=current_task["id"],
+                           actor=decision["actor"], note=decision["note"], now=decision["at"])
+            except (ValueError, KeyError, TypeError, AttributeError):
+                raise JournalConflict("reserved dispatch observation cannot reconstruct later owner decisions") from None
+            if retained != data:
+                raise JournalConflict("reserved dispatch observation changed more than recorded owner decisions")
         excluded = {"tasks", "controller", "dispatch_journal"}
         if ({key: value for key, value in before.items() if key not in excluded}
                 != {key: value for key, value in native.items() if key not in excluded}):

@@ -917,6 +917,32 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         self.assertEqual(len(self.fixture.provider.calls), 2)
         self.fixture.assert_get_only()
 
+    def test_cli_observation_retains_later_owner_decision_without_binding_or_state_push(self):
+        from proposal_backlog import decide
+        from proposal_backlog_test import proposal
+
+        f = self.fixture
+        native = copy.deepcopy(f.native)
+        native["tasks"].append(proposal("later-owner-proposal"))
+        f.native_sha = f.raw_commit(native, publish=True)
+        f.set_report_pin(f.native_sha)
+        current = copy.deepcopy(native)
+        decide(current, f.config, action="resolve", task_id="later-owner-proposal", actor="owner-a",
+               note="SYNTHETIC later owner decision", now="2026-10-06T10:10:00Z")
+        self.expected = f.raw_commit(current, publish=True)
+        self.event["inputs"]["expected_state_sha"] = self.expected
+        self.event_path.write_text(json.dumps(self.event), encoding="utf-8")
+        before = f.authoritative()
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "observed"))
+        self.assertEqual(result["state_sha"], self.expected)
+        self.assertEqual(result["native_report"]["state_sha"], f.native_sha)
+        self.assertNotEqual(result["state_sha"], result["native_report"]["state_sha"])
+        self.assertEqual(f.authoritative(), before)
+        self.assertEqual(self.pushes, 0)
+        self.assertEqual(len(f.provider.calls), 2)
+        f.assert_get_only()
+
     def test_binding_calls_one_cas_and_rerun_only_reads_same_receipt(self):
         self.select("dispatch_binding")
         status, result = self.invoke()
