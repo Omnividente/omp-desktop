@@ -223147,7 +223147,7 @@
       "id": "research-workspace-navigation-performance-22",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "perf",
         "quality",
@@ -223272,7 +223272,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
+        "state": "dispatch_aborted",
         "session_id": "",
         "dispatch_key": "7d156ced39f031ee07824e01",
         "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
@@ -223281,7 +223281,7 @@
         "finished_at": "",
         "pull_request": 0,
         "outcome": "",
-        "note": "",
+        "note": "owner confirmed guard failure before CreateSession",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
@@ -223455,7 +223455,8 @@
               ]
             }
           ]
-        }
+        },
+        "dispatch_aborted_at": "2026-10-24T23:08:04.203436Z"
       }
     }
   ],
@@ -587358,6 +587359,107 @@
         "before_state_sha": "2eb109199dfe9dcd08fe67f9372592e97208411c",
         "before_digest": "f138ed4adea0a86d4f88c825858b541612461bc688c53d31c88284042ac012d8",
         "event_id": "f21a27826ca415d86e4eeaccb5f9b8ee59e406ef52d822edaf83b1fce6bc5090"
+      },
+      {
+        "type": "OwnerDispatchAbort",
+        "at": "2026-10-24T23:08:04.203436Z",
+        "receipt_id": "3902268ffb466ecbdadb22f14b2d80252747cf65451c964c959198ac8e6c43af",
+        "decision_id": "a311fa9e6e51d8dc56632877bdb69aafb2630ee2b5c720f46827f8fda5b2393f",
+        "executor_claim_id": "6fb0fe80885804e191b8220707b20edb0b6cde8f47456fd9109789bddb1d0b89",
+        "kind": "reserved_dispatch_aborted_before_create",
+        "owner_trigger": {
+          "run_id": "40140959501",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "59ea2bd49e6f4b7805cd24a1adb23b395e729842",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "workflow": "autonomous_abort_dispatch.yml",
+          "ref": "refs/heads/main",
+          "expected_state_sha": "1f9cf4c920d5c70743269556609c6b15fe9b4c0d",
+          "decision_id": "a311fa9e6e51d8dc56632877bdb69aafb2630ee2b5c720f46827f8fda5b2393f"
+        },
+        "before_state_sha": "1f9cf4c920d5c70743269556609c6b15fe9b4c0d",
+        "before_digest": "8ca6a7f0e43f7499f24ee2063d8a7b0803db013e9423c2d185bcb4fea0f8c20c",
+        "after_digest": "7e82cd22321d775d508d5b922b6ff34b55b1f7ad28fea16713f09d13ba98e77b",
+        "identity": {
+          "task_id": "research-workspace-navigation-performance-22",
+          "attempts": 1,
+          "dispatch_key": "7d156ced39f031ee07824e01",
+          "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
+          "starting_branch": "autonomous/attempt-7d156ced39f031ee07824e01",
+          "research_request_sha256": "4988220b7fbafb2cfa6b5dd4f668d93dd6b54a2a223783d4ac613ae487d3cf9d"
+        },
+        "provider_proof": {
+          "task_id": "research-workspace-navigation-performance-22",
+          "attempts": 1,
+          "dispatch_key": "7d156ced39f031ee07824e01",
+          "base_sha": "3f542212066112284cc0e1d49096da512dd54207",
+          "starting_branch": "autonomous/attempt-7d156ced39f031ee07824e01",
+          "research_request_sha256": "4988220b7fbafb2cfa6b5dd4f668d93dd6b54a2a223783d4ac613ae487d3cf9d",
+          "kind": "reserved_dispatch_absence",
+          "repository": "Omnividente/omp-desktop",
+          "provider": "jules",
+          "method": "GET",
+          "authenticated": true,
+          "pagination_complete": true,
+          "request_sha256": "148ecd2e53ac19c3f89363ae7b58ed27aed10a027e772f2ce2e2a7fda4e01600",
+          "sessions_sha256": "35ee6da8d54a3de02858a3229816980798f02491cd2d2ab90021740a59d8d2b5",
+          "observed_at": "2026-10-24T23:06:22.196723Z"
+        },
+        "proof": {
+          "producer": {
+            "run_id": "39015503668",
+            "run_attempt": "1",
+            "event_name": "workflow_dispatch",
+            "control_sha": "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb",
+            "repository": "Omnividente/omp-desktop",
+            "actor": "Omnividente"
+          },
+          "workflow": "autonomous_next_task.yml",
+          "ref": "refs/heads/main",
+          "artifact_id": "12094686985",
+          "artifact_name": "laboratory-result-39015503668-1",
+          "artifact_sha256": "177b1c6f3687a1d12d6a07f00ae58cf7a1268a22c13526a5aa9b4d0e86dc1f61",
+          "report_sha256": "567d4f52ca533d5cf495dc537e98e1404015ec67eb1a6a399ea87e6b903a41be",
+          "checkpoint_diagnostics": {
+            "version": 1,
+            "checkpoint_stage": "quarantine_create_guard",
+            "exception_category": "state_write",
+            "causal_chain": [
+              "state_write",
+              "journal_conflict"
+            ],
+            "git_operation": "unknown",
+            "git_returncode": null,
+            "git_timeout": null,
+            "expected_state_sha": null,
+            "observed_state_sha": null,
+            "acknowledgement_uncertain": null
+          }
+        },
+        "native_report": {
+          "action": "stopped",
+          "merge_mode": "manual",
+          "reason": "state_write_failed",
+          "attention": [
+            {
+              "reason": "state save failed; reload the authoritative queue before continuing"
+            }
+          ],
+          "state_sha": "393a6b12541136f55c9d28768bff2ac369e13bbd"
+        },
+        "evidence": {
+          "status": "aborted_before_create",
+          "reason": "state_write_failed",
+          "before_state_sha": "2eb109199dfe9dcd08fe67f9372592e97208411c",
+          "after_state_sha": "393a6b12541136f55c9d28768bff2ac369e13bbd",
+          "before_digest": "f138ed4adea0a86d4f88c825858b541612461bc688c53d31c88284042ac012d8",
+          "checkpoint_digest": "8ca6a7f0e43f7499f24ee2063d8a7b0803db013e9423c2d185bcb4fea0f8c20c",
+          "after_digest": "7e82cd22321d775d508d5b922b6ff34b55b1f7ad28fea16713f09d13ba98e77b"
+        },
+        "frontier_seq": 752,
+        "event_id": "b3bf7be4c52dd4284ad6b3203c154005677312c270461a164fd18c064aec3639"
       }
     ]
   }
