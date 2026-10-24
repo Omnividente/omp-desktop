@@ -9,11 +9,22 @@ from __future__ import annotations
 import re
 
 from build_jules_request import dispatch_key
+from checkpoint_diagnostics import OBSERVATION_FAILURES
 from jules_dispatch import (DEFAULT_API_BASE, MARKER_RE, TITLE_MARKER_RE, KeyRing,
                             extract_key, get_session, list_sessions, session_matches,
                             session_resource, urllib_transport)
 from research_request import CONTRACT_VERSION, saved_request, sha256_json
 from task_lifecycle import iso, utcnow
+
+
+class ObservationError(RuntimeError):
+    """A closed read-only failure category, never provider text or credentials."""
+
+    def __init__(self, reason_code):
+        if reason_code not in OBSERVATION_FAILURES:
+            raise ValueError("invalid observation failure category")
+        super().__init__("reserved dispatch observation blocked")
+        self.reason_code = reason_code
 
 
 def _session_identity(session: dict, request: dict, key: str) -> str:
@@ -96,18 +107,37 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
         raise ValueError("reserved dispatch observation requires an aware timestamp")
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
     if not ring:
-        raise RuntimeError("no Jules API key is configured")
+        raise ObservationError("provider_auth")
+
+    last_status = None
 
     def read_only(method, url, headers, payload):
+        nonlocal last_status
         if method != "GET" or payload is not None:
             raise RuntimeError("reserved dispatch observation permits GET only")
         try:
-            return transport(method, url, headers, payload)
-        except Exception:
-            raise RuntimeError("reserved dispatch provider GET failed") from None
+            response = transport(method, url, headers, payload)
+            last_status = response.status
+            return response
+        except Exception as exc:
+            raise ObservationError("provider_unavailable") from exc
+
+    def failed_read():
+        if last_status in (401, 403):
+            return ObservationError("provider_auth")
+        if last_status in (0, 429) or (last_status is not None and last_status >= 500):
+            return ObservationError("provider_unavailable")
+        return ObservationError("provider_invalid")
+
+    try:
+        sessions = list_sessions(read_only, api_base, ring)
+    except ObservationError:
+        raise
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise failed_read() from exc
 
     matches = {}
-    for session in list_sessions(read_only, api_base, ring):
+    for session in sessions:
         if not isinstance(session, dict):
             raise RuntimeError("Jules ListSessions contains an invalid session")
         # A contradictory marker containing our key is evidence to reject,
@@ -122,11 +152,16 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
             raise RuntimeError("Jules ListSessions contains conflicting original session observations")
         matches[resource] = digest
     if not matches:
-        raise RuntimeError("original reserved Jules session is missing; creation is forbidden")
+        raise ObservationError("session_missing")
     if len(matches) != 1:
-        raise RuntimeError("multiple Jules sessions match the original reserved attempt")
+        raise ObservationError("session_ambiguous")
     resource, listed_hash = next(iter(matches.items()))
-    current = get_session(read_only, api_base, ring, resource)
+    try:
+        current = get_session(read_only, api_base, ring, resource)
+    except ObservationError:
+        raise
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise failed_read() from exc
     if _session_identity(current, request, key) != resource:
         raise RuntimeError("fresh Jules GetSession returned a different original resource")
     current_hash = _session_hash(current)

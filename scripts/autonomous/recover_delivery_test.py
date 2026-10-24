@@ -1043,6 +1043,105 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         self.assertEqual(len(self.fixture.provider.calls), 2)
         self.assertEqual(self.pushes, 0)
 
+    def assert_observer_diagnostic(self, stage, category):
+        from checkpoint_diagnostics import MAX_DIAGNOSTIC_BYTES, validate_diagnostics
+
+        raw = self.result_path.with_name("checkpoint-diagnostics.json").read_bytes()
+        diagnostic = json.loads(raw)
+        self.assertTrue(validate_diagnostics(diagnostic))
+        self.assertEqual(diagnostic["checkpoint_stage"], stage)
+        self.assertEqual(diagnostic["exception_category"], category)
+        self.assertLessEqual(len(raw), MAX_DIAGNOSTIC_BYTES)
+        self.fixture.assert_private(diagnostic)
+        self.assertNotIn("SYNTHETIC_PRIVATE", raw.decode("utf-8"))
+        return diagnostic
+
+    def test_observer_state_read_timeout_retains_safe_cause_without_provider_or_queue_write(self):
+        native_git = state_store._git
+
+        def unavailable(repo, *args, **kwargs):
+            if args[0] == "ls-remote":
+                failure = subprocess.TimeoutExpired(["git", "SYNTHETIC_PRIVATE_ARGV"], 90,
+                                                    stderr=b"SYNTHETIC_PRIVATE_STDERR")
+                failure.checkpoint_metadata = {"git_operation": "ls-remote", "git_timeout": True}
+                raise failure
+            return native_git(repo, *args, **kwargs)
+
+        with patch.object(state_store, "_git", side_effect=unavailable):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        diagnostic = self.assert_observer_diagnostic("observer_state_read", "timeout")
+        self.assertEqual(diagnostic["git_operation"], "ls-remote")
+        self.assertIs(diagnostic["git_timeout"], True)
+        self.assertEqual(self.fixture.provider.calls, [])
+
+    def test_observer_provider_auth_failure_is_not_mistaken_for_missing_session(self):
+        import jules_dispatch
+        import urllib.error
+
+        requests = []
+
+        def rejected(request, timeout):
+            requests.append(request.get_method())
+            raise urllib.error.HTTPError(request.full_url, 403, "SYNTHETIC_PRIVATE_MESSAGE", {},
+                                         io.BytesIO(b"SYNTHETIC_PRIVATE_BODY"))
+
+        with patch.object(jules_dispatch.urllib.request, "urlopen", side_effect=rejected):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assert_observer_diagnostic("observer_provider_read", "provider_auth")
+        self.assertEqual(requests, ["GET", "GET"])
+
+    def test_observer_completed_empty_list_is_distinct_from_failed_provider_get(self):
+        from dispatch_recovery_test import page
+
+        self.fixture.provider.responses = [page()]
+        self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assert_observer_diagnostic("observer_provider_read", "session_missing")
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+        self.fixture.assert_get_only()
+
+    def test_observer_ambiguous_original_sessions_never_selects_or_binds_one(self):
+        from dispatch_recovery_test import page
+
+        second = {**self.fixture.session, "id": "second-original", "name": "sessions/second-original"}
+        self.fixture.provider.responses = [page(self.fixture.session, second)]
+        self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assert_observer_diagnostic("observer_provider_read", "session_ambiguous")
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+        self.fixture.assert_get_only()
+
+    def test_observer_optional_diagnostic_failure_preserves_original_blocked_envelope(self):
+        from dispatch_recovery_test import page
+
+        self.fixture.provider.responses = [page()]
+        native_write = recover_delivery._atomic_bytes
+
+        def unavailable(path, raw):
+            if path.name == "checkpoint-diagnostics.json":
+                raise OSError("SYNTHETIC_PRIVATE_DIAGNOSTIC_IO")
+            return native_write(path, raw)
+
+        with patch.object(recover_delivery, "_atomic_bytes", side_effect=unavailable):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assertFalse(self.result_path.with_name("checkpoint-diagnostics.json").exists())
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+
+    def test_observer_diagnostic_cannot_overwrite_revision_file(self):
+        from dispatch_recovery_test import page
+
+        self.fixture.provider.responses = [page()]
+        arguments = self.arguments()
+        diagnostic_path = self.result_path.with_name("checkpoint-diagnostics.json")
+        arguments[arguments.index("--revision-file") + 1] = str(diagnostic_path)
+        before = self.fixture.authoritative()
+        status, result = self.invoke(arguments)
+        self.assertEqual((status, result), (1, {"outcome": "blocked",
+                         "reason": "owner_dispatch_observation_acknowledgement_unknown"}))
+        metadata = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+        self.assertEqual(metadata["state_sha"], self.expected)
+        self.assertEqual(metadata["source"], "state")
+        self.assertEqual(self.fixture.authoritative(), before)
+        self.assertEqual(self.pushes, 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -87,6 +87,16 @@ class CheckpointDiagnosticsTests(unittest.TestCase):
             self.assertIsNone(value[field])
         self.assertNotIn("SENTINEL", json.dumps(value))
 
+    def test_observation_category_cannot_inject_provider_prose(self):
+        from dispatch_recovery import ObservationError
+
+        failure = ObservationError("session_missing")
+        failure.reason_code = "SENTINEL_PROVIDER_PROSE"
+        diagnostic = diagnostic_for_failure("observer_provider_read", failure)
+        self.assertTrue(validate_diagnostics(diagnostic))
+        self.assertEqual(diagnostic["exception_category"], "unknown")
+        self.assertNotIn("SENTINEL", json.dumps(diagnostic))
+
     def test_validator_rejects_unbounded_or_prose_metadata(self):
         valid = diagnostic_for_failure("research_planner", RuntimeError("not retained"))
         mutations = [
