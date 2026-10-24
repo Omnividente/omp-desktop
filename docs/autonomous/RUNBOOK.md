@@ -76,6 +76,99 @@ from its attempt ref to lab can run the evidence gate. Control CI tests trusted
 `main` scripts for lab events and the proposed control-plane revision for a PR
 into `main`.
 
+## D1 Review isolation and cutover
+
+This section describes the D1 source contract, not a claim that the local change
+has been published or deployed. **Dot standing R1 is NOT ACTIVE; no product pilot
+or live recovery is authorized here.** The user-reported blocked NEXT remains a
+fact, not an off switch or evidence that other controller effects cannot occur.
+All existing recovery/frontier, finding-resolution, queue and history contracts
+below remain unchanged.
+
+Keep the three paths separate: Jules discovery is read-only; separately approved
+Jules implementation proposes into `autonomous/lab`; separately authorized Dot
+publication uses its own `dot/*` branch and a Draft into `main` through the current
+GitHub plugin, without Codex or ChatGPT Work. Local source permission is not
+publication permission. Owner exact-SHA acceptance, merge, packaging, release and
+installation are separate decisions. See [Dot workflow](../dot/WORKFLOW.md) for
+the inactive R1 allowlist/limits and owner-issued activation/revocation template.
+
+The intended deployed event graph removes all three edges:
+
+- `Quality Gate` completion -> `Autonomous Proposal Review`.
+- `pull_request_review` submitted/dismissed -> Proposal Review.
+- Proposal Review completion -> `Autonomous Continue`, for every conclusion;
+  its runtime callback exception is removed as well.
+
+Review accepts only an exact completed same-repository **Autonomous Evidence
+Gate** with source event `pull_request` for one current open lab PR, the schedule
+at minutes **17,47 UTC**, or an owner-manual invocation authorized by
+`proposal_backlog.authorize()`. There is no arbitrary callback-to-global-scan
+fallback. API failure/unknown/403, stale head/attempt, foreign repository, spoofed
+workflow path/ID/name and ambiguous PR association fail closed. A genuine failed
+Evidence completion may produce a blocked report, never readiness from failure.
+
+Admission is independent of the shared Review concurrency group. It checks exact
+metadata from a trusted pinned `main` checkout with read-only permissions before
+any state load. Dot-main/Quality Gate events do not enter this path or read state.
+**Safety deviation from Astra:** same-repository Evidence metadata alone cannot
+authorize a foreign lab PR to occupy Jules Review. Only metadata-eligible Evidence,
+schedule or owner-manual input may then read authoritative state read-only and
+require unique persisted `trusted_pull_request()` provenance before shared report
+concurrency. Unknown/ambiguous callback PRs are blocked; scans retain only persisted
+Jules proposals. No state writes, PAT, PR code, untrusted artifacts/cache or
+persisted checkout credentials are permitted in admission.
+
+Only the admitted reporting job receives `autonomous-proposal-review` concurrency,
+`cancel-in-progress: false` and PR-comment write permission. It checks out the
+admission's exact control SHA, rechecks metadata freshness after waiting and before
+loading state, then rechecks unique provenance against fresh state. Existing
+`proposal_review.decide()` rules remain: one persisted identity, complete paginated
+files/reviews/checks, exact CI/head/lab, and pre/post-publication rereads with
+withdrawal on races. Branch names, actor, labels and copied markers are not
+provenance. No queue schema, saved request or acceptance rule is relaxed.
+
+Late Quality Gate completion or submitted/dismissed owner review no longer wakes
+Review immediately. Fresh readiness appears on the **next successful scheduled
+Review** (or a separately authorized owner-manual report), after current CI/head/
+lab reads. The 17,47 cron is not a 30-minute latency guarantee: queueing, failures,
+disabled jobs and API errors can leave it unverified indefinitely. For a bounded
+operational follow-up, the owner may separately authorize manual Review and a
+bounded observation window; timeout is still unverified, never implied readiness.
+This document does not grant manual dispatch permission.
+
+Continue keeps its existing schedule, owner/keyed dispatch and intentional
+`push(main)` ingress. Its checked completion sources remain **Next Task, Sync Main,
+Loop Switch and Replenish**, including non-success terminal recovery signals.
+Authenticating exact source run/attempt/workflow/repository is not requiring a
+successful conclusion or current-main SHA for every frozen legitimate source.
+Existing intentional `push(main)` -> Sync/Continue stays unchanged. Independent
+schedules may run; isolation means no Dot-derived Review/Continue callback chain,
+not a global zero-run assertion.
+
+### First maintainer publication is still under the old graph
+
+The PR introducing D1 does not protect itself. The frozen pre-D1 baseline
+`a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12` still routes Quality Gate and submitted/
+dismissed reviews to Proposal Review, then Review to Continue, including failed,
+skipped and cancelled completions. Before publication the owner must separately
+authorize source publication and either a concrete pause/drain procedure with
+checked limits or explicit acceptance of identified old callback effects.
+Obtain a fresh authorized inventory of exact workflow blobs, source/control SHAs,
+run IDs/attempts and queued/running receivers; incomplete evidence keeps the work
+source-only. Do not infer safety from blocked NEXT, a proposed branch filter or
+the unmerged new YAML.
+
+Do not automatically change `JULES_LOOP_ENABLED`, schedules, workers or queue,
+cancel/resend/rerun, repin an executor, discard history or recover live state.
+After an authorized owner merge, verify actual deployed blobs and source SHAs,
+refresh the queued/running inventory and correlate legacy callbacks through their
+actual outcomes; old runs are not hot-patched by a merge. Only after exact-SHA
+cutover evidence and causal event-isolation acceptance may the owner separately
+authorize a product pilot. See the [full bootstrap sequence](../dot/WORKFLOW.md#first-maintainer-pr-bootstrap-and-cutover).
+Unknown/failed isolation stops Dot publication, not grants recovery or a pilot.
+
+
 ## Durable workflow execution rollout (separate, paused operation)
 
 The durable journal separates dispatch delivery from permission to execute.
@@ -929,10 +1022,12 @@ direct `sendMessage` API; do not assume it prevents either channel.
   a different nonempty key still uses chain; Actions expressions cannot validate
   journal keys. Ineligible feature/fork callbacks remain isolated before admission.
   Normal continuation uses explicit `workflow_dispatch` via the existing Loop
-  Switch PAT. Cron (every 5 minutes), trusted workflow completions and main
-  pushes are recovery signals, not the normal timer. Continue does not trigger
-  itself through `workflow_run`: cancellation of a replaced pending run must not
-  recursively generate more callbacks.
+  Switch PAT. Cron (every 5 minutes), checked Next Task/Sync Main/Loop Switch/
+  Replenish completions and main pushes are recovery signals, not the normal
+  timer. D1 removes Proposal Review callbacks, not the four regular sources or
+  their non-success terminal signals. Continue does not trigger itself through
+  `workflow_run`: cancellation of a replaced pending run must not recursively
+  generate more callbacks.
   Polling uses 5 minutes for new/changed foreground research, 15 minutes after
   30 minutes without a state change, and 30 minutes for implementation, detached
   research or known waiting when no earlier research is due. Deadlines use
@@ -1242,6 +1337,13 @@ Every completed implementation PR waits as
 scope, exact checks, proof and remaining risks. `ready_for_review` still requires
 your or Main AI's usefulness review and explicit acceptance. New commits or a
 moved lab base require a fresh report. Labels do not approve a revision.
+
+Under D1, late Quality Gate or owner review changes are reflected by the next
+successful scheduled Proposal Review, not an immediate review-event callback.
+The 17,47 schedule has no latency guarantee; an owner may separately authorize a
+manual report with a bounded observation window. See [D1 isolation](#d1-review-isolation-and-cutover)
+for source-only status, admission/provenance checks and the old-graph bootstrap.
+Dot Drafts into `main` are not Jules lab acceptance candidates.
 
 `blocked` means resolve the listed blockers and rerun the report. In particular,
 a failed supported TypeScript proof cannot be approved away. For

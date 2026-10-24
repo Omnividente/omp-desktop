@@ -90,7 +90,7 @@ def main():
     parser.add_argument("--run", default="100")
     parser.add_argument("--attempt", default="1")
     parser.add_argument("--source-run-attempt", default="1")
-    parser.add_argument("--source-run-id", default="101")
+    parser.add_argument("--source-run-id", default="600")
     parser.add_argument("--gates", default="success")
     parser.add_argument("--sync-result", type=Path)
     parser.add_argument("--owner", default="owner-a")
@@ -130,10 +130,10 @@ def main():
     os.environ["CONTROL_SHA"] = control
     if options.event == "workflow_run":
         event_path = work / "event.json"
-        event_path.write_text(json.dumps({"workflow_run": {
-            "id": int(options.source_run_id), "run_attempt": int(options.source_run_attempt), "name": "Autonomous Continue",
-            "head_repository": {"full_name": "synthetic/c-send"},
-            "head_branch": "main", "status": "completed"}}), encoding="utf-8")
+        source = http(options.endpoint, "/repos/synthetic/c-send/actions/runs/" + options.source_run_id
+                      + "/attempts/" + options.source_run_attempt)
+        event_path.write_text(json.dumps({"repository": source["repository"], "workflow_run": source}),
+                              encoding="utf-8")
         os.environ["GITHUB_EVENT_PATH"] = str(event_path)
     elif options.event == "workflow_dispatch":
         inputs = {"continuation_key": options.key}

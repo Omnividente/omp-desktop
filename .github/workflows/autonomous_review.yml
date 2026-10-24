@@ -5,46 +5,112 @@ name: Autonomous Proposal Review
 on:
   workflow_run:
     workflows:
-      - Quality Gate
       - Autonomous Evidence Gate
     types: [completed]
-  pull_request_review:
-    types: [submitted, dismissed]
   schedule:
     - cron: '17,47 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
   checks: read
+  actions: read
 
-concurrency:
-  group: autonomous-proposal-review
-  cancel-in-progress: false
 
 jobs:
+  admission:
+    name: Admit a current Jules laboratory proposal read-only
+    if: >-
+      ${{ vars.JULES_LOOP_ENABLED == 'true' && github.ref == 'refs/heads/main' &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+           (github.event_name == 'workflow_run' &&
+            github.event.workflow_run.name == 'Autonomous Evidence Gate' &&
+            github.event.workflow_run.head_repository.full_name == github.repository)) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      admitted: ${{ steps.provenance.outputs.admitted }}
+      candidates: ${{ steps.provenance.outputs.candidates }}
+      control_sha: ${{ steps.provenance.outputs.control_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out the pinned trusted admission controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          path: control
+          persist-credentials: false
+      - name: Authenticate the event before any queue access
+        id: event
+        run: >-
+          python3 control/scripts/autonomous/review_event_admission.py
+          --config control/autonomous-project.json --out review-event.json
+          --github-output "${GITHUB_OUTPUT}"
+      - name: Check out the legacy seed only for eligible lab events
+        if: ${{ steps.event.outputs.admitted == 'true' }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: autonomous/lab
+          fetch-depth: 1
+          path: lab
+          persist-credentials: false
+      - name: Read saved provenance without taking the report lock
+        if: ${{ steps.event.outputs.admitted == 'true' }}
+        run: |
+          set -euo pipefail
+          python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch autonomous/lab
+          git -C lab config credential.helper '!gh auth git-credential'
+          python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
+      - name: Require unique saved Jules provenance before queueing a report
+        id: provenance
+        if: ${{ steps.event.outputs.admitted == 'true' }}
+        env:
+          REVIEW_CANDIDATES: ${{ steps.event.outputs.candidates }}
+        run: >-
+          python3 control/scripts/autonomous/review_event_admission.py
+          --config control/autonomous-project.json --manifest queue.json
+          --out review-admission.json --github-output "${GITHUB_OUTPUT}"
+
   review:
     name: Report proposals for human acceptance
-    if: ${{ vars.JULES_LOOP_ENABLED == 'true' }}
+    needs: admission
+    if: ${{ needs.admission.outputs.admitted == 'true' }}
+    concurrency:
+      group: autonomous-proposal-review
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       INTEGRATION_BRANCH: autonomous/lab
-      TRIGGER_SHA: ${{ github.event.workflow_run.head_sha }}
-      REVIEW_PR: ${{ github.event.pull_request.number }}
+      REVIEW_CANDIDATES: ${{ needs.admission.outputs.candidates }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Check out the trusted control plane
+      - name: Check out the same pinned admission controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ needs.admission.outputs.control_sha }}
           fetch-depth: 1
           path: control
           persist-credentials: false
 
+      - name: Recheck event freshness after waiting and before queue access
+        id: fresh
+        run: >-
+          python3 control/scripts/autonomous/review_event_admission.py
+          --config control/autonomous-project.json --out review-event.json
+          --github-output "${GITHUB_OUTPUT}"
+
       - name: Check out the legacy migration seed read-only
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.fresh.outputs.admitted == 'true' }}
         with:
           ref: autonomous/lab
           fetch-depth: 1
@@ -52,6 +118,7 @@ jobs:
           persist-credentials: false
 
       - name: Load the authoritative queue without writing it
+        if: ${{ steps.fresh.outputs.admitted == 'true' }}
         run: |
           set -euo pipefail
           python3 control/scripts/autonomous/verify_policy.py --config control/autonomous-project.json --integration-branch "${INTEGRATION_BRANCH}"
@@ -59,21 +126,22 @@ jobs:
           git -C lab config credential.helper '!gh auth git-credential'
           python3 control/scripts/autonomous/state_store.py --action load --repo lab --manifest queue.json --revision-file queue-revision.json --seed lab/agent_tasks.json
 
+      - name: Recheck saved Jules identities before reporting
+        if: ${{ steps.fresh.outputs.admitted == 'true' }}
+        run: >-
+          python3 control/scripts/autonomous/review_event_admission.py
+          --config control/autonomous-project.json --manifest queue.json --out review-admission.json
+
       - name: Collect exact inputs and publish idempotent bot reports
+        if: ${{ steps.fresh.outputs.admitted == 'true' }}
         run: |
           set -euo pipefail
           mkdir -p reports
-          if [ -n "${TRIGGER_SHA}" ]; then
-            numbers=$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/commits/${TRIGGER_SHA}/pulls?per_page=100" --jq '.[].number')
-          elif [ -n "${REVIEW_PR}" ]; then
-            numbers="${REVIEW_PR}"
-          else
-            numbers=$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/pulls?state=open&base=${INTEGRATION_BRANCH}&per_page=100" --jq '.[].number')
-          fi
+          numbers=$(jq -r '.pull_requests[].number' review-admission.json)
           for number in ${numbers}; do
             lab_sha=$(gh api "/repos/${GITHUB_REPOSITORY}/git/ref/heads/${INTEGRATION_BRANCH}" --jq '.object.sha')
             gh api "/repos/${GITHUB_REPOSITORY}/pulls/${number}" > pr-before.json
-            ci_sha="${TRIGGER_SHA:-$(jq -r .head.sha pr-before.json)}"
+            ci_sha=$(jq -r --argjson number "${number}" '.pull_requests[] | select(.number == $number) | .head_sha' review-admission.json)
             before_sha=$(jq -r .head.sha pr-before.json)
             before_base=$(jq -r .base.sha pr-before.json)
             expected_files=$(jq -r .changed_files pr-before.json)
