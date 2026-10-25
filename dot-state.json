@@ -604,7 +604,11 @@
       "evidence_uri": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641"
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T211300Z-pr148-ready",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T21:13:43.731Z"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -1145,6 +1149,17 @@
         "url": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641",
         "exact_body_verified": true
       }
+    },
+    {
+      "id": "r2j-20261025T211300Z-pr148-ready-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "d94aaf60764479334b5dbb68cfa287f50aa8d228",
+      "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "lease_id": "r2j-20261025T211300Z-pr148-ready",
+      "send_claim": "consumed",
+      "ack": "pending-readback",
+      "prepared_at": "2026-10-25T21:13:43.731Z"
     }
   ],
   "backlog": [
