@@ -15,7 +15,7 @@
     "spent_lines": 79,
     "ci_revisions": 1,
     "initial_published": true,
-    "unresolved_operation": "terminal-worker-observation-20261025-v3-refresh-tree",
+    "unresolved_operation": "terminal-worker-observation-20261025-v3-refresh-commit",
     "phase": "review_required",
     "critical": true,
     "pr": {
@@ -42,7 +42,7 @@
         "reason": "inherit accepted main, preserve four authored blobs unchanged"
       }
     ],
-    "prepared_tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009",
+    "prepared_tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
     "candidate_files": [
       {
         "path": "scripts/autonomous/loop_health.py",
@@ -720,9 +720,33 @@
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "expected_content_sha": "b73069a086419ee39b70c308fb63479720911464",
       "send_claim": "consumed",
-      "status": "pending",
+      "status": "confirmed",
       "batch_id": "accepted-v3-main-refresh",
-      "prepared_at": "2026-10-25T21:00:50.850463+00:00"
+      "prepared_at": "2026-10-25T21:00:50.850463+00:00",
+      "result": {
+        "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+        "all_blobs_verified": true
+      }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-v3-refresh-commit",
+      "kind": "create-commit",
+      "request": {
+        "repository_full_name": "Omnividente/omp-desktop",
+        "parent_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "additional_parent_shas": [
+          "9683ea0dff9094c33c0b4a8c82cc6a952003de46"
+        ],
+        "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+        "message": "Merge accepted R2-J v3 main into existing terminal worker observation fix"
+      },
+      "request_sha256": "139be05b8859ebf41c8e1dbbd3cd90fdf0dc9f55ea84d01eeff0b8a076215f79",
+      "expected_content_sha": "23abfb8184cc94aba2bfa81abc6f3353f28e8f4b",
+      "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "status": "pending",
+      "prepared_at": "2026-10-25T21:01:34.871Z"
     }
   ],
   "backlog": [
