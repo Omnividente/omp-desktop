@@ -654662,6 +654662,15 @@
         },
         "receipt_id": "2d3836c18c50bb1011d4c1cf2f805b10a708b5a582015f6b1fef5d09bba1c189",
         "event_id": "cefbb8fc7046e58fc6b5f24b7f730e4b6786815a3116309c03ee3aa295471d87"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T09:19:12.154848Z",
+        "decision_id": "d55dd2d615c12ea6e072bc9738474376ecb226fef0866d3a93260dfc04829aba",
+        "executor_claim_id": "4a622f0f1b16211694fa33e670fc37e9ed2ed8efe78a88a76d763de75f2bf866",
+        "receipt_id": "2d3836c18c50bb1011d4c1cf2f805b10a708b5a582015f6b1fef5d09bba1c189",
+        "frontier_seq": 849,
+        "event_id": "9c0864d938757011b068dcff94c9d146f7193224163cc2dcf356a3b728f281a3"
       }
     ]
   }
