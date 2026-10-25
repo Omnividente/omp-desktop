@@ -234854,6 +234854,136 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-23",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-25T11:25:57Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 23,
+        "previous_reports": [
+          {
+            "summary": "Verified that closing the last terminal tab in TerminalWorkspace incorrectly drops focus to the document body when mounting WorkspaceHome. Also reviewed ProjectRail rendering with large synthetic datasets, observing linear scaling.",
+            "observations": [
+              {
+                "scenario": "Simulated closing the last session in TerminalWorkspace using a Vitest jsdom component test.",
+                "evidence": "Created a Vitest component test focusing on a tab close button in TerminalWorkspace, then closing it to empty the tabs array. When WorkspaceHome mounts, document.activeElement incorrectly falls back to the document BODY element.",
+                "result": "Confirmed that keyboard focus is lost to the document body when all sessions are closed."
+              },
+              {
+                "scenario": "Simulated rendering ProjectRail with a large synthetic dataset of 1000 workspaces.",
+                "evidence": "Observed that the workspace list in ProjectRail renders entirely using a map without virtualization. With a large number of synthetic workspaces, this blocks the main thread.",
+                "result": "Confirmed ProjectRail rendering scales linearly with synthetic large datasets, though historical decisions note extreme-size benchmarks alone are insufficient."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-17T08:06:36.172526Z",
+            "source": {
+              "activity_id": "sessions/12198258243154153170/activities/f20b8e64a8fc4c5c9faada8efb986068",
+              "report_sha256": "9d97035dc4df6586e96cc6ed04f3efc2850c54b6f47b398545a9f6f970392316",
+              "activity_created_at": "2026-10-17T07:38:41.764290Z",
+              "session_id": "12198258243154153170",
+              "dispatch_key": "9ca8ee32be3ca7501f64b6ba"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus appropriately when the last session is closed",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-9869924dda721fc1; not established as a duplicate. {\"detail\": \"When TerminalWorkspace transitions from having tabs to 0 tabs, the currently focused tab close button is unmounted, and focus incorrectly falls back to the document body. A component like WorkspaceHome should claim focus.\", \"reproduction\": {\"actual\": \"document.activeElement is the document body.\", \"expected\": \"document.activeElement is an element within WorkspaceHome or another interactive element.\", \"steps\": [\"Render TerminalWorkspace with one active tab.\", \"Focus a button inside the tab (e.g., the close button).\", \"Re-render TerminalWorkspace with an empty tabs array.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/WorkspaceHome.tsx",
+                  "src/TerminalWorkspace.tsx"
+                ],
+                "acceptance": [
+                  "When the last session tab is closed and WorkspaceHome mounts, keyboard focus is restored to a logical element (e.g., the primary action button) instead of dropping to the document body."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Verified that when the last session tab in TerminalWorkspace is closed, focus drops to the document body instead of shifting back to the newly rendered WorkspaceHome view, demonstrating an accessibility issue.",
+            "observations": [
+              {
+                "scenario": "Simulated closing the last session tab in TerminalWorkspace utilizing Vitest jsdom component testing.",
+                "evidence": "Ran a synthetic test that initialized TerminalWorkspace with one active tab, focused on the close button, and triggered its close handler. The test asserted that `document.activeElement` correctly shifted to `document.body` after the tabs array became empty, even though the `WorkspaceHome` UI successfully mounted in its place. The test confirms that TerminalWorkspace does not explicitly restore focus to a meaningful active element when transitioning to an empty session state.",
+                "result": "Confirmed that closing the last tab in TerminalWorkspace leaves keyboard focus marooned on the document body, hindering accessibility."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-0e57f7ee2aaf33e8"
+            ],
+            "completed_at": "2026-10-17T08:06:36.172526Z",
+            "source": {
+              "activity_id": "sessions/15276600533056956658/activities/02529a287b964720b6434bb915acb5f4",
+              "report_sha256": "b151a55ded0c5f37365960335e7bb8dd5e3a3d348bf8cf3b6f9602510f5d0384",
+              "activity_created_at": "2026-10-17T07:48:57.796399Z",
+              "session_id": "15276600533056956658",
+              "dispatch_key": "1e7c18dd97eae4c85b30b9b2"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation behavior. Verified that when a workspace is deleted via ProjectRail, focus is correctly moved to the 'Open folder' button or another logical element if the removal button loses focus. Also observed that focus restoration in TerminalWorkspace handles various edge cases, such as closing tabs and pointer actions, and that the WorkspaceHome has accessible buttons.",
+            "observations": [
+              {
+                "scenario": "Simulated deleting a workspace in ProjectRail and observing focus.",
+                "evidence": "Reviewed src/ProjectRail.tsx layout effect for removalFocusRef. When the pending button is disconnected or disabled, it focuses openFolderRef.",
+                "result": "Confirmed that ProjectRail handles focus restoration upon workspace removal."
+              },
+              {
+                "scenario": "Analyzed App.tsx behavior for workspace renaming and removal.",
+                "evidence": "Reviewed submitWorkspaceRename and removeWorkspace in src/App.tsx. They correctly manage busy state and apply payloads after API calls.",
+                "result": "Workspace mutation actions correctly manage state and errors."
+              },
+              {
+                "scenario": "Reviewed TerminalWorkspace test coverage for focus behavior.",
+                "evidence": "src/TerminalWorkspace.test.tsx includes cases for 'moves focus from the removed last tab to New session', 'does not autofocus an initially empty workspace', and 'does not reclaim focus after an outside pointer action'.",
+                "result": "TerminalWorkspace focus behavior upon tab closure is heavily tested."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate focus behavior when a newly created workspace fails to load.",
+              "Examine if keyboard navigation within the SessionList handles large datasets correctly."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T09:33:58.623732Z",
+            "source": {
+              "activity_id": "sessions/17119693872458600961/activities/cca3031c247b4c7f9d674aa2d0cae39d",
+              "report_sha256": "d92ad86d5a45e8e75beb7f68eb2a067a719fd482c7a03b209a8b0ba7baa4c5bc",
+              "activity_created_at": "2026-10-25T09:22:30.997300Z",
+              "session_id": "17119693872458600961",
+              "dispatch_key": "fb4d19c871f03bc3321e3590"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
