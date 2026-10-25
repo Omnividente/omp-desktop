@@ -224629,7 +224629,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T02:48:32.908081Z"
+        "observed_at": "2026-10-25T02:48:32.908081Z",
+        "released_attempt_ref": "autonomous/attempt-cc1e340e1fc8fc3431ceb25f"
       },
       "research_result": {
         "summary": "Verified that in App.tsx, the SettingsRecoveryScreen traps the user when a non-settings error occurs during the startWithDefaults fallback process, because settingsRecovery state is not cleared. The findings regarding ModelPicker roving focus and proxy provider lists were intentionally skipped as they were previously rejected by the owner.",
