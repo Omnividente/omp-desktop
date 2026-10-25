@@ -604523,6 +604523,16 @@
           "actor": "Omnividente"
         },
         "event_id": "379373f4e3c390e6197ec4ed53085444a4b8f76b54da39df8ad0ea801ac3c353"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T03:27:49.293744Z",
+        "decision_id": "5d325242b17e77fb028034a882ae19d4029c554a5ee890f546038e9bf201d493",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T03:27:47.721158Z"
+        },
+        "event_id": "aa319284210a6d70ee2434f74d7a645c830d8466a25aa1307e377ceade42560f"
       }
     ]
   }
