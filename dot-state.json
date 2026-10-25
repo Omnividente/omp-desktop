@@ -181,8 +181,21 @@
       "critical": true
     }
   },
-  "lease": null,
-  "pending_operation": null,
+  "lease": {
+    "id": "r2j-20261025T130500Z-readonly-sweep",
+    "owner": "dot-r2j",
+    "scheduled_for": "2026-10-25T13:05:00Z",
+    "acquired_at": "2026-10-25T13:33:30Z",
+    "expires_at": "2026-10-25T13:48:30Z"
+  },
+  "pending_operation": {
+    "id": "r2j-20261025T130500Z-readonly-sweep-checkpoint",
+    "kind": "metadata-sweep-checkpoint",
+    "send_claim": "consumed",
+    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+    "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+    "scope": "Dot metadata only; sweep receipt, advisory test/backlog status and lease release; source and PR unchanged"
+  },
   "retired_task_ids": [],
   "operations": [
     {
@@ -373,6 +386,14 @@
         "updated_at": "2026-10-25T12:18:45Z",
         "body_verified": true
       }
+    },
+    {
+      "id": "r2j-20261025T130500Z-readonly-sweep-lease",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "d3ebf8b9bdb3fb09068ffd26252c6125ba3e8c62",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T130500Z-readonly-sweep",
+      "ack": "get-confirm-required"
     }
   ],
   "backlog": [
