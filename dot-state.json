@@ -118,16 +118,7 @@
     "phase": "publication",
     "automatic_takeover": false
   },
-  "pending_operation": {
-    "id": "terminal-worker-observation-20261025-create-commit",
-    "kind": "create-commit",
-    "request_sha256": "fba92189fb212e75592c705b6b1953e1e22e9393398878540c7b648fcc7d8128",
-    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "send_claim": "consumed",
-    "status": "pending",
-    "expected_parent_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "expected_tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009"
-  },
+  "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
     {
@@ -211,9 +202,14 @@
       "request_sha256": "fba92189fb212e75592c705b6b1953e1e22e9393398878540c7b648fcc7d8128",
       "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
       "send_claim": "consumed",
-      "status": "pending",
+      "status": "confirmed",
       "expected_parent_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-      "expected_tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009"
+      "expected_tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009",
+      "result": {
+        "commit_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009",
+        "parent_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706"
+      }
     }
   ],
   "backlog": [
