@@ -16,7 +16,7 @@
     "ci_revisions": 0,
     "initial_published": false,
     "unresolved_operation": null,
-    "phase": "preparing",
+    "phase": "publication-blocked-inventory",
     "critical": true,
     "pr": null,
     "batches": [
@@ -31,16 +31,85 @@
           "scripts/autonomous/loop_health_test.py"
         ]
       }
-    ]
+    ],
+    "prepared_tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009",
+    "candidate_files": [
+      {
+        "path": "scripts/autonomous/loop_health.py",
+        "sha256": "c2b2e38281a039e222d81b10c380333c4190b143fec8bd82fc402034acd65e43",
+        "blob_sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e"
+      },
+      {
+        "path": "scripts/autonomous/loop_health_test.py",
+        "sha256": "d6ad8269ef87f4c4916868c9b527c164a412acee5495e46ec47e37309458d13a",
+        "blob_sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99"
+      },
+      {
+        "path": "scripts/autonomous/lab_controller.py",
+        "sha256": "f0745b78282b8f4fa2b2fbbf84757b8a87300b79e807167517e48982d48f2576",
+        "blob_sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5"
+      },
+      {
+        "path": "scripts/autonomous/lab_controller_test.py",
+        "sha256": "96d1d3769375f61bcf77a9dc27c45ca8d5522d5da8d60bc99021968d28d9939b",
+        "blob_sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe"
+      }
+    ],
+    "tests": {
+      "baseline": {
+        "tests": 2,
+        "failed_terminal_subtests": 11
+      },
+      "after": {
+        "loop_health": 73,
+        "lab_controller": 65,
+        "dispatch_journal": 44,
+        "health_snapshot": 8
+      },
+      "compile": "passed",
+      "policy": "passed",
+      "environment": "isolated-synthetic-no-credentials",
+      "controller_adapter": "Only source-root git rev-parse HEAD returns pinned base; unadapted suite had eight environment errors.",
+      "hosted_ci": "not-run",
+      "windows": "not-run"
+    },
+    "independent_review": {
+      "status": "no-blocker",
+      "critical": true,
+      "candidate_files": [
+        {
+          "path": "scripts/autonomous/loop_health.py",
+          "sha256": "c2b2e38281a039e222d81b10c380333c4190b143fec8bd82fc402034acd65e43",
+          "blob_sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e"
+        },
+        {
+          "path": "scripts/autonomous/loop_health_test.py",
+          "sha256": "d6ad8269ef87f4c4916868c9b527c164a412acee5495e46ec47e37309458d13a",
+          "blob_sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99"
+        },
+        {
+          "path": "scripts/autonomous/lab_controller.py",
+          "sha256": "f0745b78282b8f4fa2b2fbbf84757b8a87300b79e807167517e48982d48f2576",
+          "blob_sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5"
+        },
+        {
+          "path": "scripts/autonomous/lab_controller_test.py",
+          "sha256": "96d1d3769375f61bcf77a9dc27c45ca8d5522d5da8d60bc99021968d28d9939b",
+          "blob_sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe"
+        }
+      ],
+      "checks": "4 regression methods and 8 snapshot tests, reverse patch restores pinned blobs; not owner acceptance"
+    },
+    "exception": {
+      "kind": "inventory-read-unavailable",
+      "target": "GET pulls/34/files?per_page=100&page=1",
+      "detail": "RemoteProtocolError: Server disconnected without sending a response",
+      "at": "2026-10-25T12:01:58Z",
+      "source_effect_status": "create-tree confirmed; create-commit not attempted or consumed",
+      "next": "Fresh complete GET inventory before original task's next effect; no replacement task/branch"
+    }
   },
-  "lease": {
-    "id": "r2j-20261025T120500Z-terminal-telemetry",
-    "owner": "dot/astra",
-    "invocation": "2026-10-25T12:05:00Z",
-    "acquired_at": "2026-10-25T11:54:20Z",
-    "phase": "synthetic-development",
-    "automatic_takeover": false
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -113,6 +182,100 @@
       }
     }
   ],
-  "backlog": [],
-  "last_sweep_at": null
+  "backlog": [
+    {
+      "fingerprint": "terminal-worker-observation-misclassification",
+      "task_id": "terminal-worker-observation-20261025",
+      "status": "prepared-publication-blocked",
+      "evidence": "https://github.com/Omnividente/omp-desktop/actions/runs/40190423599"
+    },
+    {
+      "fingerprint": "exact-state-fetch-timeout-180s",
+      "status": "read-only-investigation",
+      "evidence": "https://github.com/Omnividente/omp-desktop/actions/runs/40189401229",
+      "note": "Replenish exact-state fetch timed out; NEXT/CONTINUE succeeded. Distinct from historical state_write_failed."
+    },
+    {
+      "fingerprint": "research-consumer-evidence-calibration",
+      "status": "read-only-investigation",
+      "note": "Existing importer identifies possible duplicates; DOM tests are not screen-reader execution evidence."
+    }
+  ],
+  "last_sweep_at": null,
+  "last_attempt": {
+    "scheduled_for": "2026-10-25T12:05:00Z",
+    "started_at": "2026-10-25T11:52:44Z",
+    "checkpoint_at": "2026-10-25T12:02:30Z",
+    "status": "blocked",
+    "health_evidence": {
+      "observed_at": "2026-10-25T11:58:23Z",
+      "scope": "read-only safe workflow artifacts and logs; no whole queue downloaded",
+      "next": {
+        "run_id": 40190423599,
+        "attempt": 1,
+        "conclusion": "success",
+        "updated_at": "2026-10-25T11:54:15Z",
+        "artifact_id": 12597816486,
+        "observed_at": "2026-10-25T11:49:17.420042Z",
+        "action": "dispatched",
+        "reason": "created",
+        "attention": [],
+        "completed_task": "research-workspace-navigation-reliability-23",
+        "completed_session": "2576545545596452099",
+        "completed_reason": "worker_running",
+        "new_task": "research-workspace-navigation-performance-23",
+        "new_session": "7316562788903133598",
+        "new_session_state": "QUEUED",
+        "report_parsers": "ok",
+        "report_outcome": "no_change",
+        "findings_count": 0
+      },
+      "continue": {
+        "run_id": 40190034186,
+        "attempt": 1,
+        "conclusion": "success",
+        "artifact_id": 12598305130,
+        "observed_at": "2026-10-25T11:49:27.218769Z",
+        "outcome": "handed_off",
+        "reason": "successor_observed",
+        "confirmed_next_run": 40190423599
+      },
+      "monitor": {
+        "run_id": 40187977528,
+        "artifact_id": 12597236905,
+        "observed_at": "2026-10-25T11:18:23Z",
+        "reason": "dispatch_journal_executing",
+        "executing_next": 40188211053,
+        "next_later_conclusion": "success",
+        "historical_attention": [
+          {
+            "reason": "dispatch_aborted",
+            "task_id": "research-workspace-navigation-performance-22",
+            "observed_at": "2026-10-24T23:08:04.203436Z"
+          }
+        ],
+        "sync_publication": "published",
+        "main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+        "lab_sha": "a5ba1c086bddd48bb68e21fde9b40598465b020b"
+      },
+      "replenish": {
+        "run_id": 40189401229,
+        "job_id": 121157087944,
+        "conclusion": "failure",
+        "at": "2026-10-25T11:40:42Z",
+        "stage": "Append and save evidence-backed tasks without moving lab",
+        "reason": "subprocess.TimeoutExpired: state_store exact state fetch after 180 seconds",
+        "requested_state_sha": "07d326cdfa07f0469ee58a6366f403295dbf2a1a",
+        "eslint_errors": 0,
+        "typescript_diagnostics": 0,
+        "interpretation": "Recurring state-fetch latency class; not evidence new original state_write_failed or stopped NEXT/CONTINUE; no retry launched"
+      },
+      "limits": [
+        "Latest100runs only, not full history census",
+        "No private worker prose inspected",
+        "No accepted product outcome inferred",
+        "No live queue/journal writes or workflow launches"
+      ]
+    }
+  }
 }
