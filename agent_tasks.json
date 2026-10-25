@@ -678489,6 +678489,29 @@
         "before_state_sha": "09f350a7e5fb9b533f1d83045a3ca350196d0db2",
         "before_digest": "55115caea150fea6d9c50b3b6e4a62cf12ae02f476e983a88e1992af7e3e64a7",
         "event_id": "81e1079e1c3b4c5aacc9e7741987838205da37341eb94121d175172b21b35f1a"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-25T12:09:46.828290Z",
+        "decision_id": "6b1fb7b207ae45a8399fa5e3ee0b1de1a08415bb2189c86b917c3d474a4c83f5",
+        "executor_claim_id": "b0e90e0f1c1aa09714999dc948db72baa7fa61bf809c1ce445a2e829ff8a1687",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "d07e5a1e0893ddf39816d6958b318fa5654a809e",
+          "after_state_sha": "e3325c0b7bccfd5d3a02a9a8a03c9f702110fceb",
+          "poll_observations": [
+            {
+              "task_id": "research-workspace-navigation-performance-23",
+              "session_id": "7316562788903133598",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-25T12:08:45Z"
+            }
+          ],
+          "before_digest": "55115caea150fea6d9c50b3b6e4a62cf12ae02f476e983a88e1992af7e3e64a7",
+          "after_digest": "55115caea150fea6d9c50b3b6e4a62cf12ae02f476e983a88e1992af7e3e64a7"
+        },
+        "receipt_id": "4862a2ac3c66e10147934b5ad38e376f63479de1abc0168d277a6fee157336e8",
+        "event_id": "06e823b269cd5e9a9a47c088ac7946712222f4ab1ce8aa35b45c95bcee82f7ea"
       }
     ]
   }
