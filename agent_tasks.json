@@ -673372,6 +673372,35 @@
         "before_state_sha": "f7f11b24b27f7ded155759f4d009df92e27916fc",
         "before_digest": "1eee5ec7818d1b52277f09125c3a6811e0e81801f9a270901367266b99163c54",
         "event_id": "5bb38db0b99529569266a53f53bc443a0c955af22919c538de25fbef5b8b8b95"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-25T11:30:27.878443Z",
+        "decision_id": "0e64b536f7a997be594695b69424064ae6ba5e26668778f4aac2099692d63daa",
+        "executor_claim_id": "992ee49c99b60a51f0e2816e20e3910f9058fa944796d816afccadf9bcf018df",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "5cfe1a94d566627be2a2ae35907b5c2ffb70b671",
+          "after_state_sha": "f8c32499a77f2e0d45f2ef465eb9a64fbe79933a",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-performance-22",
+              "session_id": "9484316209195539116",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-25T11:25:57Z"
+            },
+            {
+              "task_id": "research-workspace-navigation-reliability-23",
+              "session_id": "2576545545596452099",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-25T11:25:57Z"
+            }
+          ],
+          "before_digest": "1eee5ec7818d1b52277f09125c3a6811e0e81801f9a270901367266b99163c54",
+          "after_digest": "43d17ea2ca1621a2f035a88592e7aad58b532c616aebee87ca65f58714de80a1"
+        },
+        "receipt_id": "9be5627f48d12a55154113c8e6c9d21b88e6c544071dc1738ed2ede10d94fe6d",
+        "event_id": "24610793e011a980d41265a6cb6ec44942fa8c21a44c45231d432e9c8a16e15e"
       }
     ]
   }
