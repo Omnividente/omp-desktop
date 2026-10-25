@@ -118,17 +118,7 @@
     "phase": "publication",
     "automatic_takeover": false
   },
-  "pending_operation": {
-    "id": "terminal-worker-observation-20261025-create-draft",
-    "kind": "create-draft",
-    "request_sha256": "1a76ad398e50b784d677cde896669f517629871ff99f0f6998579319bb7f8207",
-    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "send_claim": "consumed",
-    "status": "pending",
-    "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
-    "expected_base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "expected_draft_absent": true
-  },
+  "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
     {
@@ -243,10 +233,63 @@
       "request_sha256": "1a76ad398e50b784d677cde896669f517629871ff99f0f6998579319bb7f8207",
       "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
       "send_claim": "consumed",
-      "status": "pending",
+      "status": "confirmed",
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "expected_base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-      "expected_draft_absent": true
+      "expected_draft_absent": true,
+      "result": {
+        "pr": 148,
+        "url": "https://github.com/Omnividente/omp-desktop/pull/148",
+        "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+        "draft": true,
+        "files": [
+          {
+            "sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5",
+            "filename": "scripts/autonomous/lab_controller.py",
+            "status": "modified",
+            "additions": 16,
+            "deletions": 7,
+            "changes": 23,
+            "blob_url": "https://github.com/Omnividente/omp-desktop/blob/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Flab_controller.py",
+            "raw_url": "https://github.com/Omnividente/omp-desktop/raw/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Flab_controller.py",
+            "contents_url": "https://api.github.com/repos/Omnividente/omp-desktop/contents/scripts%2Fautonomous%2Flab_controller.py?ref=41e16f1c096c72006a986bd7f5de877d9e11b104"
+          },
+          {
+            "sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe",
+            "filename": "scripts/autonomous/lab_controller_test.py",
+            "status": "modified",
+            "additions": 25,
+            "deletions": 1,
+            "changes": 26,
+            "blob_url": "https://github.com/Omnividente/omp-desktop/blob/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Flab_controller_test.py",
+            "raw_url": "https://github.com/Omnividente/omp-desktop/raw/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Flab_controller_test.py",
+            "contents_url": "https://api.github.com/repos/Omnividente/omp-desktop/contents/scripts%2Fautonomous%2Flab_controller_test.py?ref=41e16f1c096c72006a986bd7f5de877d9e11b104"
+          },
+          {
+            "sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e",
+            "filename": "scripts/autonomous/loop_health.py",
+            "status": "modified",
+            "additions": 4,
+            "deletions": 1,
+            "changes": 5,
+            "blob_url": "https://github.com/Omnividente/omp-desktop/blob/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Floop_health.py",
+            "raw_url": "https://github.com/Omnividente/omp-desktop/raw/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Floop_health.py",
+            "contents_url": "https://api.github.com/repos/Omnividente/omp-desktop/contents/scripts%2Fautonomous%2Floop_health.py?ref=41e16f1c096c72006a986bd7f5de877d9e11b104"
+          },
+          {
+            "sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99",
+            "filename": "scripts/autonomous/loop_health_test.py",
+            "status": "modified",
+            "additions": 24,
+            "deletions": 1,
+            "changes": 25,
+            "blob_url": "https://github.com/Omnividente/omp-desktop/blob/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Floop_health_test.py",
+            "raw_url": "https://github.com/Omnividente/omp-desktop/raw/41e16f1c096c72006a986bd7f5de877d9e11b104/scripts%2Fautonomous%2Floop_health_test.py",
+            "contents_url": "https://api.github.com/repos/Omnividente/omp-desktop/contents/scripts%2Fautonomous%2Floop_health_test.py?ref=41e16f1c096c72006a986bd7f5de877d9e11b104"
+          }
+        ]
+      }
     }
   ],
   "backlog": [
