@@ -235168,7 +235168,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T11:49:17.420042Z"
+        "observed_at": "2026-10-25T11:49:17.420042Z",
+        "released_attempt_ref": "autonomous/attempt-8a647afaa4b45053fe063940"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and project switching focus behaviors.",
