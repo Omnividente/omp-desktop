@@ -114,19 +114,31 @@
       "checks": "4 regression methods and 8 snapshot tests, reverse patch restores pinned blobs; not owner acceptance"
     },
     "exception": {
-      "fingerprint": "ready-client-mutation-id-capability-gap",
-      "observed_at": "2026-10-25T15:48:12.492137+00:00",
-      "status": "blocked",
-      "contract": "docs/dot/R2_J.md:195 requires Ready actual node_id and operation ID as clientMutationId",
-      "available_tool": "mcp__codex_apps__github_mark_pull_request_ready_for_review",
-      "available_arguments": [
-        "repository_full_name",
-        "pr_number"
+      "fingerprint": "native-review-provenance-not-verifiable",
+      "status": "blocked-safety",
+      "observed_at": "2026-10-25T18:08:30.956934+00:00",
+      "last_checked_at": "2026-10-25T18:08:30.956934+00:00",
+      "missing": [
+        "provider-attested execution_id and context_id mapping",
+        "actual model identity",
+        "original provider trace or receipt URI",
+        "provider-attested read-only scope (spawn has no permissions control)",
+        "provider-produced exact input manifest hash and result hash"
       ],
-      "missing": "No exposed clientMutationId binding; no approved generic GraphQL transport found",
-      "independent_review_status": "Not established for current v2 exact manifest; native separate agents available, provider receipt sufficiency not yet verified. NOT a claim that review execution is unavailable.",
-      "safe_next_step": "Read-only reconciliation; supported Ready operation binding or separately owner-approved contract change required. No rebase/revision consumed.",
-      "last_checked_at": "2026-10-25T17:23:42.941637+00:00"
+      "actual_capability": "Native collaboration can execute separate-context code review and synthetic safety tests. This is NOT lack of review/test execution capability. Exposed schemas/results do not authenticate the full accepted v2 review receipt contract.",
+      "primary_observations": {
+        "tool": "collaboration.spawn_agent / collaboration.list_agents / native final task message",
+        "audit_task": "/root/refresh_pr148_v2_evidence/native_provenance_check",
+        "fork_turns": "none",
+        "scope_requested": "read-only capability audit",
+        "provider_trace_uri": null,
+        "enforced_read_only_scope": false,
+        "code_review_performed": false,
+        "safety_tests_performed": false,
+        "native_audit_verdict": "Full v2 provenance requirements not established; do not fabricate receipt or pass author JSON as provider evidence."
+      },
+      "safe_next_step": "Existing native provider support must expose verifiable primary review provenance; otherwise separately owner-accepted contract amendment is required. No new service/token/executor and no author attestation substitute.",
+      "effects": "No source refresh, no CI revision consumed, no Ready/merge. Same PR148 and historical counters retained."
     },
     "ci": {
       "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
@@ -203,14 +215,39 @@
       "tested_merge_sha": "18bdb119c418c80718f0b8e873c828fad9f1125f",
       "status": "checked-draft",
       "critical": true
+    },
+    "exception_history": [
+      {
+        "fingerprint": "ready-client-mutation-id-capability-gap",
+        "observed_at": "2026-10-25T15:48:12.492137+00:00",
+        "status": "resolved",
+        "contract": "docs/dot/R2_J.md:195 requires Ready actual node_id and operation ID as clientMutationId",
+        "available_tool": "mcp__codex_apps__github_mark_pull_request_ready_for_review",
+        "available_arguments": [
+          "repository_full_name",
+          "pr_number"
+        ],
+        "missing": "No exposed clientMutationId binding; no approved generic GraphQL transport found",
+        "independent_review_status": "Not established for current v2 exact manifest; native separate agents available, provider receipt sufficiency not yet verified. NOT a claim that review execution is unavailable.",
+        "safe_next_step": "Read-only reconciliation; supported Ready operation binding or separately owner-approved contract change required. No rebase/revision consumed.",
+        "last_checked_at": "2026-10-25T17:23:42.941637+00:00",
+        "resolved_at": "2026-10-25T18:08:30.956934+00:00",
+        "resolution": {
+          "main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+          "amendment": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6401053978",
+          "completion": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6401183945",
+          "contract": "Existing two-argument Ready wrapper accepted; other v2 gates unchanged."
+        }
+      }
+    ],
+    "v2_review_capability": {
+      "status": "blocked-provenance",
+      "checked_at": "2026-10-25T18:08:30.956934+00:00",
+      "new_exact_revision_review": "not-run",
+      "reason": "native-review-provenance-not-verifiable"
     }
   },
-  "lease": {
-    "id": "r2j-20261025T180700Z-native-provenance-checkpoint",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T18:07:37.518478+00:00",
-    "purpose": "metadata-only verified Ready amendment resolution and native review provenance safety exception"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -542,9 +579,26 @@
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T180700Z-native-provenance-checkpoint",
-      "ack": "pending-readback",
+      "ack": "confirmed",
       "prepared_at": "2026-10-25T18:07:37.518478+00:00",
-      "digest": "370c58578eb781ff2edae922aea21922e34eebb27b9ba8f50b4e74f483471317"
+      "digest": "370c58578eb781ff2edae922aea21922e34eebb27b9ba8f50b4e74f483471317",
+      "result": {
+        "commit_sha": "b1e410eb8505199f61747a4baab22ae8331efb26",
+        "content_sha": "3c582248566e1b8688bb71ed7b44c075727d5f5f"
+      }
+    },
+    {
+      "id": "r2j-20261025T180700Z-native-provenance-checkpoint-checkpoint",
+      "kind": "metadata-exception-checkpoint",
+      "expected_content_sha": "3c582248566e1b8688bb71ed7b44c075727d5f5f",
+      "expected_main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T180700Z-native-provenance-checkpoint",
+      "prepared_at": "2026-10-25T18:08:30.956934+00:00",
+      "scope": "Own Dot metadata only: resolved Ready exception, provenance exception and lease release",
+      "status": "readback-required",
+      "digest": "fd206f28d5677c3a43a65c37f1851c1ef2695ae221fc0518130db0881a283b20"
     }
   ],
   "backlog": [
@@ -581,12 +635,34 @@
     },
     {
       "fingerprint": "ready-client-mutation-id-capability-gap",
-      "status": "blocked-capability",
+      "status": "resolved",
       "task_id": "terminal-worker-observation-20261025",
       "pr": 148,
       "evidence": "docs/dot/R2_J.md:195 at 376b8c6203dfccbddcec2b2750c0b5f2d1a214f5; actual Ready tool schema exposes repo/pr only",
       "observed_at": "2026-10-25T15:48:12.492137+00:00",
-      "last_checked_at": "2026-10-25T17:23:42.941637+00:00"
+      "last_checked_at": "2026-10-25T17:23:42.941637+00:00",
+      "resolved_at": "2026-10-25T18:08:30.956934+00:00",
+      "resolution": {
+        "main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+        "amendment": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6401053978",
+        "completion": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6401183945",
+        "contract": "Existing two-argument Ready wrapper accepted; other v2 gates unchanged."
+      }
+    },
+    {
+      "fingerprint": "native-review-provenance-not-verifiable",
+      "status": "blocked-safety",
+      "task_id": "terminal-worker-observation-20261025",
+      "pr": 148,
+      "observed_at": "2026-10-25T18:08:30.956934+00:00",
+      "missing": [
+        "provider-attested execution_id and context_id mapping",
+        "actual model identity",
+        "original provider trace or receipt URI",
+        "provider-attested read-only scope (spawn has no permissions control)",
+        "provider-produced exact input manifest hash and result hash"
+      ],
+      "next_action": "Existing native provider support must expose verifiable primary review provenance; otherwise separately owner-accepted contract amendment is required. No new service/token/executor and no author attestation substitute."
     }
   ],
   "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
@@ -761,5 +837,21 @@
       },
       "prepared_at": "2026-10-25T15:14:11.519740+00:00"
     }
-  ]
+  ],
+  "last_maintenance_check": {
+    "at": "2026-10-25T18:08:30.956934+00:00",
+    "scope": "authority/amendment/current refs/full open PR-file inventory/native review provenance only; not full Jules sweep",
+    "main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+    "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+    "open_pr_count": 17,
+    "source_mutations": 0,
+    "tests_executed": 0,
+    "push_main_ci_runs": [
+      40218445070,
+      40218445071,
+      40218445052
+    ],
+    "lease_release": "checkpoint",
+    "result": "Ready transport blocker resolved; native review provenance safety exception"
+  }
 }
