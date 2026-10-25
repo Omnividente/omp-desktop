@@ -653580,6 +653580,15 @@
         },
         "receipt_id": "f7525cdfc5eb3de9a52999d29c32a8763a15b5105bfaaa0b7e2dadc70c50b057",
         "event_id": "7277174f2d6c7d2fdba6da2f38cd403fc01fadbae7768a77a311afb9b505d1e6"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T09:16:37.345907Z",
+        "decision_id": "f2fc9c1ee3edfa58a1589f6e974478ead651e525e4408692392cd0cc338f518e",
+        "executor_claim_id": "8b6797630eda4d82f708586084f34175429d82ee4abfb7bf4ba6ee82c388c1a3",
+        "receipt_id": "f7525cdfc5eb3de9a52999d29c32a8763a15b5105bfaaa0b7e2dadc70c50b057",
+        "frontier_seq": 848,
+        "event_id": "292ce886e909f0c6c33b7024c16cef4981a2de0bd79a6d4695e0fb406b8f8d00"
       }
     ]
   }
