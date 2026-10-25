@@ -628408,6 +628408,16 @@
           "actor": "Omnividente"
         },
         "event_id": "42ff6bfe2e8aa293d23d87effd923e7f40da11d5408e8384a5eff1a9e75eca1c"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T06:02:47.900878Z",
+        "decision_id": "37d026e2c283325c57b84fa16e408cf0dabd51957b4631d84da856b09c8d79e4",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T06:02:46.106460Z"
+        },
+        "event_id": "1fb212beb305aff2dc895ad3a1a853e92e81ef35820c209a22b4ee367604968c"
       }
     ]
   }
