@@ -661328,6 +661328,16 @@
           "actor": "Omnividente"
         },
         "event_id": "c1eb68fbeb4444c533a517ad3ac6cbc36c0a54c76a0e3c79a5f9af44cc102dd1"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T10:04:52.307521Z",
+        "decision_id": "9e6ed443028e867e2704dc863505502bb1230ab7e27fd34a5f1b05513fe6c8ab",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T10:04:50.622064Z"
+        },
+        "event_id": "d6957fec8435c81e29f460ff146923010b10211a47f2623368c891260b16ae71"
       }
     ]
   }
