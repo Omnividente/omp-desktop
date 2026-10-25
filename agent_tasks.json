@@ -603390,6 +603390,15 @@
         },
         "receipt_id": "f81ebac888681ff0e14ba8aefa41ba5424ee525bba189ed6ac668f7e49026ae0",
         "event_id": "b23af03aff5bf0412eeb0450a01fbe292b5ddea2f635fa0c3bead88eee4d962e"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T03:24:50.412028Z",
+        "decision_id": "2b6b1b524d68ebe6d3b89b7b11b605fe9ae8e78b354b1b4b876c595055028cd8",
+        "executor_claim_id": "2696c3ff86ddb3a26122a0405968fa14ead64d3857fcf050dc6b734545e29cfb",
+        "receipt_id": "f81ebac888681ff0e14ba8aefa41ba5424ee525bba189ed6ac668f7e49026ae0",
+        "frontier_seq": 776,
+        "event_id": "564a95abc675ddfd8b4a6967d7821271ba655f5729ccf4d62cda1589515cd075"
       }
     ]
   }
