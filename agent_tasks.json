@@ -663898,6 +663898,15 @@
         },
         "receipt_id": "583d6cbc701992e2f7d88c36a3b862ca397ce7ec2207f0fe4b117646f18ed973",
         "event_id": "f1a8254a3110a9ba6c5a7f10e67ff0444cb007b072e7f2d5c8a62f79b02c3d59"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T10:28:17.972178Z",
+        "decision_id": "4c390429951f96102fef4c8b70474598fe861ed754bd55c3c82079e57052ac2b",
+        "executor_claim_id": "145e2f1262ab9e64e063dc288cca3df522b4f449fc97a1bf6c1146a7c005bbb3",
+        "receipt_id": "583d6cbc701992e2f7d88c36a3b862ca397ce7ec2207f0fe4b117646f18ed973",
+        "frontier_seq": 864,
+        "event_id": "50491bca6a2573a24f00d06ca02889ec6a42c4ec1c486ac484f9ead1c901bedd"
       }
     ]
   }
