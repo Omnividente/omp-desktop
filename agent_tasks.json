@@ -226938,7 +226938,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T04:35:35.452004Z"
+        "observed_at": "2026-10-25T04:35:35.452004Z",
+        "released_attempt_ref": "autonomous/attempt-5b37b4cb3910385faf8a05d6"
       },
       "research_result": {
         "summary": "Investigated the transcript reading/loading logic. During an interrupted or failed operation like a refresh, if the retry fails, `useTranscript` currently wipes out the previously loaded `transcript` content via `setTranscript(null)` before the new network call resolves or rejects. Because the request resets the state immediately instead of waiting for a successful response, a failed refresh causes all visible entries and transcript data to disappear, rendering an error state but losing the loaded content. This also clears the underlying data driving reading position restoration. To fix this, `load` should only clear `transcript` if we are changing to a completely *new* file path, not when refreshing the current one.",
