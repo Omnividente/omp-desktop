@@ -234391,7 +234391,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T10:50:07.485107Z"
+        "observed_at": "2026-10-25T10:50:07.485107Z",
+        "released_attempt_ref": "autonomous/attempt-b4ca06a07b8eb297c562b0d1"
       },
       "research_result": {
         "summary": "Verified that terminalShortcutInput incorrectly maps the physical KeyZ to undo ('\\u001f'), failing on non-QWERTY layouts where the logical 'z' key is pressed but produces a different physical code (e.g. AZERTY produces KeyW). Also verified that createMouseSelectionEdit calculates deletion length based on code points rather than grapheme clusters, failing to accurately represent emojis with ZWJ.",
