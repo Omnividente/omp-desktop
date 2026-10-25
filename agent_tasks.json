@@ -232418,7 +232418,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T08:11:58.428759Z"
+        "observed_at": "2026-10-25T08:11:58.428759Z",
+        "released_attempt_ref": "autonomous/attempt-a94be685b0d2208d84ebbd85"
       },
       "research_result": {
         "summary": "Investigated the terminal shortcut mapping logic and its compatibility with non-QWERTY layouts (AZERTY, QWERTZ, Dvorak, Russian). Found that the hardcoded reliance on physical event.code for specific actions (like undo via Ctrl+Z mapped to code KeyZ) fails on layouts where the logical key is in a different physical position. For instance, AZERTY users pressing Ctrl+Z trigger KeyW instead of KeyZ, thereby missing the undo alias.",
