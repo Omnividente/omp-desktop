@@ -671962,6 +671962,15 @@
         },
         "receipt_id": "ccd645aa33927dae4a1e4b388f04b1bc68d39f5b01f8fa284a992e8be0b6ca31",
         "event_id": "721d9a7073c3076fa72cff636768a0c25623be8cb93495ba33564bb4cce9b95d"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T11:24:23.543779Z",
+        "decision_id": "aa2bbb73f7f43492e5b0b45b0100b96f8e7f423c302872d856b10b5d5e2a47f5",
+        "executor_claim_id": "231bba17c5f87ad6433a52b253f24a6a45140c54de2eaf1c7ccd9bfdf0926d8b",
+        "receipt_id": "ccd645aa33927dae4a1e4b388f04b1bc68d39f5b01f8fa284a992e8be0b6ca31",
+        "frontier_seq": 876,
+        "event_id": "20bc1e30e9d1364be9e7669784b24b1d47faff24ff86a3683f839ed849a1e3ec"
       }
     ]
   }
