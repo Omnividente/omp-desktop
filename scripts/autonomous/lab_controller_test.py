@@ -15,7 +15,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from complete_jules_task import latest_report
 from jules_dispatch import Response
 from jules_provenance import bind_proposal
-from lab_controller import GitHub, StateWriteError, _git, tick
+from lab_controller import GitHub, StateWriteError, _git, tick, _poll_observations
+from jules_dispatch import COMPLETED_STATES, FAILED_STATES
 from loop_health import assess_health
 from state_store import load_state, save_state
 from proposal_backlog import close_research_unaccepted, decide
@@ -1493,6 +1494,29 @@ class ControllerTests(unittest.TestCase):
                 self.run_tick()
                 self.assertEqual(self.api.posts, 0)
                 self.assertEqual(self.reload()[0]["status"], "todo")
+
+
+
+class PollObservationTests(unittest.TestCase):
+    def test_terminal_classification_preserves_old_receipt_payload(self):
+        for state, reason in ([(state, "worker_completed") for state in COMPLETED_STATES]
+                              + [(state, "worker_failed") for state in FAILED_STATES]):
+            with self.subTest(state=state):
+                old = {"task_id": "synthetic", "session_id": "123", "session_state": state,
+                       "observed_at": NOW.isoformat(), "reason": "worker_running"}
+                new = dict(old, reason=reason)
+                self.assertEqual(_poll_observations({"observations": [old]}),
+                                 _poll_observations({"observations": [new]}))
+                self.assertEqual(set(_poll_observations({"observations": [new]})[0]),
+                                 {"task_id", "session_id", "session_state", "observed_at"})
+                self.assertEqual(_poll_observations({"observations": [new]}, recovery=True), [])
+
+    def test_non_poll_diagnostics_and_unbound_observations_remain_excluded(self):
+        item = {"task_id": "synthetic", "session_id": "123", "session_state": "COMPLETED",
+                "observed_at": NOW.isoformat(), "reason": "worker_completed"}
+        for change in ({"reason": "controller error"}, {"session_id": None},
+                       {"session_state": "UNKNOWN"}):
+            self.assertEqual(_poll_observations({"observations": [dict(item, **change)]}), [])
 
 
 if __name__ == "__main__":

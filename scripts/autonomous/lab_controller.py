@@ -41,6 +41,21 @@ from owner_report_recovery import queue_recovery, claim_recovery
 
 LAB_BRANCH = "autonomous/lab"
 
+def _poll_observations(result, *, recovery=False):
+    """Retain bound poll receipts independently of terminal display labels."""
+    return [
+        {field: observation[field] for field in
+         ("task_id", "session_id", "session_state", "observed_at")}
+        for observation in result.get("observations", [])
+        if not recovery
+        and observation.get("reason") in {
+            "worker_running", "worker_completed", "worker_failed",
+            "worker_awaiting_feedback", "worker_awaiting_approval", "worker_paused",
+        }
+        and observation.get("session_id") and observation.get("session_state") != "UNKNOWN"
+    ]
+
+
 
 def _persist_checkpoint(data, persist, stage, message):
     try:
@@ -953,13 +968,7 @@ def main(argv=None) -> int:
         if queued is not None:
             result["owner_recovery_request_id"] = queued["request_id"]
         after_state_sha = json.loads(args.revision_file.read_bytes())["state_sha"]
-        poll_observations = [{field: observation[field] for field in
-                              ("task_id", "session_id", "session_state", "observed_at")}
-                             for observation in result.get("observations", [])
-                             if not (args.recover_report or args.recover_feedback)
-                             and observation.get("reason") in {"worker_running", "worker_awaiting_feedback",
-                                                               "worker_awaiting_approval", "worker_paused"}
-                             and observation.get("session_id") and observation.get("session_state") != "UNKNOWN"]
+        poll_observations = _poll_observations(result, recovery=bool(args.recover_report or args.recover_feedback))
         if substantive_manifest(manifest) != before or poll_observations:
             receipt = store.record_effect(capability, "controller_checkpoint", {
                 "before_state_sha": before_state_sha, "after_state_sha": after_state_sha,
