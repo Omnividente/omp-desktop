@@ -85,6 +85,7 @@ def integration_packet(*, critical=True, action="ready_for_review"):
                   "mergeable": True, "mergeable_state": "clean", "merge_commit_sha": TESTED}
     data["state"] = {"schema": 2, "grant_id": grant["id"], "active_task": copy.deepcopy(task),
                      "lease": {"id": data["lease_id"], "task_id": task["id"]}, "pending_operation": None}
+    data["state"]["retired_task_ids"] = list(data["retired_task_ids"])
     data["active_task_id"] = task["id"]
     data["open_prs"] = [{"branch": task["branch"], "draft": draft, "base": "main",
                          "repository": POLICY["repository"], "head_sha": HEAD}]
@@ -275,6 +276,30 @@ class IntegrationGateTest(unittest.TestCase):
                        lambda p: p["state"]["active_task"].update(head_sha=BASE),
                        lambda p: p.update(state_blob_sha="unknown")):
             data = integration_packet(); mutate(data); self.denied(data)
+
+    def test_unknown_or_post_merge_state_blocks_all_new_source_and_review_effects(self):
+        for action in ("develop", "commit", "draft_create", "draft_update", "request_review", "checkpoint", "test"):
+            for phase in ("merge_pending", "post_merge"):
+                data = integration_packet()
+                data["action"] = action
+                data["test_environment"] = "isolated-synthetic-no-credentials"
+                data["task"]["phase"] = phase
+                data["state"]["active_task"] = copy.deepcopy(data["task"])
+                self.denied(data)
+            data = integration_packet(); data["action"] = action
+            data["test_environment"] = "isolated-synthetic-no-credentials"
+            data["state"]["pending_operation"] = {"result": "unknown"}
+            self.denied(data)
+            data["action"] = "observe"
+            self.assertFalse(evaluate(POLICY, data, NOW)["write_authorized"])
+
+    def test_supplied_active_task_id_cannot_hide_an_actual_uncompleted_task(self):
+        data = integration_packet(); data["action"] = "develop"
+        data["active_task_id"] = None
+        self.denied(data)
+        data = integration_packet(); data["action"] = "develop"
+        data["state"]["active_task"] = {**data["task"], "id": "old-uncompleted-task"}
+        self.denied(data)
 
     def test_full_diff_not_only_unreserved_batch_is_scope_checked(self):
         for name in (".github/workflows/pr.yml", "scripts/autonomous/dot_merge.py", "docs/dot/R2_J.md",

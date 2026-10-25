@@ -199,6 +199,20 @@ def evaluate(policy: dict, packet: dict, now: datetime | None = None) -> dict:
     if (packet.get("active_task_id") not in (None, task_id)
             or task.get("unresolved_operation") is not None):
         raise ValueError("another task or unresolved operation forbids new effects; reconcile read-only")
+    if policy["schema"] == 2:
+        state, lease = packet.get("state"), None
+        if isinstance(state, dict):
+            lease = state.get("lease")
+        if (not isinstance(state, dict) or state.get("schema") != 2
+                or state.get("grant_id") != grant_id or state.get("active_task") != task
+                or state.get("retired_task_ids") != retired or packet["active_task_id"] != task_id
+                or "pending_operation" not in state or state["pending_operation"] is not None
+                or task.get("phase") in ("ready_pending", "merge_pending", "post_merge")
+                or not isinstance(lease, dict) or not packet.get("lease_id")
+                or lease.get("id") != packet["lease_id"] or lease.get("task_id") != task_id
+                or not isinstance(packet.get("state_blob_sha"), str)
+                or not SHA.fullmatch(packet["state_blob_sha"])):
+            raise ValueError("actual leased v2 state has pending/post-merge work or mismatched task history")
     if packet.get("inventory_complete") is not True:
         raise ValueError("complete fresh PR/file/rename inventory is required")
     for pr in packet["open_prs"]:
