@@ -232881,7 +232881,7 @@
       "id": "research-workspace-navigation-behavior-23",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -233007,16 +233007,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17119693872458600961",
         "dispatch_key": "fb4d19c871f03bc3321e3590",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-fb4d19c871f03bc3321e3590",
         "started_at": "2026-10-25T09:06:11.333295Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T09:33:58.623732Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -233188,13 +233188,47 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T09:17:51.729755Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T09:33:58.623732Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation behavior. Verified that when a workspace is deleted via ProjectRail, focus is correctly moved to the 'Open folder' button or another logical element if the removal button loses focus. Also observed that focus restoration in TerminalWorkspace handles various edge cases, such as closing tabs and pointer actions, and that the WorkspaceHome has accessible buttons.",
+        "observations": [
+          {
+            "scenario": "Simulated deleting a workspace in ProjectRail and observing focus.",
+            "evidence": "Reviewed src/ProjectRail.tsx layout effect for removalFocusRef. When the pending button is disconnected or disabled, it focuses openFolderRef.",
+            "result": "Confirmed that ProjectRail handles focus restoration upon workspace removal."
+          },
+          {
+            "scenario": "Analyzed App.tsx behavior for workspace renaming and removal.",
+            "evidence": "Reviewed submitWorkspaceRename and removeWorkspace in src/App.tsx. They correctly manage busy state and apply payloads after API calls.",
+            "result": "Workspace mutation actions correctly manage state and errors."
+          },
+          {
+            "scenario": "Reviewed TerminalWorkspace test coverage for focus behavior.",
+            "evidence": "src/TerminalWorkspace.test.tsx includes cases for 'moves focus from the removed last tab to New session', 'does not autofocus an initially empty workspace', and 'does not reclaim focus after an outside pointer action'.",
+            "result": "TerminalWorkspace focus behavior upon tab closure is heavily tested."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate focus behavior when a newly created workspace fails to load.",
+          "Examine if keyboard navigation within the SessionList handles large datasets correctly."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-25T09:33:58.623732Z",
+        "source": {
+          "activity_id": "sessions/17119693872458600961/activities/cca3031c247b4c7f9d674aa2d0cae39d",
+          "report_sha256": "d92ad86d5a45e8e75beb7f68eb2a067a719fd482c7a03b209a8b0ba7baa4c5bc",
+          "activity_created_at": "2026-10-25T09:22:30.997300Z",
+          "session_id": "17119693872458600961",
+          "dispatch_key": "fb4d19c871f03bc3321e3590"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T09:26:29.138125Z",
+    "last_poll_at": "2026-10-25T09:34:24.405938Z",
     "last_tick_at": "2026-10-25T09:26:39.523161Z",
     "run_id": "40180584841",
     "owner_recovery_requests": [
