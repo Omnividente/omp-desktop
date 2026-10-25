@@ -612616,6 +612616,24 @@
           "observed_at": "2026-10-25T04:21:41.484662Z"
         },
         "event_id": "b9223b80ad3bea23aa24d0ab068eb345fb7a88545cbce650a65e64d1b500d72b"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-25T04:21:58.407820Z",
+        "decision_id": "43be9a24ee8a954a880facfbaa4a3be3f933311fe3a669736589b3fe3c550715",
+        "claim_id": "03902c17f1947e4d4c8510581677dcb5cd00df2c1b4526d18b9251d609aeab3c",
+        "trigger": {
+          "run_id": "40161598411",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "correlation_key": "f5bb33f52c852bcbdd3c3e12b662255e",
+        "before_state_sha": "2370a0fe36353cd9a9e912a003e8f10998dbc4ab",
+        "before_digest": "74608e9f859993258f3182488f32e9e101210c86eaed6b0e7c01aae02eec1ce3",
+        "event_id": "7f7d6df31054546dd5ec481a8080ad24bc749fffd4143ed10dc407cb40b11114"
       }
     ]
   }
