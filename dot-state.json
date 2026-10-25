@@ -191,7 +191,12 @@
       "critical": true
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T150500Z-readonly-sweep",
+    "owner": "dot",
+    "acquired_at": "2026-10-25T14:50:30Z",
+    "purpose": "metadata-only read-only sweep checkpoint"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -430,6 +435,14 @@
       "status": "confirmed-read-only-sweep",
       "observed_at": "2026-10-25T14:36:44Z",
       "note": "No source/PR mutation; checkpoint CAS result verified separately by exact GET."
+    },
+    {
+      "id": "r2j-20261025T150500Z-readonly-sweep-lease",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "03e8e5505392725429eff69ae4ff6d9c53314d29",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T150500Z-readonly-sweep",
+      "ack": "get-confirm-required"
     }
   ],
   "backlog": [
