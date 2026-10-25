@@ -235501,7 +235501,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T12:16:58.334043Z"
+        "observed_at": "2026-10-25T12:16:58.334043Z",
+        "released_attempt_ref": "autonomous/attempt-97c66f3bdb73d51e0d079269"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and project switching performance using synthetic large-input benchmarks. Measured responsiveness across SessionList and ProjectRail.",
