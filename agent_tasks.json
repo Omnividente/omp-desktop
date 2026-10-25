@@ -645528,6 +645528,15 @@
         },
         "receipt_id": "d3af9041dda2070e5296da257a492195190262a796cedfd2abe6ee7e5eb8b238",
         "event_id": "eae74a9c0dce73ad95b2aa59a4b8d0f056abebd2329c14aa2c0acb6dfeecf2d3"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T08:04:53.132557Z",
+        "decision_id": "0922d600f72ae6c5289637388d2b568f8ceddb8d208fe3bca9167366a2f502f6",
+        "executor_claim_id": "92d6b529efb91b6ed97bcbef0bc7325aef49718ac0e3649f03bb3ba3d235f953",
+        "receipt_id": "d3af9041dda2070e5296da257a492195190262a796cedfd2abe6ee7e5eb8b238",
+        "frontier_seq": 835,
+        "event_id": "8fe3aad445baa30202df52bf74d9dbb128735d16ef640292e095646555342165"
       }
     ]
   }
