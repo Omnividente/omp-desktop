@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
+  "active_task": null,
+  "lease": null,
+  "pending_operation": null,
+  "retired_task_ids": [],
+  "operations": [],
+  "backlog": [],
+  "last_sweep_at": null
+}
