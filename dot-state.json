@@ -191,7 +191,12 @@
       "critical": true
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T15:47:27.820549+00:00",
+    "purpose": "metadata-only verified v2 preflight and Ready capability exception"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -454,6 +459,17 @@
       "status": "confirmed-read-only-sweep",
       "observed_at": "2026-10-25T14:51:00Z",
       "note": "No source/PR effect; exact CAS result verified separately by GET."
+    },
+    {
+      "id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "7bb35e1f2f03414134ee4eee1fa0b0fefa4fec21",
+      "expected_main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint",
+      "ack": "pending-readback",
+      "prepared_at": "2026-10-25T15:47:27.820549+00:00"
     }
   ],
   "backlog": [
