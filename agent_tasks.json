@@ -620524,6 +620524,29 @@
         "before_state_sha": "d08de9e06e4ce2f9ea065678b7a6a5676211aab0",
         "before_digest": "b88cb231eb60a4ce6f55dcaa3d8c929a04f21441a2416fc10d9889f98159b20e",
         "event_id": "8d53f01ee616be21027f304d4b1a963f27b6c9b9cd241960b607f05f9b1cb2e3"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-25T05:15:05.728525Z",
+        "decision_id": "d7e701df27489952d901077c34e41dbc802ae752351a4750af36a81bcc4a7fe8",
+        "executor_claim_id": "e63d8edf492f382cdd1a74f342b2ffe6cca524323d8797c361f486ddcb9a5288",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "7b2b61b2cb1bb42d63eab21eb2ec7cc980e7c0a7",
+          "after_state_sha": "85b3f8b96ab4b572fc556005bca2d1f95d72f274",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-reliability-22",
+              "session_id": "12551377042586009895",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-25T05:14:07Z"
+            }
+          ],
+          "before_digest": "b88cb231eb60a4ce6f55dcaa3d8c929a04f21441a2416fc10d9889f98159b20e",
+          "after_digest": "cf779ac19b8911aeb8cd920abf7ce6f78234e056ad1030368733c519e27021ab"
+        },
+        "receipt_id": "4381e08d85f1a74e8288de34836ae2a4882bd3ba5471fcf836b686216184d4e9",
+        "event_id": "f1cc367b7c79edd0cb1074e99fc839c915123699fd3fa5a9255b1b2ddb7254a8"
       }
     ]
   }
