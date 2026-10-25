@@ -5,7 +5,7 @@
     "id": "terminal-worker-observation-20261025",
     "branch": "dot/jules-terminal-worker-observation-20261025",
     "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+    "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
     "touched_paths": [
       "scripts/autonomous/lab_controller.py",
       "scripts/autonomous/lab_controller_test.py",
@@ -15,7 +15,7 @@
     "spent_lines": 79,
     "ci_revisions": 1,
     "initial_published": true,
-    "unresolved_operation": "terminal-worker-observation-20261025-v3-refresh-ref",
+    "unresolved_operation": null,
     "phase": "review_required",
     "critical": true,
     "pr": {
@@ -120,33 +120,6 @@
       ],
       "checks": "4 regression methods and 8 snapshot tests, reverse patch restores pinned blobs; not owner acceptance"
     },
-    "exception": {
-      "fingerprint": "native-review-provenance-not-verifiable",
-      "status": "blocked-safety",
-      "observed_at": "2026-10-25T18:08:30.956934+00:00",
-      "last_checked_at": "2026-10-25T18:08:30.956934+00:00",
-      "missing": [
-        "provider-attested execution_id and context_id mapping",
-        "actual model identity",
-        "original provider trace or receipt URI",
-        "provider-attested read-only scope (spawn has no permissions control)",
-        "provider-produced exact input manifest hash and result hash"
-      ],
-      "actual_capability": "Native collaboration can execute separate-context code review and synthetic safety tests. This is NOT lack of review/test execution capability. Exposed schemas/results do not authenticate the full accepted v2 review receipt contract.",
-      "primary_observations": {
-        "tool": "collaboration.spawn_agent / collaboration.list_agents / native final task message",
-        "audit_task": "/root/refresh_pr148_v2_evidence/native_provenance_check",
-        "fork_turns": "none",
-        "scope_requested": "read-only capability audit",
-        "provider_trace_uri": null,
-        "enforced_read_only_scope": false,
-        "code_review_performed": false,
-        "safety_tests_performed": false,
-        "native_audit_verdict": "Full v2 provenance requirements not established; do not fabricate receipt or pass author JSON as provider evidence."
-      },
-      "safe_next_step": "Existing native provider support must expose verifiable primary review provenance; otherwise separately owner-accepted contract amendment is required. No new service/token/executor and no author attestation substitute.",
-      "effects": "No source refresh, no CI revision consumed, no Ready/merge. Same PR148 and historical counters retained."
-    },
     "ci": {
       "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "tested_merge_sha": "18bdb119c418c80718f0b8e873c828fad9f1125f",
@@ -245,6 +218,38 @@
           "completion": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6401183945",
           "contract": "Existing two-argument Ready wrapper accepted; other v2 gates unchanged."
         }
+      },
+      {
+        "fingerprint": "native-review-provenance-not-verifiable",
+        "status": "resolved",
+        "observed_at": "2026-10-25T18:08:30.956934+00:00",
+        "last_checked_at": "2026-10-25T18:08:30.956934+00:00",
+        "missing": [
+          "provider-attested execution_id and context_id mapping",
+          "actual model identity",
+          "original provider trace or receipt URI",
+          "provider-attested read-only scope (spawn has no permissions control)",
+          "provider-produced exact input manifest hash and result hash"
+        ],
+        "actual_capability": "Native collaboration can execute separate-context code review and synthetic safety tests. This is NOT lack of review/test execution capability. Exposed schemas/results do not authenticate the full accepted v2 review receipt contract.",
+        "primary_observations": {
+          "tool": "collaboration.spawn_agent / collaboration.list_agents / native final task message",
+          "audit_task": "/root/refresh_pr148_v2_evidence/native_provenance_check",
+          "fork_turns": "none",
+          "scope_requested": "read-only capability audit",
+          "provider_trace_uri": null,
+          "enforced_read_only_scope": false,
+          "code_review_performed": false,
+          "safety_tests_performed": false,
+          "native_audit_verdict": "Full v2 provenance requirements not established; do not fabricate receipt or pass author JSON as provider evidence."
+        },
+        "safe_next_step": "Existing native provider support must expose verifiable primary review provenance; otherwise separately owner-accepted contract amendment is required. No new service/token/executor and no author attestation substitute.",
+        "effects": "No source refresh, no CI revision consumed, no Ready/merge. Same PR148 and historical counters retained.",
+        "resolved_at": "2026-10-25T21:02:42.541Z",
+        "resolution": {
+          "policy_version": 3,
+          "grant_id": "r2-j-v2-cd18d9f291614822a73fd59dc276f47a"
+        }
       }
     ],
     "v2_review_capability": {
@@ -252,13 +257,10 @@
       "checked_at": "2026-10-25T18:08:30.956934+00:00",
       "new_exact_revision_review": "not-run",
       "reason": "native-review-provenance-not-verifiable"
-    }
+    },
+    "current_base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46"
   },
-  "lease": {
-    "id": "r2j-20261025T210000Z-pr148-v3-refresh",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T20:59:56.915102+00:00"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -771,8 +773,14 @@
       "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "send_claim": "consumed",
-      "status": "pending",
-      "prepared_at": "2026-10-25T21:02:03.930Z"
+      "status": "confirmed",
+      "prepared_at": "2026-10-25T21:02:03.930Z",
+      "result": {
+        "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "pr": 148,
+        "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+        "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb"
+      }
     }
   ],
   "backlog": [
@@ -841,12 +849,11 @@
   ],
   "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
   "last_attempt": {
-    "at": "2026-10-25T20:59:56.915102+00:00",
-    "outcome": "v3-resume-lease-claim",
-    "canonical_grant_hash_verified": true,
-    "policy_hash_verified": true,
-    "inventory_count": 17,
-    "raw_export_metadata": "legacy raw export hash is not a normative canonical grant binding; preserved without self-edit"
+    "at": "2026-10-25T21:02:46.014Z",
+    "outcome": "v3-main-refresh-confirmed-awaiting-exact-review-and-CI",
+    "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+    "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+    "ci_revisions": 1
   },
   "migrations": [
     {
