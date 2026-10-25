@@ -191,16 +191,30 @@ Do not weaken rules, forge GitHub approval, self-approve or enable auto-merge.
 
 1. Run the accepted v2 preflight on actual primary-source observations. Persist
    `prepare_operation(..., kind="ready_for_review", ...)` intent by state CAS.
-   Ready uses [GitHub GraphQL `markPullRequestReadyForReview`](https://docs.github.com/en/graphql/reference/pulls#markpullrequestreadyforreview---mutation)
-   with the actual PR `node_id` and the operation ID as `clientMutationId`.
-   This mutation has **no atomic expected-head argument** and its echoed client
-   ID is not an idempotency key. Check exact head/base immediately before and
-   after the single call; retain them in the intent. A race/unknown result
-   forbids merge and requires GET-only reconciliation, never another Ready send.
+   Use the existing GitHub write-plugin tool exactly as exposed:
+   `mark_pull_request_ready_for_review(repository_full_name, pr_number)`.
+   The stored request is `{"tool":"mark_pull_request_ready_for_review",
+   "arguments":{"repository_full_name":"Omnividente/omp-desktop","pr_number":148}}`
+   for #148; bind the actual number for any other task. Keep the unique
+   `operation_id` in the intent and its digest; the request digest covers only
+   the actual tool name and these two arguments. Do not add unsupported args.
+   GraphQL's optional `clientMutationId` is correlation only, not an idempotency
+   key or atomic expected-head check, and is **not required by this contract**.
+   After successful intent CAS/readback, GET the actual repository, PR number,
+   node ID, branch, exact head/base and open/unmerged/Draft status immediately
+   before the single call. A CAS conflict, unknown CAS or changed/missing refs
+   means **no Ready call**, not a new intent or stolen lease. Immediately after
+   the call, GET the same identity/head/base and open/unmerged/Ready status and
+   reconcile the original operation. ACK alone never proves Ready. Unknown ACK
+   permits only GET reconciliation, never another Ready; changed refs cannot
+   confirm the operation or authorize merge. The tool has no atomic head arg.
 2. Observe required CI **again after Ready**: Quality Gate may run on this event.
-   Await the latest authentic runs/attempts; refresh authority, full inventories,
-   risk/reviews, branch rules and exact base/head/tested tree before merge. Prior
-   Draft greens alone are not a Ready merge permit.
+   Await the latest authentic runs/attempts; retain Ready event/receipt and the
+   newly observed required CI run identities rather than reusing Draft greens.
+   Confirm Ready for the same head/base from the original consumed operation,
+   then refresh authority, full inventories, independent code/safety receipts,
+   branch rules and exact base/head/tested tree before merge. A Ready ACK or
+   confirmed Ready alone never authorizes squash.
 3. CAS-persist `prepare_operation(..., kind="squash_merge", ...)` for that exact
    preflight. The sole merge operation is protected GitHub
    `PUT /repos/Omnividente/omp-desktop/pulls/{number}/merge` with
@@ -268,6 +282,36 @@ task, reproduction, complete paths/renames and overlap, original/current bases,
 head/tested merge/tree, risk, primary independent review receipts, genuine CI
 runs/attempts/checkouts, counters, operation receipts and final postmerge proof.
 A changed revision withdraws old eligibility; PR prose is never authority.
+
+### One-time acceptance of the Ready transport correction
+
+This narrowly scoped governance correction changes only the unsupported Ready
+transport requirement; it does not add actions or weaken v2 evidence/merge gates.
+Record one separate owner acceptance of the exact checked correction PR/head,
+base, installed main/tree, successful check identities and its sole scope outside
+the Dot-editable PR body. Bind the effective grant ID/canonical hash, unchanged
+policy path/hash and existing task/PR/branch/counters. Retain the user's explicit
+instruction as the decision source; shared GitHub actor is not independent review.
+Publish installed-main/post-CI proof as completion of that same decision.
+
+The v2 policy JSON, action set, scope and state schema are unchanged, so this
+transport correction does **not** reissue, edit or reinterpret the immutable
+grant/export. The separately accepted implementation amendment supplies its
+provenance. Do not rewrite existing operation requests/digests or turn an old
+unknown/rejected intent into a fresh claim. Pending old-transport effects require
+GET-only reconciliation under their original accepted source; if unavailable,
+stop with that concrete exception. Preserve all opaque operation history.
+
+If a later correction changes policy/hash/authority, it is a different acceptance:
+stage only the Dot index, GET-reconcile and freeze a full quiet state/blob, issue
+a distinct immutable grant retaining the new exact acceptance, explicitly revoke
+the superseded grant, and prepare an owner-authorized exact-blob CAS replacement
+that changes only grant binding/lineage while retaining the complete schema 2
+task, original refs, operations, receipts, backlog and budgets. Never reset to
+schema 1 or call the legacy-to-v2 migrator on schema 2. Unknown/conflicting CAS is
+GET-only; do not activate the existing hourly task against mixed bindings. This
+conditional procedure is not permission to execute another policy migration.
+
 
 ## One owner acceptance: bootstrap, new grant/index and CAS migration
 

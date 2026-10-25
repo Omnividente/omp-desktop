@@ -140,17 +140,15 @@ def _request(kind, expected, operation_id):
         raise ValueError("foreign request repository")
     _integer(expected.get("number"), "PR number", 1)
     _hex(expected.get("head_sha"), 40, "head_sha")
-    node_id = _text(expected.get("node_id"), "primary PR node ID")
+    _text(expected.get("node_id"), "primary PR node ID")
     _text(operation_id, "operation_id")
     if kind == "ready_for_review":
-        # GitHub Ready has no atomic head argument. Bind pre/post GETs separately;
-        # clientMutationId is an echo, never permission to replay a lost ACK.
-        query = ("mutation($id: ID!, $clientMutationId: String!) { "
-                 "markPullRequestReadyForReview(input: {pullRequestId: $id, "
-                 "clientMutationId: $clientMutationId}) { clientMutationId "
-                 "pullRequest { id number isDraft headRefOid baseRefOid } } }")
-        return {"method": "POST", "path": "/graphql", "body": {"query": query,
-                "variables": {"id": node_id, "clientMutationId": operation_id}}}
+        # The existing plugin exposes only repository/number. Neither this call
+        # nor optional GraphQL clientMutationId provides expected-head or replay
+        # protection; those remain bound to the CAS intent and pre/post GETs.
+        return {"tool": "mark_pull_request_ready_for_review",
+                "arguments": {"repository_full_name": expected["repository"],
+                              "pr_number": expected["number"]}}
     if kind == "squash_merge":
         return {"method": "PUT", "path": "/repos/" + expected["repository"]
                 + "/pulls/" + str(expected["number"]) + "/merge",
@@ -163,8 +161,8 @@ def prepare_operation(state, kind, evidence, *, operation_id, lease_id, now):
 
     evidence binds grant_id/task_id/branch/pr_number/head_sha, current base_sha,
     tested_merge_sha/tested_tree_sha, policy_sha256/preflight_sha256 and the
-    freshly read expected_state_blob_sha. Ready uses GraphQL with the actual PR
-    node ID and exact pre/post head checks; merge uses the protected PUT.
+    freshly read expected_state_blob_sha. Ready records the existing plugin call;
+    exact pre/post GETs bind its refs. Merge still uses the protected exact-head PUT.
     """
     stamp = _time(now)
     _state(state, 2)
