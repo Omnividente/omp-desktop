@@ -622860,6 +622860,16 @@
           "actor": "Omnividente"
         },
         "event_id": "482042f5606971b0b214eaadbd38ed5ce529aa2ca5266ca97cd2f231d09b37c3"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T05:29:36.792144Z",
+        "decision_id": "66aa3c7bbc31db4d7af3e6aa8ad627a44eb3b01c4c941587079534f008db560d",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T05:29:35.009654Z"
+        },
+        "event_id": "3bb2934213fc1cf6e269b86c700e7d090b2bf60c97f39ed22b6713a4eebf9481"
       }
     ]
   }
