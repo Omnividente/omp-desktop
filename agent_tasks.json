@@ -232520,6 +232520,146 @@
         "session_id": "15240217752729706722",
         "dispatch_key": "a94be685b0d2208d84ebbd85"
       }
+    },
+    {
+      "id": "research-sessions-persistence-reliability-23",
+      "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-25T08:11:58Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "reliability",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 23,
+        "previous_reports": [
+          {
+            "summary": "Investigated the session import recovery and transaction rollback mechanisms. Verified that focus remains on the newly renamed item after cancellation, matching owner decisions. In CodexImportModal, observed rapid interaction navigation drops focus or skips elements correctly when doing burst actions.",
+            "observations": [
+              {
+                "scenario": "Rapid keyboard navigation during CodexImportModal burst actions",
+                "evidence": "Ran a synthetic test 'test-hypothesis2.test.tsx' simulating 200 mock codex sessions in `CodexImportModal` and triggering a rapid 'End' key followed by two 'ArrowUp' keys. The effect correctly navigated up from the end item. Verified the keyboard focus navigation matches rapid navigation logic.",
+                "result": "Rapid keyboard navigation works properly in `CodexImportModal` without focus loss."
+              },
+              {
+                "scenario": "Session list focus behavior upon cancel rename",
+                "evidence": "Ran a synthetic test 'test-session-rename-focus.test.tsx' rendering `SessionList` with `renamingSessionId` set, simulated focusing the rename input and hitting 'Escape' to cancel, followed by updating state to clear renaming mode.",
+                "result": "The active element correctly reverted to the parent row (`div.session-select`) when the rename operation was canceled, confirming the focus is restored properly to the session list item rather than the document body."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T05:02:46.646039Z",
+            "source": {
+              "activity_id": "sessions/10106068818555042948/activities/91a9d1f832094ed9a07051d49d5b3b55",
+              "report_sha256": "ec927536a62ea8b23511255d7b1aa26848c90e34afde489584845ae573c4bc9d",
+              "activity_created_at": "2026-10-25T04:52:40.185573Z",
+              "session_id": "10106068818555042948",
+              "dispatch_key": "f3df3674e9c34aab0cc42e0a"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated empty states and disable behavior in modals, finding that ImportSessionModal fails to disable the Import button when the path is empty, which can confuse users or trigger invalid imports.",
+            "observations": [
+              {
+                "scenario": "ImportSessionModal with empty path",
+                "evidence": "Ran a synthetic test `test-import-empty-path.test.tsx` rendering `ImportSessionModal` with `importing=false` and `path=\"\"`. The 'Import' button was verified to be enabled (`disabled=false`). Inspected `src/ImportSessionModal.tsx` and confirmed the primary button's disabled state is `disabled={importing}`, not taking an empty path into account.",
+                "result": "The Import button is enabled even when there is no path. However, a previous triage marked this behavior as rejected because the modal is only mounted when a valid path is returned by the OS picker, and thus an empty path is not a user-reachable state. This means it is not a valid bug."
+              },
+              {
+                "scenario": "SessionList empty state accessibility",
+                "evidence": "Ran a synthetic test `test-session-list-empty-a11y.test.tsx` simulating a workspace with zero sessions. The `showEmpty` condition evaluates to true and renders a `div.sidebar-empty`. The div lacks a `role=\"status\"` or `aria-live` attribute.",
+                "result": "The empty state text ('History is empty', 'Create your first session in this folder') is not announced by screen readers when it dynamically appears because there is no `role=\"status\"` or `aria-live=\"polite\"` on the `.sidebar-empty` container."
+              },
+              {
+                "scenario": "CodexImportModal empty state accessibility",
+                "evidence": "Ran a synthetic test `test-codex-empty.test.tsx` simulating zero sessions. The modal renders `<p className=\"field-help\" role=\"status\">No Codex sessions found</p>` when `sessions.length === 0`.",
+                "result": "The empty state for Codex Import already correctly uses `role=\"status\"`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+            ],
+            "proposed_task_ids": [
+              "discovery-6e4108f1fe931764"
+            ],
+            "completed_at": "2026-10-25T07:10:54.522867Z",
+            "source": {
+              "activity_id": "sessions/17698947840747729565/activities/cc8de514bd0543f8a1585d1f8a371d84",
+              "report_sha256": "fa3c0425e7eed7c5559027803b35aeeb0359a9877e955030f6a1022f99ae7484",
+              "activity_created_at": "2026-10-25T07:03:35.599667Z",
+              "session_id": "17698947840747729565",
+              "dispatch_key": "0cd6254047a077b6792a0327"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the session import recovery and transaction rollback mechanisms, empty states, and focus behavior. Verified that ImportSessionModal fails to disable the Import button when the path is empty, although this state is currently inaccessible due to OS picker behavior. Verified that the SessionList empty state lacks a role=status or aria-live attribute, preventing screen readers from announcing it when it dynamically appears.",
+            "observations": [
+              {
+                "scenario": "ImportSessionModal with empty path",
+                "evidence": "Ran a synthetic test `src/test-import-empty-path.test.tsx` rendering `ImportSessionModal` with `importing=false` and `path=\"\"`. The 'Import' button was verified to be enabled (`disabled=false`). Inspected `src/ImportSessionModal.tsx` and confirmed the primary button's disabled state is `disabled={importing}`, not taking an empty path into account.",
+                "result": "The Import button is enabled even when there is no path. Note that a previous triage decision context rejected a proposal to fix this, stating the modal is only mounted when a valid path is returned by the OS picker, and thus an empty path is not user-reachable."
+              },
+              {
+                "scenario": "SessionList empty state accessibility",
+                "evidence": "Ran a synthetic test `src/test-session-list-empty-a11y.test.tsx` simulating a workspace with zero sessions. The `showEmpty` condition evaluates to true and renders a `div.sidebar-empty`. The div lacks a `role=\"status\"` or `aria-live` attribute.",
+                "result": "The empty state text ('History is empty', 'Create your first session in this folder') is not announced by screen readers when it dynamically appears because there is no `role=\"status\"` or `aria-live=\"polite\"` on the `.sidebar-empty` container."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if session renaming keyboard interactions in `CodexImportModal` lose focus during burst navigation."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T07:50:49.687384Z",
+            "source": {
+              "activity_id": "sessions/165897134607881398/activities/b0f10b845931494c962b9847f0df6ae9",
+              "report_sha256": "2331fedb1f517e4afc4a5031963cbe8504377ef64a786f86e04d6215046601a3",
+              "activity_created_at": "2026-10-25T07:43:13.392348Z",
+              "session_id": "165897134607881398",
+              "dispatch_key": "6f1f36ef3de2160e425d4b05"
+            },
+            "deferred_findings": [
+              {
+                "title": "Add role=status to SessionList empty state for screen reader announcements",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via synthetic React Testing Library test that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes, meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionList.tsx"
+                ],
+                "acceptance": [
+                  "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`",
+                  "Screen readers announce the empty state text when it dynamically appears upon selecting an empty workspace"
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
