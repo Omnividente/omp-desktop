@@ -15,7 +15,7 @@
     "spent_lines": 79,
     "ci_revisions": 1,
     "initial_published": true,
-    "unresolved_operation": "terminal-worker-observation-20261025-v3-refresh-commit",
+    "unresolved_operation": "terminal-worker-observation-20261025-v3-refresh-ref",
     "phase": "review_required",
     "critical": true,
     "pr": {
@@ -745,8 +745,34 @@
       "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "send_claim": "consumed",
+      "status": "confirmed",
+      "prepared_at": "2026-10-25T21:01:34.871Z",
+      "result": {
+        "commit_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+        "parent_shas": [
+          "41e16f1c096c72006a986bd7f5de877d9e11b104",
+          "9683ea0dff9094c33c0b4a8c82cc6a952003de46"
+        ]
+      }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-v3-refresh-ref",
+      "kind": "update-ref",
+      "request": {
+        "repository_full_name": "Omnividente/omp-desktop",
+        "branch_name": "dot/jules-terminal-worker-observation-20261025",
+        "sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "expected_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "force": false
+      },
+      "request_sha256": "bf280a750033548380dc54c956b0cade9f2e039548065843a1aa2998ede41cc9",
+      "expected_content_sha": "dd68715562915a8c8e9630c6de38b8d4e7531790",
+      "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
       "status": "pending",
-      "prepared_at": "2026-10-25T21:01:34.871Z"
+      "prepared_at": "2026-10-25T21:02:03.930Z"
     }
   ],
   "backlog": [
