@@ -625163,6 +625163,16 @@
           "actor": "Omnividente"
         },
         "event_id": "4edb29e4fd9cecd571e721d6568b8aaf1d959800c38e07ef8b01182342716309"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T05:43:31.839183Z",
+        "decision_id": "9722098699dd7fc1f5e1e3ee5d448fae27fc6d7f2d038cb4bf1d68dd13fe205b",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T05:43:29.973247Z"
+        },
+        "event_id": "7f5faba1c47bb316f83894b50e47fad38d63ce1f45070f7633f188b9363060cc"
       }
     ]
   }
