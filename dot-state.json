@@ -181,17 +181,7 @@
     "phase": "handoff",
     "automatic_takeover": false
   },
-  "pending_operation": {
-    "id": "terminal-worker-observation-20261025-update-handoff",
-    "kind": "update-handoff",
-    "request_sha256": "e2f2294250b25d276de4248187603d9c759ae486cb3de2c4d59897d218b5e10a",
-    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "send_claim": "consumed",
-    "status": "pending",
-    "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
-    "expected_base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "pr": 148
-  },
+  "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
     {
@@ -370,10 +360,18 @@
       "request_sha256": "e2f2294250b25d276de4248187603d9c759ae486cb3de2c4d59897d218b5e10a",
       "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
       "send_claim": "consumed",
-      "status": "pending",
+      "status": "confirmed",
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "expected_base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-      "pr": 148
+      "pr": 148,
+      "result": {
+        "pr": 148,
+        "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+        "draft": true,
+        "updated_at": "2026-10-25T12:18:45Z",
+        "body_verified": true
+      }
     }
   ],
   "backlog": [
