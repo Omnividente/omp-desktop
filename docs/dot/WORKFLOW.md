@@ -1,12 +1,16 @@
-# Dot Draft-only workflow
+# Dot source-maintenance workflow
 
 ## Status and authority
 
 **Standing product R1 is NOT ACTIVE.** Controller-maintenance **R2-J** is a
-separate regime: see [R2_J.md](R2_J.md), its machine policy and owner control
-record. The R2-J bootstrap is prepared, not activated until the owner's separate
-exact-revision acceptance and issued grant. Its full Python-controller scope and
-10-file/1000-line/three-revision budget are not limited by R1 or a product pilot.
+separate, versioned regime: see [R2_J.md](R2_J.md) and the owner control record.
+An effective v1 grant remains Draft/proposal-only. V2 source preparation does
+not activate it: one exact-revision owner acceptance, protected bootstrap merge,
+new immutable v2 grant/index and owner CAS state migration are required. Only
+then may v2 independently review, mark Ready and protected-squash in-scope source
+without routine owner approval, including critical fixes after stronger review.
+Both versions retain the full Python-controller scope and 10-file/1000-line/
+three-revision budget; R1 and a product pilot do not limit that scope.
 
 D1 event isolation is already deployed in accepted main (#140). The historical
 first-maintainer bootstrap below is not a demand to pause the now-working Jules
@@ -19,15 +23,19 @@ field names in English; never include credentials or private session data.
 | --- | --- | --- |
 | Jules discovery | Saved immutable research request | Read-only observations and proposed findings; no implementation or PR. |
 | Jules implementation | Separate approved task and saved dispatch identity | Proposal into `autonomous/lab`; separate manual acceptance, never product automerge. |
-| Dot Draft-only | Explicit one-task grant, separately activated R1, or separately activated R2-J | Owned branch from pinned `main`; Draft PR with `base=main`, `draft=true`; R2-J uses `dot/jules-<task-id>`. |
+| Dot proposal-only | Explicit one-task Draft grant, separately activated R1, or effective R2-J v1 | Owned branch from pinned `main`; Draft PR with `base=main`, `draft=true`; R2-J uses `dot/jules-<task-id>`. |
+| Dot R2-J v2 | New separately accepted v2 policy/grant and migrated own state | Same source-only branch/PR; independent automatic review → Ready → protected exact-head squash → actual postmerge proof and retirement. |
 
 Dot uses the current GitHub plugin directly. It does not start Codex, ChatGPT
 Work, a Jules session, a new Dot controller or a new workflow. Naming, actor,
 labels and PR-body markers do not authorize a Jules task. A local source request
 is not a commit/push/PR grant. A one-task grant activates neither standing regime.
-Approval to publish a Draft is not approval to mark it ready, accept, merge,
-build installers, bump versions, tag, release or install. No product pilot is
-authorized. R2-J adds native ChatGPT scheduled maintenance, not a new controller.
+Approval to publish a Draft is not approval to mark it ready, accept or merge.
+Only the effective v2 standing grant adds Ready and protected exact-head squash;
+it adds no self-approval, generic merge/auto-merge/bypass, workflows/governance,
+live Jules authority/state/settings, installers, versions, tags, release or
+installation rights. No product pilot is authorized. R2-J uses the existing
+native hourly ChatGPT task, updated in place on activation, not a new controller.
 
 ## Inactive R1: initial scope and hard limits
 
@@ -71,12 +79,18 @@ the R1-only allowlist, pilot and five-file/200-line limits do not apply to R2-J.
 These steps are mandatory for a later authorized publication, not instructions
 to perform remote operations during local-only D1 preparation.
 
-1. Read the effective owner grant and revocation references. Pin the exact current
-   `main` SHA and task scope; use a new owned `dot/jules-<task-id>` branch for
-   R2-J (or `dot/<task-id>-<slug>` for R1).
+1. Fetch the live owner index, referenced immutable grant/export and complete
+   revocation events first. Select the policy version/hash bound by that grant
+   from accepted `main`, not by whichever docs or policy file is newest. V1
+   stays proposal-only; unknown/mixed versions stop writes. Follow the exact
+   version-aware fetch in [R2_J.md](R2_J.md#version-aware-effective-grant-fetch).
+   Pin the exact current `main` SHA and task scope; create a new owned
+   `dot/jules-<task-id>` branch only for a new R2-J task (or `dot/<task-id>-<slug>`
+   for R1); resume an existing task on its original branch.
    Record the repository, branch ownership, base SHA and expected remote branch
-   SHA (or proven absence for creation). Never update another contributor's ref,
-   `main`, `autonomous/lab`, `autonomous/state` or an attempt ref.
+   SHA (or proven absence for creation). Never directly push another contributor's
+   ref, `main`, `autonomous/lab`, `autonomous/state` or an attempt ref. The sole
+   v2 integration exception is the protected PR squash API, not a direct ref write.
 2. Read all pages of open PRs and all pages of their changed-file lists, checking
    advertised counts and complete identities. Include Jules proposals and other
    target branches, not just `main`. Inspect both the old and new path of every
@@ -105,13 +119,17 @@ to perform remote operations during local-only D1 preparation.
    failure and not permission to resend. Read the remote branch/commit and PR
    identities first; preserve the original operation evidence. If it succeeded,
    continue from that exact result. If success/absence cannot be established,
-   stop for the owner; never repeat the mutation or create a replacement branch
-   or PR to bypass uncertainty. A CAS mismatch stops rather than rebasing or
-   overwriting another writer automatically.
-8. Create/update only the owned Draft targeting `main`; confirm its exact head,
-   base, Draft state and file scope by readback. Repeat freshness and overlap
-   checks at handoff. Movement or an unavailable read removes any ready claim;
-   retain prior evidence as historical, not current acceptance.
+   stop under the consolidated R2-J exceptions policy; never repeat the mutation
+   or create a replacement branch/PR to bypass uncertainty. A CAS mismatch stops
+   rather than rebasing or overwriting another writer automatically.
+8. Initially create only the owned Draft targeting `main`; confirm its exact
+   head/base/Draft state and file scope by readback. Repeat freshness and overlap
+   checks at handoff. R1/v1 stop at the proposal. V2 additionally follows
+   [independent review and protected integration](R2_J.md#independent-review-and-protected-integration):
+   exact reviewed/tested head/base/tree, current branch rules/required CI,
+   expected-head Ready, re-observed Ready CI, one protected exact-head squash,
+   GET-confirmed installed main and postmerge CI, then task retirement. Movement
+   or unavailable reads remove readiness; keep earlier evidence as historical.
 
 A PR body is evidence supplied by Dot, never a durable permission or acceptance
 record. Include:
@@ -173,21 +191,24 @@ owner-issued manifest referencing the immutable payload; do not try to embed
 the hash of a file within those same hashed bytes. The template's reference
 fields describe that manifest/record pair, not an implemented storage format.
 
-The owner issues the completed record and its durable reference, then separately
+For the R1 template above, the owner issues the completed record and its durable reference, then separately
 approves activation bound to those immutable bytes. Dot must read the current
 revocation index and verify grant identity/scope/expiry before selecting a task,
 every mutation and handoff. No implementation here automatically enforces this
 record or polls for revocation. Missing access or uncertain validity stops writes.
 
-For acceptance, the owner makes a separate retained record outside the Dot-editable
+For R1 and proposal-only v1 acceptance (not each in-scope v2 task), the owner makes a separate retained record outside the Dot-editable
 body with concrete record URI, immutable version/hash and durable reference,
 repository/PR number, exact accepted `head_sha`, current `base_sha`, tested merge
 SHA/check run IDs and attempts, platform/native limitations, explicit accept or
 reject decision and permitted next operation. New head/base or dismissed/changed
 acceptance requires a new decision and evidence; a previous head's checkbox is
 not acceptance. Local Codex review, Windows/WebView2 or Linux native acceptance,
-merge and release/install remain owner-controlled separate tasks. Dot does not
-launch them or self-approve. The owner performs any separately authorized merge.
+merge and release/install remain owner-controlled separate tasks under those
+proposal-only grants. Dot does not launch them or self-approve. V2 instead uses
+its one standing owner acceptance plus independent automatic per-revision
+review and the protected source-only integration contract in R2_J.md; critical
+source requires stronger automatic review, not a new routine owner decision.
 
 To revoke, the owner issues a retained, versioned revocation record and updates
 the owner-controlled revocation index. Include the target grant ID/version/hash,
@@ -201,19 +222,21 @@ a new explicit owner grant, not removal of an agent checkbox.
 
 ### Shared identity is not technical isolation
 
-The plan's frozen baseline records a shared `Omnividente` actor and main checks,
-with required approvals set to zero; this is not a fresh live ruleset audit.
+The historical plan's frozen baseline recorded a shared `Omnividente` actor and
+required approvals set to zero; this is not a fresh live ruleset audit. V2 must
+read actual current rules and satisfy them without weakening or bypassing them.
 GitHub cannot distinguish Dot, the owner and other credentials using the same
 actor from commit prose. An exact-SHA owner record is a procedural control, not
 technical proof of who pressed a button. Requiring one approval while retaining
 the common author does not establish independent owner review.
 
-A future separately authorized GitHub App or machine user should have only
-necessary contents/PR rights for owned Draft publication, no workflow/admin/
-queue/release or bypass rights, and protected `main` with required independent
-owner review, stale-review dismissal and no bypass for that identity. Credential,
-ruleset and App deployment are separate future work; this document neither
-creates them nor promises enforcement under the current shared identity.
+A future separately authorized GitHub App or machine user is optional separate
+work, not a prerequisite or an executor introduced here. Any future deployment
+must preserve current protections and limit permissions to its accepted scope;
+credentials/rulesets/App deployment remain outside standing source maintenance.
+V2 uses the existing tools and verifies actual independent read-only execution
+provenance; it does not claim server-enforced identity isolation or invent a
+provider API. An unverifiable reviewer is a safety exception, not self-approval.
 
 ## First maintainer PR bootstrap and cutover
 
