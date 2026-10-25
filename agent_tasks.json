@@ -715138,6 +715138,16 @@
           "actor": "Omnividente"
         },
         "event_id": "9dc0a6a9221175f04d4d49eddc094580a3be7994a39832feb25aef65993450c3"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T23:55:14.227071Z",
+        "decision_id": "16de3cddd3bb5f6ee6f6593a9dbf6e9d80ce5997c83e465af9b556f8311caa4c",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T23:55:12.205033Z"
+        },
+        "event_id": "56bb4f2d6dedc21df181d077611d12f8038953cd9d92adf41bae278aea199a62"
       }
     ]
   }
