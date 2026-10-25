@@ -666758,6 +666758,15 @@
         },
         "receipt_id": "ba0a5711362e197811ca6e3d4539b9fd6ee2175a1b0ec3719151adca304624a4",
         "event_id": "a8d803503d704eb8ff45055730baf356e3d98141984b4c238cd66ea4b58b4f2d"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T10:48:39.065568Z",
+        "decision_id": "18d412b3e18107023f2e19f5cca8cdf86ed5c5fa46fb45620a3c8c1b7cc2c7b7",
+        "executor_claim_id": "6a28d0de90fcb8ddd863814fb73f2d57f1435b181ee5da3a0ea7df901f888434",
+        "receipt_id": "ba0a5711362e197811ca6e3d4539b9fd6ee2175a1b0ec3719151adca304624a4",
+        "frontier_seq": 868,
+        "event_id": "e94d9009fed7a0141cbfdb8b53238ee6f56c3b003d4cc803ec2f6f00c9d0353f"
       }
     ]
   }
