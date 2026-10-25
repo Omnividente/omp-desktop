@@ -113,7 +113,20 @@
       ],
       "checks": "4 regression methods and 8 snapshot tests, reverse patch restores pinned blobs; not owner acceptance"
     },
-    "exception": null,
+    "exception": {
+      "fingerprint": "ready-client-mutation-id-capability-gap",
+      "observed_at": "2026-10-25T15:48:12.492137+00:00",
+      "status": "blocked",
+      "contract": "docs/dot/R2_J.md:195 requires Ready actual node_id and operation ID as clientMutationId",
+      "available_tool": "mcp__codex_apps__github_mark_pull_request_ready_for_review",
+      "available_arguments": [
+        "repository_full_name",
+        "pr_number"
+      ],
+      "missing": "No exposed clientMutationId binding; no approved generic GraphQL transport found",
+      "independent_review_status": "Not established for current v2 exact manifest; native separate agents available, provider receipt sufficiency not yet verified. NOT a claim that review execution is unavailable.",
+      "safe_next_step": "Read-only reconciliation; supported Ready operation binding or separately owner-approved contract change required. No rebase/revision consumed."
+    },
     "ci": {
       "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "tested_merge_sha": "18bdb119c418c80718f0b8e873c828fad9f1125f",
@@ -191,12 +204,7 @@
       "critical": true
     }
   },
-  "lease": {
-    "id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T15:47:27.820549+00:00",
-    "purpose": "metadata-only verified v2 preflight and Ready capability exception"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -468,8 +476,24 @@
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint",
-      "ack": "pending-readback",
-      "prepared_at": "2026-10-25T15:47:27.820549+00:00"
+      "ack": "confirmed",
+      "prepared_at": "2026-10-25T15:47:27.820549+00:00",
+      "result": {
+        "commit_sha": "17dad0005279eedc88ccbbe23514039deff8ce41",
+        "content_sha": "e5d4324ad35612e759aa834966ec7e12420e8975"
+      }
+    },
+    {
+      "id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint-checkpoint",
+      "kind": "metadata-exception-checkpoint",
+      "expected_content_sha": "e5d4324ad35612e759aa834966ec7e12420e8975",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T154700Z-v2-ready-capability-checkpoint",
+      "expected_main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "scope": "Dot metadata exception and lease release only",
+      "prepared_at": "2026-10-25T15:48:12.492137+00:00",
+      "status": "readback-required"
     }
   ],
   "backlog": [
@@ -496,55 +520,23 @@
         "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
         "note": "Report parser accepted openFolder focus finding; supplied evidence cites source absence and simulated error, not native OS-dialog focus trace. Keep as evidence-calibration question, not reproduced product defect."
       }
+    },
+    {
+      "fingerprint": "ready-client-mutation-id-capability-gap",
+      "status": "blocked-capability",
+      "task_id": "terminal-worker-observation-20261025",
+      "pr": 148,
+      "evidence": "docs/dot/R2_J.md:195 at 376b8c6203dfccbddcec2b2750c0b5f2d1a214f5; actual Ready tool schema exposes repo/pr only",
+      "observed_at": "2026-10-25T15:48:12.492137+00:00"
     }
   ],
   "last_sweep_at": "2026-10-25T14:51:00Z",
   "last_attempt": {
-    "scheduled_for": "2026-10-25T15:05:00Z",
-    "started_at": "2026-10-25T14:48:55Z",
-    "checkpoint_at": "2026-10-25T14:51:00Z",
-    "status": "completed-read-only-awaiting-owner",
-    "authority": {
-      "grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
-      "events_complete": true,
-      "issue_events": 0,
-      "comments": 2,
-      "canonical_hashes_verified": true
-    },
-    "pr": {
-      "number": 148,
-      "state": "open",
-      "draft": true,
-      "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
-      "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-      "mergeable": true,
-      "reviews": 0,
-      "checks_success": 8
-    },
-    "health_evidence": {
-      "scope": "Latest safe retained continuation artifact and recent Actions metadata; not full live queue",
-      "continue": {
-        "run_id": 40202106601,
-        "conclusion": "success",
-        "artifact_id": 12602826936,
-        "observed_at": "2026-10-25T14:47:33.521262Z",
-        "reason": "successor_requested",
-        "health_reason": "cooldown",
-        "due_at": "2026-10-26T01:54:28Z",
-        "successor_run_id": 40203876608,
-        "successor_status": "in_progress",
-        "successor_step": "Wait for the next deadline and confirm the successor"
-      },
-      "historical_attention": "dispatch_aborted at 2026-10-24T23:08:04.203436Z only; not a new incident",
-      "research_quality": "No newer completed NEXT/research in recent run window; prior report evidence remains historical"
-    },
-    "inventory": {
-      "note": "No source push or new task; prior complete 18-PR inventory remains historical, not claimed refreshed"
-    },
-    "state_reconciliation": {
-      "current_lease": null,
-      "current_pending_operation": null
-    }
+    "at": "2026-10-25T15:48:12.492137+00:00",
+    "kind": "v2-authority-state-inventory-capability-preflight",
+    "status": "blocked-ready-capability",
+    "preflight_completed_at": "2026-10-25T15:48:12.492137+00:00",
+    "scope": "Authority/hash/migration/state/refs/full open-PR file rename inventory/main ruleset/tool capability checked. Not full Jules sweep or new independent review/CI."
   },
   "migrations": [
     {
