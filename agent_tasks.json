@@ -600164,6 +600164,15 @@
         },
         "receipt_id": "9c0d20b0356380f01dc171c91b0d1d62306503e0827605716284b54b88899b07",
         "event_id": "48e8bdb372cc50c2bca16b5245e6eeb9ea1a8141ab5a4b47b556e7e8b97a7acc"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T03:00:15.439721Z",
+        "decision_id": "30b50651cc4e6e8221f1b9c5711a9ab670acb410cbf300214d122e23130313c7",
+        "executor_claim_id": "f6bc74758dc3a0a66bc8da8f4212dc1af6d3a556b5d65a182c966175a2652153",
+        "receipt_id": "9c0d20b0356380f01dc171c91b0d1d62306503e0827605716284b54b88899b07",
+        "frontier_seq": 771,
+        "event_id": "f0f534351a6e0d50c8c53b8e3a4d7a2823bdbdf5a9afd64c4f1b0d87c20207a3"
       }
     ]
   }
