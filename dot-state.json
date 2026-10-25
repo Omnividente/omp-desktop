@@ -191,12 +191,7 @@
       "critical": true
     }
   },
-  "lease": {
-    "id": "r2j-20261025T150500Z-readonly-sweep",
-    "owner": "dot",
-    "acquired_at": "2026-10-25T14:50:30Z",
-    "purpose": "metadata-only read-only sweep checkpoint"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -442,7 +437,23 @@
       "expected_content_sha": "03e8e5505392725429eff69ae4ff6d9c53314d29",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T150500Z-readonly-sweep",
-      "ack": "get-confirm-required"
+      "ack": "confirmed",
+      "result": {
+        "commit_sha": "b7ed52dee834be0a65783552db4f59339001f935",
+        "content_sha": "31886d6ceebf9e798935251e742e1b5fd17413ce"
+      }
+    },
+    {
+      "id": "r2j-20261025T150500Z-readonly-sweep-checkpoint",
+      "kind": "metadata-sweep-checkpoint",
+      "expected_content_sha": "31886d6ceebf9e798935251e742e1b5fd17413ce",
+      "send_claim": "consumed",
+      "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "scope": "Dot metadata only; completed read-only sweep and lease release",
+      "status": "confirmed-read-only-sweep",
+      "observed_at": "2026-10-25T14:51:00Z",
+      "note": "No source/PR effect; exact CAS result verified separately by GET."
     }
   ],
   "backlog": [
@@ -471,11 +482,11 @@
       }
     }
   ],
-  "last_sweep_at": "2026-10-25T14:36:44Z",
+  "last_sweep_at": "2026-10-25T14:51:00Z",
   "last_attempt": {
-    "scheduled_for": "2026-10-25T14:05:00Z",
-    "started_at": "2026-10-25T14:33:41Z",
-    "checkpoint_at": "2026-10-25T14:36:44Z",
+    "scheduled_for": "2026-10-25T15:05:00Z",
+    "started_at": "2026-10-25T14:48:55Z",
+    "checkpoint_at": "2026-10-25T14:51:00Z",
     "status": "completed-read-only-awaiting-owner",
     "authority": {
       "grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
@@ -494,49 +505,25 @@
       "reviews": 0,
       "checks_success": 8
     },
-    "inventory": {
-      "open_prs": 18,
-      "files_complete": true,
-      "renames": 0,
-      "source_overlap": false,
-      "unrelated_conflict": 136
-    },
     "health_evidence": {
-      "scope": "Safe retained artifact and Actions metadata, not full live queue",
-      "next": {
-        "run_id": 40195039166,
-        "conclusion": "success",
-        "note": "No newer NEXT in recent run window; prior completed report remains historical"
-      },
+      "scope": "Latest safe retained continuation artifact and recent Actions metadata; not full live queue",
       "continue": {
-        "run_id": 40200340704,
+        "run_id": 40202106601,
         "conclusion": "success",
-        "artifact_id": 12600949790,
-        "observed_at": "2026-10-25T14:24:57.569173Z",
+        "artifact_id": 12602826936,
+        "observed_at": "2026-10-25T14:47:33.521262Z",
         "reason": "successor_requested",
         "health_reason": "cooldown",
         "due_at": "2026-10-26T01:54:28Z",
-        "scheduler_state": "waiting",
-        "overdue_seconds": 0,
-        "failed_ticks": 0,
-        "pending_proposals": 7,
-        "approved_proposals": 0,
-        "successor_run_id": 40202106601,
+        "successor_run_id": 40203876608,
         "successor_status": "in_progress",
         "successor_step": "Wait for the next deadline and confirm the successor"
       },
       "historical_attention": "dispatch_aborted at 2026-10-24T23:08:04.203436Z only; not a new incident",
-      "research_quality": "No new completed report since previous evidence-calibration observation; no new product claim",
-      "replenish": {
-        "run_id": 40189401229,
-        "status": "previously-known state-fetch timeout; no new result in recent window"
-      }
+      "research_quality": "No newer completed NEXT/research in recent run window; prior report evidence remains historical"
     },
-    "governance_observation": {
-      "pr": 149,
-      "head_sha": "55a7199d0305b5e582376e7ab4150db9d01c2b32",
-      "state": "open",
-      "note": "Proposed R2-J v2 is not effective authority. Current main and owner control remain v1; no governance/grant/source changes made."
+    "inventory": {
+      "note": "No source push or new task; prior complete 18-PR inventory remains historical, not claimed refreshed"
     },
     "state_reconciliation": {
       "current_lease": null,
