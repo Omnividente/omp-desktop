@@ -225302,7 +225302,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T03:14:48.886343Z"
+        "observed_at": "2026-10-25T03:14:48.886343Z",
+        "released_attempt_ref": "autonomous/attempt-0e215c50b0a8eca3ea7454ff"
       },
       "research_result": {
         "summary": "Verified App.tsx UI trap during recovery fallback by source code inspection and running a simulated test environment.",
