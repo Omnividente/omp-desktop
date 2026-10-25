@@ -13,9 +13,9 @@
       "scripts/autonomous/loop_health_test.py"
     ],
     "spent_lines": 79,
-    "ci_revisions": 0,
+    "ci_revisions": 1,
     "initial_published": true,
-    "unresolved_operation": null,
+    "unresolved_operation": "terminal-worker-observation-20261025-v3-refresh-tree",
     "phase": "review_required",
     "critical": true,
     "pr": {
@@ -33,6 +33,13 @@
           "scripts/autonomous/loop_health.py",
           "scripts/autonomous/loop_health_test.py"
         ]
+      },
+      {
+        "id": "accepted-v3-main-refresh",
+        "reserved_lines": 0,
+        "ci_revision": true,
+        "paths": [],
+        "reason": "inherit accepted main, preserve four authored blobs unchanged"
       }
     ],
     "prepared_tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009",
@@ -668,8 +675,54 @@
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T210000Z-pr148-v3-refresh",
       "prepared_at": "2026-10-25T20:59:56.915102+00:00",
-      "ack": "pending-readback",
-      "digest": "f19700850e5f39667fabe84f3341ee667a579a01be0746cfed83fffd0ccedb7e"
+      "ack": "confirmed",
+      "digest": "f19700850e5f39667fabe84f3341ee667a579a01be0746cfed83fffd0ccedb7e",
+      "result": {
+        "commit_sha": "40cca72a0a65906776bf9028d9045d2ecd083a86",
+        "content_sha": "b73069a086419ee39b70c308fb63479720911464"
+      }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-v3-refresh-tree",
+      "kind": "create-tree",
+      "request": {
+        "repository_full_name": "Omnividente/omp-desktop",
+        "base_tree_sha": "d4e081b67f76e7440ed61dcc2048e994fe6ca68a",
+        "tree_elements": [
+          {
+            "path": "scripts/autonomous/loop_health.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e"
+          },
+          {
+            "path": "scripts/autonomous/loop_health_test.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99"
+          },
+          {
+            "path": "scripts/autonomous/lab_controller.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5"
+          },
+          {
+            "path": "scripts/autonomous/lab_controller_test.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe"
+          }
+        ]
+      },
+      "request_sha256": "5ae9f45bc7a0249a5cadd289e8de9f5e67461d5bbb005c99f34439e80fe6402f",
+      "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "expected_content_sha": "b73069a086419ee39b70c308fb63479720911464",
+      "send_claim": "consumed",
+      "status": "pending",
+      "batch_id": "accepted-v3-main-refresh",
+      "prepared_at": "2026-10-25T21:00:50.850463+00:00"
     }
   ],
   "backlog": [
