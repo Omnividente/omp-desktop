@@ -616607,6 +616607,38 @@
         "before_state_sha": "12fd89be90817d9e54b82cfedd992ef1fcfac53c",
         "before_digest": "1da7b572dcbf6659664ab22dc28d09d8b6f8892d67137309ad13c266ef35c494",
         "event_id": "f2f7c4c1f6616f3b6e72e4cc7492367defe1cd84da09de6cd12b504d1d6b0326"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-25T04:53:20.071447Z",
+        "decision_id": "188d2185d0e60973af1572090cd6510d0d880589fc93b09d217d5bdca98a018a",
+        "executor_claim_id": "4e16fdbd1d11fd2ac85e85cc5e42b032e1e9bcd374299f6ad10744a3918bcc7f",
+        "kind": "continue_handoff",
+        "evidence": {
+          "run_id": "40163227506",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "decision_id": "188d2185d0e60973af1572090cd6510d0d880589fc93b09d217d5bdca98a018a",
+          "stage_started_at": "2026-10-25T04:48:58.762615Z",
+          "stage_completed_at": "2026-10-25T04:53:15.071793Z",
+          "observation": {
+            "health": "attention",
+            "action": "next_task",
+            "reason": "active_polling",
+            "due_at": "2026-10-25T04:52:28Z",
+            "main_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
+            "lab_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
+            "state_sha": "4fa35e4bba9e34d37a052890250949d285b405e4"
+          },
+          "waited_seconds": 256.3091622,
+          "stage": "bounded_observe_wait",
+          "switch_enabled": true
+        },
+        "receipt_id": "ad28358754736dfd622c046775d352f5ff0233e0735b3300700032e24d178d72",
+        "event_id": "fa7328945b27d522b5b603c4f97cdeded4ad05995bcf4b4efbd288a3014d90e1"
       }
     ]
   }
