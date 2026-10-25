@@ -20,6 +20,10 @@ from pathlib import Path, PurePosixPath
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 TASK = re.compile(r"[a-z0-9][a-z0-9-]{0,63}\Z")
 LIMITS = {"active_tasks": 1, "active_drafts": 1, "files": 10, "lines": 1000, "ci_revisions": 3}
+V2_LIMITS = {"active_tasks": 1, "active_prs": 1, "files": 10, "lines": 1000, "ci_revisions": 3}
+V2_ACTIONS = {"develop", "test", "commit", "draft_create", "draft_update", "checkpoint",
+              "request_review", "ready_for_review", "squash_merge"}
+RESERVED_MODULES = sys.stdlib_module_names | {"__init__", "sitecustomize", "usercustomize", "yaml"}
 
 
 def digest(value: dict) -> str:
@@ -41,13 +45,17 @@ def integer(value, label: str) -> int:
 
 
 def policy_check(policy: dict) -> None:
-    if (policy.get("schema") != 1 or policy.get("kind") != "dot-r2-j-policy"
-            or policy.get("limits") != LIMITS
+    version = policy.get("schema")
+    if (version not in (1, 2) or policy.get("kind") != "dot-r2-j-policy"
+            or policy.get("limits") != (LIMITS if version == 1 else V2_LIMITS)
             or policy.get("identity_mode") != "shared-github-procedural"
             or policy.get("repository") != "Omnividente/omp-desktop"
             or policy.get("branch_prefix") != "dot/jules-" or policy.get("base_branch") != "main"
             or policy.get("schedule_minutes") != 60):
         raise ValueError("unsupported R2-J policy; owner policy changes require separate acceptance")
+    if version == 2 and (policy.get("version") != 2
+                         or set(policy.get("allowed_actions", [])) != V2_ACTIONS):
+        raise ValueError("unsupported autonomous-integration policy version/actions")
 
 
 def _acceptance_check(acceptance: dict) -> None:
@@ -73,24 +81,35 @@ def prepare_grant(policy: dict, acceptance: dict, now: datetime) -> dict:
     """Owner-only preparation; emitting bytes neither publishes nor activates them."""
     policy_check(policy)
     _acceptance_check(acceptance)
-    return {"schema": 1, "kind": "dot-r2-j-grant", "id": "r2-j-" + uuid.uuid4().hex,
-            "repository": policy["repository"], "policy_sha256": digest(policy),
-            "identity_mode": policy["identity_mode"], "issued_at": now.isoformat(),
-            "expires_at": None, "acceptance": deepcopy(acceptance)}
+    version = policy["schema"]
+    grant = {"schema": version, "kind": "dot-r2-j-grant",
+             "id": ("r2-j-" if version == 1 else "r2-j-v2-") + uuid.uuid4().hex,
+             "repository": policy["repository"], "policy_sha256": digest(policy),
+             "identity_mode": policy["identity_mode"], "issued_at": now.isoformat(),
+             "expires_at": None, "acceptance": deepcopy(acceptance)}
+    if version == 2:
+        previous = acceptance.get("supersedes_grant_id")
+        if not isinstance(previous, str) or not re.fullmatch(r"r2-j-(?:v2-)?[0-9a-f]{32}", previous):
+            raise ValueError("v2 acceptance must explicitly supersede the old grant")
+        grant.update(version=2, policy_path="docs/dot/r2-j-policy-v2.json",
+                     supersedes_grant_id=previous)
+    return grant
 
 
 def authority(policy: dict, packet: dict, now: datetime) -> str:
     policy_check(policy)
     grant, index, issue = packet["grant"], packet["index"], packet["issue"]
-    if not isinstance(grant.get("id"), str) or not re.fullmatch(r"r2-j-[0-9a-f]{32}", grant["id"]):
+    version = policy["schema"]
+    identity = r"r2-j-[0-9a-f]{32}" if version == 1 else r"r2-j-v2-[0-9a-f]{32}"
+    if not isinstance(grant.get("id"), str) or not re.fullmatch(identity, grant["id"]):
         raise ValueError("immutable grant identity is required")
     if (issue.get("html_url") != policy["control_issue"] or issue.get("state") != "open"
-            or index.get("schema") != 1 or index.get("status") != "active"
+            or index.get("schema") != version or index.get("status") != "active"
             or index.get("repository") != policy["repository"]
             or not isinstance(index.get("grant"), dict)):
         raise ValueError("authority is staged, unavailable or revoked")
     binding = index["grant"]
-    if (grant.get("schema") != 1 or grant.get("kind") != "dot-r2-j-grant"
+    if (grant.get("schema") != version or grant.get("kind") != "dot-r2-j-grant"
             or grant.get("repository") != policy["repository"]
             or grant.get("identity_mode") != policy["identity_mode"]
             or grant.get("policy_sha256") != digest(policy)
@@ -99,10 +118,18 @@ def authority(policy: dict, packet: dict, now: datetime) -> str:
             or not isinstance(index.get("revoked_grants"), list)
             or grant["id"] in index["revoked_grants"]):
         raise ValueError("grant/index/export binding is invalid or revoked")
+    _acceptance_check(grant.get("acceptance") or {})
+    previous = grant.get("supersedes_grant_id")
+    if version == 2 and (grant.get("version") != 2 or index.get("policy_version") != 2
+                         or grant.get("policy_path") != "docs/dot/r2-j-policy-v2.json"
+                         or not isinstance(previous, str)
+                         or not re.fullmatch(r"r2-j-(?:v2-)?[0-9a-f]{32}", previous)
+                         or previous != grant["acceptance"].get("supersedes_grant_id")
+                         or previous not in index["revoked_grants"]):
+        raise ValueError("new owner grant/index must explicitly supersede, not reinterpret, v1")
     issued = instant(grant["issued_at"])
     if issued > now or (grant["expires_at"] is not None and instant(grant["expires_at"]) <= now):
         raise ValueError("grant is not currently effective")
-    _acceptance_check(grant.get("acceptance") or {})
     events = packet["issue_events"]
     if packet.get("events_complete") is not True or not isinstance(events, list):
         raise ValueError("complete revocation history is required")
@@ -118,8 +145,9 @@ def allowed_path(policy: dict, name: str) -> bool:
     path = PurePosixPath(name)
     if (not name or "\\" in name or "\x00" in name or name != str(path)
             or path.is_absolute() or any(part in ("..", ".") for part in path.parts)
-            or path.name in ("AGENTS.md", "CLAUDE.md")
-            or name in policy["protected_paths"] or path.name.startswith("dot_authority")):
+            or path.name.lower() in ("agents.md", "claude.md")
+            or name in policy["protected_paths"] or path.name.lower().startswith("dot_")
+            or (name.startswith("scripts/autonomous/") and path.stem.lower() in RESERVED_MODULES)):
         return False
     return ((name.startswith("scripts/autonomous/") and path.suffix == ".py")
             or (name.startswith("docs/autonomous/") and path.suffix in (".md", ".rst", ".txt")))
@@ -171,14 +199,30 @@ def evaluate(policy: dict, packet: dict, now: datetime | None = None) -> dict:
     if (packet.get("active_task_id") not in (None, task_id)
             or task.get("unresolved_operation") is not None):
         raise ValueError("another task or unresolved operation forbids new effects; reconcile read-only")
+    if policy["schema"] == 2:
+        state, lease = packet.get("state"), None
+        if isinstance(state, dict):
+            lease = state.get("lease")
+        if (not isinstance(state, dict) or state.get("schema") != 2
+                or state.get("grant_id") != grant_id or state.get("active_task") != task
+                or state.get("retired_task_ids") != retired or packet["active_task_id"] != task_id
+                or "pending_operation" not in state or state["pending_operation"] is not None
+                or task.get("phase") in ("ready_pending", "merge_pending", "post_merge")
+                or not isinstance(lease, dict) or not packet.get("lease_id")
+                or lease.get("id") != packet["lease_id"] or lease.get("task_id") != task_id
+                or not isinstance(packet.get("state_blob_sha"), str)
+                or not SHA.fullmatch(packet["state_blob_sha"])):
+            raise ValueError("actual leased v2 state has pending/post-merge work or mismatched task history")
     if packet.get("inventory_complete") is not True:
         raise ValueError("complete fresh PR/file/rename inventory is required")
     for pr in packet["open_prs"]:
         if pr["branch"].startswith("dot/"):
-            if (pr["branch"] != task["branch"] or pr["draft"] is not True
+            current_state = (pr["draft"] is True if policy["schema"] == 1
+                             else type(pr["draft"]) is bool)
+            if (pr["branch"] != task["branch"] or not current_state
                     or pr["base"] != "main" or pr["repository"] != policy["repository"]
                     or pr["head_sha"] != task["head_sha"]):
-                raise ValueError("only one owned current Draft is permitted")
+                raise ValueError("only one owned current proposal is permitted")
     if len([pr for pr in packet["open_prs"] if pr["branch"].startswith("dot/")]) > 1:
         raise ValueError("multiple active Dot Drafts")
     if packet.get("freshness_verified") is not True or packet.get("overlap_checked") is not True:
@@ -202,14 +246,22 @@ def evaluate(policy: dict, packet: dict, now: datetime | None = None) -> dict:
         revisions += int(revision)
     if len(paths) > 10 or lines > 1000 or revisions > 3:
         raise ValueError("R2-J task budget exhausted; preserve Draft/history and hand off")
-    return {"mode": "r2-j", "write_authorized": True, "grant_id": grant_id,
-            "counters": {"touched_paths": sorted(paths), "spent_lines": lines, "ci_revisions": revisions},
-            "critical_review_paths": critical}
+    result = {"mode": "r2-j" if policy["schema"] == 1 else "r2-j-v2",
+              "write_authorized": True, "grant_id": grant_id,
+              "counters": {"touched_paths": sorted(paths), "spent_lines": lines, "ci_revisions": revisions},
+              "critical_review_paths": critical}
+    if action in ("ready_for_review", "squash_merge"):
+        from dot_merge import integration_check
+        try:
+            result["integration"] = integration_check(policy, packet, now)
+        except (KeyError, TypeError, AttributeError) as exc:
+            raise ValueError("incomplete or malformed integration evidence") from exc
+    return result
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("prepare-grant", "check"))
+    parser.add_argument("command", choices=("prepare-grant", "check", "migrate-state"))
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--out", type=Path)
@@ -217,8 +269,18 @@ def main(argv=None) -> int:
     try:
         policy = json.loads(args.policy.read_text(encoding="utf-8"))
         packet = json.loads(args.input.read_text(encoding="utf-8"))
-        result = (prepare_grant(policy, packet, datetime.now(timezone.utc))
-                  if args.command == "prepare-grant" else evaluate(policy, packet))
+        if args.command == "prepare-grant":
+            result = prepare_grant(policy, packet, datetime.now(timezone.utc))
+        elif args.command == "migrate-state":
+            from dot_state import migrate_state
+            policy_check(policy)
+            if policy["schema"] != 2 or packet["grant"].get("policy_sha256") != digest(policy):
+                raise ValueError("owner migration requires the accepted v2 policy and bound new grant")
+            _acceptance_check(packet["grant"].get("acceptance") or {})
+            result = migrate_state(packet["state"], packet["grant"], packet["acceptance"],
+                                   expected_blob_sha=packet["expected_blob_sha"], now=datetime.now(timezone.utc))
+        else:
+            result = evaluate(policy, packet)
         text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
         if args.out:
             with args.out.open("x", encoding="utf-8") as handle:
