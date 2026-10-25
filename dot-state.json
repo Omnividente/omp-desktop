@@ -16,7 +16,7 @@
     "ci_revisions": 0,
     "initial_published": true,
     "unresolved_operation": null,
-    "phase": "waiting-ci",
+    "phase": "awaiting-owner",
     "critical": true,
     "pr": {
       "number": 148,
@@ -171,16 +171,17 @@
       "control_suites": 40,
       "control_tests": 978,
       "real_checkout": true
+    },
+    "handoff": {
+      "at": "2026-10-25T12:19:00Z",
+      "pr": 148,
+      "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "tested_merge_sha": "18bdb119c418c80718f0b8e873c828fad9f1125f",
+      "status": "checked-draft",
+      "critical": true
     }
   },
-  "lease": {
-    "id": "r2j-20261025T120500Z-terminal-telemetry",
-    "owner": "dot/astra",
-    "invocation": "2026-10-25T12:05:00Z",
-    "acquired_at": "2026-10-25T12:17:45Z",
-    "phase": "handoff",
-    "automatic_takeover": false
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -393,12 +394,12 @@
       "note": "Existing importer identifies possible duplicates; DOM tests are not screen-reader execution evidence."
     }
   ],
-  "last_sweep_at": "2026-10-25T12:06:55Z",
+  "last_sweep_at": "2026-10-25T12:19:00Z",
   "last_attempt": {
     "scheduled_for": "2026-10-25T12:05:00Z",
     "started_at": "2026-10-25T11:52:44Z",
     "checkpoint_at": "2026-10-25T12:02:30Z",
-    "status": "published-awaiting-ci",
+    "status": "completed-checked-draft",
     "health_evidence": {
       "observed_at": "2026-10-25T11:58:23Z",
       "scope": "read-only safe workflow artifacts and logs; no whole queue downloaded",
@@ -468,6 +469,7 @@
         "No accepted product outcome inferred",
         "No live queue/journal writes or workflow launches"
       ]
-    }
+    },
+    "completed_at": "2026-10-25T12:19:00Z"
   }
 }
