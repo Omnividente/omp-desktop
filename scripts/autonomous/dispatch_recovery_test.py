@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_jules_request import build, dispatch_key  # noqa: E402
-from dispatch_recovery import observe_reserved_dispatch  # noqa: E402
+from dispatch_recovery import ObservationError, observe_reserved_dispatch  # noqa: E402
 from jules_dispatch import KeyRing, Response  # noqa: E402
 from research_request import CONTRACT_VERSION, LEGACY_VERSION, sha256_json, snapshot  # noqa: E402
 from task_lifecycle import reserve, start  # noqa: E402
@@ -158,18 +158,30 @@ class ReservedDispatchRecoveryTest(unittest.TestCase):
         self.assertEqual(task["execution"]["outcome"], "")
         self.assert_read_only(transport)
 
-    def test_missing_original_session_fails_closed_after_every_page_with_zero_post(self):
+
+    def test_negative_lookup_categories_require_complete_access_without_changing_the_attempt(self):
         task = reserved_task()
         before = copy.deepcopy(task)
+        first = provider_session(task)
+        second = provider_session(task, state="FAILED", identifier="duplicate-8")
         unrelated = {"id": "other", "name": "sessions/other", "state": "FAILED",
                      "title": "[dispatch:another-attempt]", "prompt": "unrelated"}
-        transport = Transport([page(unrelated, token="second"), page()])
-        with self.assertRaisesRegex(RuntimeError, "missing; creation is forbidden"):
-            observe(task, transport)
-        self.assertEqual(task, before)
-        self.assertEqual(len(transport.calls), 2)
-        self.assertEqual(parse_qs(urlsplit(transport.calls[1]["url"]).query)["pageToken"], ["second"])
-        self.assert_read_only(transport)
+        cases = (
+            ([], [], "provider_auth", 0),
+            ([page(unrelated, token="second"), page()], [PRIMARY], "session_missing", 2),
+            ([page(first, token="second"), page(second)], [PRIMARY], "session_ambiguous", 2),
+            ([page(first, token="second"), Response(403, {"error": "private provider body"})],
+             [PRIMARY], "provider_auth", 2),
+        )
+        for responses, keys, category, requests in cases:
+            with self.subTest(category=category, requests=requests):
+                transport = Transport(responses)
+                with self.assertRaises(ObservationError) as caught:
+                    observe(task, transport, api_keys=keys)
+                self.assertEqual(caught.exception.reason_code, category)
+                self.assertEqual(task, before)
+                self.assertEqual(len(transport.calls), requests)
+                self.assert_read_only(transport)
 
     def test_unique_original_session_on_later_page_is_freshly_read(self):
         task = reserved_task()
@@ -182,14 +194,6 @@ class ReservedDispatchRecoveryTest(unittest.TestCase):
         self.assertEqual(transport.calls[-1]["url"], API_BASE + "/sessions/original-7")
         self.assert_read_only(transport)
 
-    def test_duplicate_distinct_resources_on_later_page_are_blocked_before_get(self):
-        task = reserved_task()
-        transport = Transport([page(provider_session(task), token="second"),
-                               page(provider_session(task, state="FAILED", identifier="duplicate-8"))])
-        with self.assertRaisesRegex(RuntimeError, "multiple Jules sessions"):
-            observe(task, transport)
-        self.assertEqual(len(transport.calls), 2)
-        self.assert_read_only(transport)
 
     def test_identical_repeated_resource_is_one_session_but_conflicting_repetition_is_blocked(self):
         task = reserved_task()
@@ -368,12 +372,6 @@ class ReservedDispatchRecoveryTest(unittest.TestCase):
         self.assertNotIn(BACKUP, safe)
         self.assert_read_only(transport)
 
-    def test_missing_authentication_is_blocked_before_any_provider_request(self):
-        task = reserved_task()
-        transport = Transport([])
-        with self.assertRaisesRegex(RuntimeError, "no Jules API key"):
-            observe(task, transport, api_keys=[])
-        self.assertEqual(transport.calls, [])
 
     def test_foreign_repository_cannot_observe_the_saved_attempt(self):
         transport = Transport([])

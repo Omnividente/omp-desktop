@@ -8,7 +8,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from dispatch_journal import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
+from dispatch_journal import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_ABORT, OWNER_DISPATCH_BINDING,
                               OWNER_DISPATCH_OBSERVATION, OWNER_FAILED_NEXT_CHECKPOINT,
                               OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, normalize_inputs)
 
@@ -18,7 +18,98 @@ WORKFLOWS = {"autonomous_next_task.yml", "autonomous_continue.yml", "autonomous_
 OWNER_RECOVERY = "autonomous_recover_delivery.yml"
 OWNER_WORKFLOWS = frozenset((OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER, OWNER_NEXT_COMPLETION,
                             OWNER_REPORT_CHECKPOINT, OWNER_FAILED_NEXT_CHECKPOINT,
-                            OWNER_DISPATCH_OBSERVATION, OWNER_DISPATCH_BINDING))
+                            OWNER_DISPATCH_OBSERVATION, OWNER_DISPATCH_BINDING, OWNER_DISPATCH_ABORT))
+CALLBACK_WORKFLOWS = {
+    "autonomous_next_task.yml": "Autonomous Next Task",
+    "autonomous_sync.yml": "Autonomous Sync Main",
+    "autonomous_loop_switch.yml": "Autonomous Loop Switch",
+    "autonomous_replenish.yml": "Autonomous Replenish",
+}
+CALLBACK_EVENTS = {
+    "autonomous_next_task.yml": frozenset({"workflow_dispatch"}),
+    "autonomous_sync.yml": frozenset({"workflow_dispatch", "push"}),
+    "autonomous_loop_switch.yml": frozenset({"workflow_dispatch"}),
+    "autonomous_replenish.yml": frozenset({"workflow_dispatch", "schedule"}),
+    "autonomous_evidence_gate.yml": frozenset({"pull_request"}),
+}
+CONCLUSIONS = frozenset({"success", "failure", "neutral", "cancelled", "skipped",
+                         "timed_out", "action_required", "stale", "startup_failure"})
+
+
+def _positive_id(value):
+    return type(value) is int and value > 0
+
+
+def _callback_get(repository, path):
+    result = subprocess.run(
+        ["gh", "api", "--method", "GET", "/repos/" + repository + "/" + path],
+        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        encoding="utf-8", timeout=120,
+    )
+    return json.loads(result.stdout)
+
+
+def checked_callback_source(repository, source, *, workflows, get=None):
+    """Authenticate a completed callback against its pinned attempt and latest run.
+
+    ``workflows`` maps allowed filenames to exact display names. ``get(path)``
+    returns one repo-relative JSON GET response. No current-main pin or success
+    requirement is imposed: frozen controllers and terminal recovery signals are
+    legitimate. Callers authenticate the root event repository and branch policy.
+    """
+    if (not isinstance(repository, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+            or not isinstance(source, dict) or not isinstance(workflows, dict)):
+        raise ValueError("invalid callback source context")
+    names = [filename for filename, name in workflows.items()
+             if name == source.get("name") and filename in CALLBACK_EVENTS]
+    if len(names) != 1:
+        raise ValueError("unsupported callback source workflow")
+    filename = names[0]
+    path = ".github/workflows/" + filename
+
+    def identity(run, *, payload=False):
+        if not isinstance(run, dict):
+            raise ValueError("callback source run unavailable")
+        if not all(_positive_id(run.get(field)) for field in ("id", "run_attempt", "workflow_id")):
+            raise ValueError("callback source requires exact numeric identities")
+        if (not isinstance(run.get("head_sha"), str) or not SHA.fullmatch(run["head_sha"])
+                or run.get("status") != "completed"
+                or not isinstance(run.get("conclusion"), str) or run["conclusion"] not in CONCLUSIONS
+                or not isinstance(run.get("event"), str) or run["event"] not in CALLBACK_EVENTS[filename]
+                or run.get("name") != workflows[filename]
+                or not isinstance(run.get("head_branch"), str) or not run["head_branch"]):
+            raise ValueError("untrusted callback source execution")
+        if (not payload or "path" in run) and run.get("path") != path:
+            raise ValueError("callback source workflow path mismatch")
+        head = run.get("head_repository")
+        if (not isinstance(head, dict) or head.get("full_name") != repository
+                or not _positive_id(head.get("id"))):
+            raise ValueError("foreign callback source head repository")
+        if not payload or "repository" in run:
+            own = run.get("repository")
+            if (not isinstance(own, dict) or own.get("full_name") != repository
+                    or not _positive_id(own.get("id")) or own["id"] != head["id"]):
+                raise ValueError("foreign callback source repository")
+        return tuple(run[field] for field in (
+            "id", "run_attempt", "workflow_id", "head_sha", "head_branch", "name", "event",
+            "status", "conclusion")) + (head["id"],)
+
+    expected = identity(source, payload=True)
+    get = get if get is not None else lambda endpoint: _callback_get(repository, endpoint)
+    endpoint = "actions/runs/" + str(source["id"])
+    pinned = get(endpoint + "/attempts/" + str(source["run_attempt"]))
+    if identity(pinned) != expected:
+        raise ValueError("callback source attempt differs from event")
+    workflow = get("actions/workflows/" + str(source["workflow_id"]))
+    if (not isinstance(workflow, dict) or not _positive_id(workflow.get("id"))
+            or workflow["id"] != source["workflow_id"] or workflow.get("path") != path
+            or workflow.get("name") != workflows[filename]):
+        raise ValueError("callback source workflow identity mismatch")
+    # Read latest last: a rerun must not authenticate a stale completion payload.
+    if identity(get(endpoint)) != expected:
+        raise ValueError("callback source is no longer the selected attempt")
+    return pinned
 
 
 def add_arguments(parser, *, run_id=True):
@@ -126,19 +217,17 @@ def context(args, workflow, config):
     if workflow in OWNER_WORKFLOWS:
         trigger.update(workflow=workflow, ref=os.environ["GITHUB_REF"])
     if event == "workflow_run":
-        source = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))["workflow_run"]
-        if (source.get("head_repository", {}).get("full_name") != repository
-                or (source.get("head_branch") != "main"
-                    and source.get("name") != "Autonomous Proposal Review")
-                or source.get("status") != "completed"):
+        payload = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        root = payload.get("repository") if isinstance(payload, dict) else None
+        if (not isinstance(root, dict) or root.get("full_name") != repository
+                or not _positive_id(root.get("id"))):
+            raise ValueError("callback event repository mismatch")
+        source = checked_callback_source(repository, payload.get("workflow_run"), workflows=CALLBACK_WORKFLOWS)
+        if source["head_branch"] != "main" or source["repository"]["id"] != root["id"]:
             raise ValueError("untrusted source callback")
-        source_id = str(source.get("id", ""))
-        source_attempt = str(source.get("run_attempt", ""))
-        if not re.fullmatch(r"[1-9][0-9]*", source_id) or not re.fullmatch(r"[1-9][0-9]*", source_attempt):
-            raise ValueError("callback source identity unavailable")
-        trigger["source_run_id"] = source_id
-        trigger["source_run_attempt"] = source_attempt
-        trigger["source_workflow"] = source.get("name", "")
+        trigger["source_run_id"] = str(source["id"])
+        trigger["source_run_attempt"] = str(source["run_attempt"])
+        trigger["source_workflow"] = source["name"]
     return AdmissionContext(workflow, args.continuation_key, trigger, control_sha)
 
 

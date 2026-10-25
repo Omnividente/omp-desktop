@@ -16,7 +16,7 @@ import tempfile
 import unittest
 
 from dispatch_integration_test import (BASE, CONTINUE, NEXT, SYNC, REPOSITORY, Endpoint,
-                                       child, git, make_fixture, source_checkout,
+                                       callback_source, child, git, make_fixture, source_checkout,
                                        state_snapshot, write_json)
 from dispatch_journal import materialize
 
@@ -158,7 +158,8 @@ class ReviewSequences(unittest.TestCase):
         for identifier in range(2001, 3001):
             event = ("schedule", "push", "workflow_dispatch", "workflow_run")[(identifier - 2001) % 4]
             queue.submit({"id": identifier, "event": event,
-                          "source": {"head_branch": "main", "head_repository": {"full_name": REPOSITORY}}})
+                          "source": {"name": "Autonomous Replenish", "head_branch": "main",
+                                     "head_repository": {"full_name": REPOSITORY}}})
         self.assertEqual(queue.pending[chain_group], 1002)
         self.assertNotIn(1002, queue.cancelled)
         self.assertEqual(len(queue.running), 2)
@@ -204,6 +205,8 @@ class ReviewSequences(unittest.TestCase):
         before = state_snapshot(self.remote)
         replay = self.invoke("handoff", run="900", event="workflow_dispatch", workflow=NEXT)
         self.assertEqual(replay["outcome"], "stopped")
+        self.endpoint.seed_callback(callback_source(900, self.health["control_sha"],
+                                                    workflow=NEXT, event="workflow_dispatch"))
         self.invoke("sender", run="201", event="workflow_run", source_run_id="900")
         self.assertEqual(state_snapshot(self.remote), before)
         self.assertEqual(len(self.endpoint.posts), 1)

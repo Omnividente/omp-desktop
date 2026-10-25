@@ -74,6 +74,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          filter: blob:none
           fetch-depth: 0
           path: control
           persist-credentials: false
@@ -96,6 +97,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: autonomous/lab
+          filter: blob:none
           fetch-depth: 0
           path: lab
           persist-credentials: false
@@ -160,6 +162,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          filter: blob:none
           fetch-depth: 0
           path: control
           persist-credentials: false

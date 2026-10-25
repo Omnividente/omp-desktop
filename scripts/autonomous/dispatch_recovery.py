@@ -9,11 +9,22 @@ from __future__ import annotations
 import re
 
 from build_jules_request import dispatch_key
+from checkpoint_diagnostics import OBSERVATION_FAILURES
 from jules_dispatch import (DEFAULT_API_BASE, MARKER_RE, TITLE_MARKER_RE, KeyRing,
                             extract_key, get_session, list_sessions, session_matches,
                             session_resource, urllib_transport)
 from research_request import CONTRACT_VERSION, saved_request, sha256_json
 from task_lifecycle import iso, utcnow
+
+
+class ObservationError(RuntimeError):
+    """A closed read-only failure category, never provider text or credentials."""
+
+    def __init__(self, reason_code):
+        if reason_code not in OBSERVATION_FAILURES:
+            raise ValueError("invalid observation failure category")
+        super().__init__("reserved dispatch observation blocked")
+        self.reason_code = reason_code
 
 
 def _session_identity(session: dict, request: dict, key: str) -> str:
@@ -54,7 +65,7 @@ def _session_hash(session: dict) -> str:
 
 def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
                               transport=urllib_transport, api_base=DEFAULT_API_BASE,
-                              now=None) -> dict:
+                              now=None, require_absence=False) -> dict:
     """Fail closed unless one original session survives authenticated list + get.
 
     No create authority is available. List/Get payloads must agree exactly, so a
@@ -96,18 +107,46 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
         raise ValueError("reserved dispatch observation requires an aware timestamp")
     ring = api_keys if isinstance(api_keys, KeyRing) else KeyRing(api_keys)
     if not ring:
-        raise RuntimeError("no Jules API key is configured")
+        raise ObservationError("provider_auth")
+
+    last_status = None
 
     def read_only(method, url, headers, payload):
+        nonlocal last_status
         if method != "GET" or payload is not None:
             raise RuntimeError("reserved dispatch observation permits GET only")
         try:
-            return transport(method, url, headers, payload)
-        except Exception:
-            raise RuntimeError("reserved dispatch provider GET failed") from None
+            response = transport(method, url, headers, payload)
+            last_status = response.status
+            if (require_absence and last_status // 100 == 2 and isinstance(response.payload, dict)
+                    and not isinstance(response.payload.get("nextPageToken", ""), str)):
+                raise ObservationError("provider_invalid")
+            return response
+        except ObservationError:
+            raise
+        except Exception as exc:
+            raise ObservationError("provider_unavailable") from exc
 
+    def failed_read():
+        if last_status in (401, 403):
+            return ObservationError("provider_auth")
+        if last_status in (0, 429) or (last_status is not None and last_status >= 500):
+            return ObservationError("provider_unavailable")
+        return ObservationError("provider_invalid")
+
+    try:
+        sessions = list_sessions(read_only, api_base, ring)
+    except ObservationError:
+        raise
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise failed_read() from exc
+
+    identity = {"task_id": task["id"], "attempts": execution["attempts"],
+                "dispatch_key": key, "base_sha": execution["base_sha"],
+                "starting_branch": execution["starting_branch"],
+                "research_request_sha256": snapshot_hash}
     matches = {}
-    for session in list_sessions(read_only, api_base, ring):
+    for session in sessions:
         if not isinstance(session, dict):
             raise RuntimeError("Jules ListSessions contains an invalid session")
         # A contradictory marker containing our key is evidence to reject,
@@ -122,21 +161,29 @@ def observe_reserved_dispatch(task: dict, repository: str, *, api_keys,
             raise RuntimeError("Jules ListSessions contains conflicting original session observations")
         matches[resource] = digest
     if not matches:
-        raise RuntimeError("original reserved Jules session is missing; creation is forbidden")
+        if require_absence:
+            return {"identity": identity, "proof": {**identity, "kind": "reserved_dispatch_absence",
+                    "repository": repository, "provider": "jules", "method": "GET", "authenticated": True,
+                    "pagination_complete": True, "request_sha256": request_hash,
+                    "sessions_sha256": sha256_json(sessions), "observed_at": iso(moment)}}
+        raise ObservationError("session_missing")
     if len(matches) != 1:
-        raise RuntimeError("multiple Jules sessions match the original reserved attempt")
+        raise ObservationError("session_ambiguous")
+    if require_absence:
+        raise RuntimeError("dispatch abort cannot discard an existing original session")
     resource, listed_hash = next(iter(matches.items()))
-    current = get_session(read_only, api_base, ring, resource)
+    try:
+        current = get_session(read_only, api_base, ring, resource)
+    except ObservationError:
+        raise
+    except (ValueError, RuntimeError, OSError) as exc:
+        raise failed_read() from exc
     if _session_identity(current, request, key) != resource:
         raise RuntimeError("fresh Jules GetSession returned a different original resource")
     current_hash = _session_hash(current)
     if current_hash != listed_hash:
         raise RuntimeError("fresh Jules GetSession conflicts with the list observation")
 
-    identity = {"task_id": task["id"], "attempts": execution["attempts"],
-                "dispatch_key": key, "base_sha": execution["base_sha"],
-                "starting_branch": execution["starting_branch"],
-                "research_request_sha256": snapshot_hash}
     proof = {**identity, "kind": "reserved_dispatch_observation", "repository": repository,
              "provider": "jules", "method": "GET", "authenticated": True,
              "session_id": current["id"], "session_state": current["state"],

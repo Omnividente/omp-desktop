@@ -1,9 +1,11 @@
+import type { RefObject } from "react"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeInfo, SessionSummary, WorkspaceSummary } from "./types"
 import { formatRelative, formatShortcut } from "./uiUtils"
 
 interface WorkspaceHomeProps {
+  primaryActionRef: RefObject<HTMLButtonElement | null>
   workspace: WorkspaceSummary | null
   sessions: SessionSummary[]
   selectedSession: SessionSummary | null
@@ -16,6 +18,7 @@ interface WorkspaceHomeProps {
 }
 
 export function WorkspaceHome({
+  primaryActionRef,
   workspace,
   sessions,
   selectedSession,
@@ -36,7 +39,12 @@ export function WorkspaceHome({
         <span className="eyebrow">{t(lang, "startWork")}</span>
         <h1>{t(lang, "emptyTitle")}</h1>
         <p>{t(lang, "emptyDesc")}</p>
-        <button className="button primary large" onClick={onOpenFolder} type="button">
+        <button
+          className="button primary large"
+          onClick={onOpenFolder}
+          ref={primaryActionRef}
+          type="button"
+        >
           <Icon name="folderOpen" />
           {t(lang, "btnOpenFolder")}
         </button>
@@ -73,6 +81,7 @@ export function WorkspaceHome({
               className="button primary large"
               disabled={launching !== null || !runtime.ompAvailable}
               onClick={() => onLaunch()}
+              ref={primaryActionRef}
               type="button"
             >
               <Icon name="plus" />

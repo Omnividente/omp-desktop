@@ -76,6 +76,99 @@ from its attempt ref to lab can run the evidence gate. Control CI tests trusted
 `main` scripts for lab events and the proposed control-plane revision for a PR
 into `main`.
 
+## D1 Review isolation and cutover
+
+This section describes the D1 source contract, not a claim that the local change
+has been published or deployed. **Dot standing R1 is NOT ACTIVE; no product pilot
+or live recovery is authorized here.** The user-reported blocked NEXT remains a
+fact, not an off switch or evidence that other controller effects cannot occur.
+All existing recovery/frontier, finding-resolution, queue and history contracts
+below remain unchanged.
+
+Keep the three paths separate: Jules discovery is read-only; separately approved
+Jules implementation proposes into `autonomous/lab`; separately authorized Dot
+publication uses its own `dot/*` branch and a Draft into `main` through the current
+GitHub plugin, without Codex or ChatGPT Work. Local source permission is not
+publication permission. Owner exact-SHA acceptance, merge, packaging, release and
+installation are separate decisions. See [Dot workflow](../dot/WORKFLOW.md) for
+the inactive R1 allowlist/limits and owner-issued activation/revocation template.
+
+The intended deployed event graph removes all three edges:
+
+- `Quality Gate` completion -> `Autonomous Proposal Review`.
+- `pull_request_review` submitted/dismissed -> Proposal Review.
+- Proposal Review completion -> `Autonomous Continue`, for every conclusion;
+  its runtime callback exception is removed as well.
+
+Review accepts only an exact completed same-repository **Autonomous Evidence
+Gate** with source event `pull_request` for one current open lab PR, the schedule
+at minutes **17,47 UTC**, or an owner-manual invocation authorized by
+`proposal_backlog.authorize()`. There is no arbitrary callback-to-global-scan
+fallback. API failure/unknown/403, stale head/attempt, foreign repository, spoofed
+workflow path/ID/name and ambiguous PR association fail closed. A genuine failed
+Evidence completion may produce a blocked report, never readiness from failure.
+
+Admission is independent of the shared Review concurrency group. It checks exact
+metadata from a trusted pinned `main` checkout with read-only permissions before
+any state load. Dot-main/Quality Gate events do not enter this path or read state.
+**Safety deviation from Astra:** same-repository Evidence metadata alone cannot
+authorize a foreign lab PR to occupy Jules Review. Only metadata-eligible Evidence,
+schedule or owner-manual input may then read authoritative state read-only and
+require unique persisted `trusted_pull_request()` provenance before shared report
+concurrency. Unknown/ambiguous callback PRs are blocked; scans retain only persisted
+Jules proposals. No state writes, PAT, PR code, untrusted artifacts/cache or
+persisted checkout credentials are permitted in admission.
+
+Only the admitted reporting job receives `autonomous-proposal-review` concurrency,
+`cancel-in-progress: false` and PR-comment write permission. It checks out the
+admission's exact control SHA, rechecks metadata freshness after waiting and before
+loading state, then rechecks unique provenance against fresh state. Existing
+`proposal_review.decide()` rules remain: one persisted identity, complete paginated
+files/reviews/checks, exact CI/head/lab, and pre/post-publication rereads with
+withdrawal on races. Branch names, actor, labels and copied markers are not
+provenance. No queue schema, saved request or acceptance rule is relaxed.
+
+Late Quality Gate completion or submitted/dismissed owner review no longer wakes
+Review immediately. Fresh readiness appears on the **next successful scheduled
+Review** (or a separately authorized owner-manual report), after current CI/head/
+lab reads. The 17,47 cron is not a 30-minute latency guarantee: queueing, failures,
+disabled jobs and API errors can leave it unverified indefinitely. For a bounded
+operational follow-up, the owner may separately authorize manual Review and a
+bounded observation window; timeout is still unverified, never implied readiness.
+This document does not grant manual dispatch permission.
+
+Continue keeps its existing schedule, owner/keyed dispatch and intentional
+`push(main)` ingress. Its checked completion sources remain **Next Task, Sync Main,
+Loop Switch and Replenish**, including non-success terminal recovery signals.
+Authenticating exact source run/attempt/workflow/repository is not requiring a
+successful conclusion or current-main SHA for every frozen legitimate source.
+Existing intentional `push(main)` -> Sync/Continue stays unchanged. Independent
+schedules may run; isolation means no Dot-derived Review/Continue callback chain,
+not a global zero-run assertion.
+
+### First maintainer publication is still under the old graph
+
+The PR introducing D1 does not protect itself. The frozen pre-D1 baseline
+`a85e3a04b7b704d8e3bdc6dc96a2df59d7436a12` still routes Quality Gate and submitted/
+dismissed reviews to Proposal Review, then Review to Continue, including failed,
+skipped and cancelled completions. Before publication the owner must separately
+authorize source publication and either a concrete pause/drain procedure with
+checked limits or explicit acceptance of identified old callback effects.
+Obtain a fresh authorized inventory of exact workflow blobs, source/control SHAs,
+run IDs/attempts and queued/running receivers; incomplete evidence keeps the work
+source-only. Do not infer safety from blocked NEXT, a proposed branch filter or
+the unmerged new YAML.
+
+Do not automatically change `JULES_LOOP_ENABLED`, schedules, workers or queue,
+cancel/resend/rerun, repin an executor, discard history or recover live state.
+After an authorized owner merge, verify actual deployed blobs and source SHAs,
+refresh the queued/running inventory and correlate legacy callbacks through their
+actual outcomes; old runs are not hot-patched by a merge. Only after exact-SHA
+cutover evidence and causal event-isolation acceptance may the owner separately
+authorize a product pilot. See the [full bootstrap sequence](../dot/WORKFLOW.md#first-maintainer-pr-bootstrap-and-cutover).
+Unknown/failed isolation stops Dot publication, not grants recovery or a pilot.
+
+
 ## Durable workflow execution rollout (separate, paused operation)
 
 The durable journal separates dispatch delivery from permission to execute.
@@ -407,18 +500,36 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
 2. Authenticate the original failed attempt-1 native run/artifact, frozen control,
    actor, correlation key, job outcome, archive and report digests. Its report must
    retain the exact `stopped/manual/state_write_failed` envelope and actual state SHA.
-   Read real executor-before/native/current Git objects and ancestry. Native and
-   current full bodies/journals must match. Original protected policy/history,
-   useful clocks, owner decisions, accepted results, unrelated attempt identities
-   and saved requests/receipts remain unchanged; only the original observed
-   `last_poll_at` may advance. Legitimate original intake/new-task deltas stay saved.
+   Read real executor-before/native/current Git objects and ancestry. Binding still
+   requires identical native/current full bodies and journals. GET-only observation
+   may retain later owner decisions only when replaying their recorded actor,
+   action, note and timestamp through `proposal_backlog.decide` on a copy of the
+   native checkpoint reproduces the **entire** current manifest exactly. This
+   cannot rewrite prior decisions or admit clock, policy, journal, saved-request,
+   unrelated identity/history or task-list drift. Original protected policy/history,
+   useful clocks, owner decisions, accepted results and saved requests/receipts stay
+   preserved; only the original observed `last_poll_at` may advance in the native
+   checkpoint. Legitimate original intake/new-task deltas stay saved.
 3. The observation workflow is GET-only and cannot save state. Fully paginate Jules
    ListSessions, select exactly one original canonical task/attempt marker, and Get
    that exact resource. Require actual ID/name/state and exact saved prompt, title,
    repository/source and starting branch; the complete List/Get JSON hashes must
    agree. Missing, foreign, duplicate, contradictory or unreadable observations
-   block recovery, never permit CreateSession. Retain only typed identities, state,
+   block session binding, never permit CreateSession. Retain only typed identities, state,
    hashes, source/native proof and UTC observation time, not prompt/prose/credentials.
+   Re-read the exact current state after GET; any concurrent change rejects the
+   observation. Its retained current state SHA may differ from the original native
+   report SHA. This diagnostic proof never grants binding or completion authority;
+   do not reset later owner decisions to make the stricter binding guard pass.
+   A blocked observation keeps its existing result envelope and may retain the
+   bounded `checkpoint-diagnostics.json` sidecar. It uses the existing validated
+   diagnostic format: a closed observer stage, exception category/causal chain and
+   safe Git metadata, never exception messages, provider bodies or credentials.
+   Distinguish state/native-proof failures, provider authentication/unavailability,
+   a fully read missing session and ambiguous sessions; an opaque blocked result
+   alone proves none of these. The sidecar grants no binding, closure or retry
+   authority. Failure to retain optional diagnostics must not mask the blocked
+   result or overwrite the checked source, config, queue or revision files.
 4. Binding repeats those fresh checks and calls native `task_lifecycle.start` for
    the existing observed session. One non-retrying owner-bound CAS changes only
    `execution.state: dispatching -> dispatched` and the empty `execution.session_id`
@@ -435,6 +546,49 @@ accept only `expected_state_sha` and `decision_id`, invoking respectively
    claims and denied old receiver/capability. Frozen readers fail closed on the new
    event. Then use separately authorized ordinary checked-main Sync/adoption and
    observe real continuation/intake; do not manufacture healthy monitor status.
+
+Exceptional **proven uncreated dispatch abort** is a different explicitly selected
+owner operation: `autonomous_abort_dispatch.yml`, invoking
+`recover_delivery.py --operation dispatch_abort` with only `expected_state_sha`
+and `decision_id`. Source development does not authorize publishing or running it.
+
+- Only frozen producer `4f9e9db9f779f92fca1cb8d03fbd986c728b2adb` is supported.
+  Its single CreateSession POST is behind `create_transport`'s guard; the original
+  authenticated failed-run archive must contain validated checkpoint diagnostics
+  with `quarantine_create_guard/state_write`. Other producers, missing/expired
+  artifacts or other stages cannot claim this source-order proof. This does not
+  recover the discarded underlying guard reason.
+- Authenticate the original executor, native report/Git ancestry and full current
+  queue as above. Replay only legitimate later owner decisions on a copy of the
+  native checkpoint; the **entire** manifest must match. Binding's stricter guard
+  is not widened. No queue reset or restoration of old owner decisions.
+- Perform a fresh authenticated **complete** ListSessions search. Any original
+  match, conflicting marker, duplicate, failed/invalid page or auth/transport
+  failure denies abort. A prior `session_missing` diagnostic alone is not write
+  authority. Retain only immutable attempt identity, request/list hashes, complete
+  pagination/authentication flags and UTC observation time, never raw listings.
+- One non-retrying CAS changes only the selected task's `status` to `blocked`,
+  `execution.state` to `dispatch_aborted`, its fixed explanatory `note`, and the
+  real `dispatch_aborted_at` timestamp. Append one
+  `OwnerDispatchAbort(reserved_dispatch_aborted_before_create)` journal receipt.
+  Preserve task/attempt/session/dispatch/base/branch/request identity, all prior
+  histories and receipts, accepted research and owner decisions, and controller
+  clocks. Keep the session empty and outcome/finished-at unchanged: no worker ran,
+  no research report was accepted and no successful or failed worker is invented.
+- The selected reservation cannot retry, bind a worker or receive a fake task
+  result. It remains visible as `dispatch_aborted` monitor attention, but does not
+  occupy the research lane. The typed receipt closes only the consumed NEXT,
+  advances its frontier once and denies the old sender/executor; it does not issue
+  an execution capability or handoff. Other work requires ordinary fresh ingress
+  and a separately approved resume; no replacement of this attempt is permitted.
+- Recheck the exact full state after provider reads; a changed state or CAS conflict
+  blocks without retries. Unknown acknowledgement never resends. Only the same
+  original owner event and inputs (rerun attempt may differ) can read
+  `already_aborted`, without new provider/artifact reads or another CAS. Without
+  that durable receipt, every rerun is blocked before artifact/provider reads;
+  only the original owner run attempt 1 can attempt the single CAS. Verify
+  the target-only delta, journal prefix, full conservation and old-right denial
+  before any separately authorized checked Sync or loop enable.
 
 The authenticated failed-save boundary does not reveal an underlying exception
 discarded by its original wrapper. Successful isolated validation/Git save or
@@ -929,10 +1083,12 @@ direct `sendMessage` API; do not assume it prevents either channel.
   a different nonempty key still uses chain; Actions expressions cannot validate
   journal keys. Ineligible feature/fork callbacks remain isolated before admission.
   Normal continuation uses explicit `workflow_dispatch` via the existing Loop
-  Switch PAT. Cron (every 5 minutes), trusted workflow completions and main
-  pushes are recovery signals, not the normal timer. Continue does not trigger
-  itself through `workflow_run`: cancellation of a replaced pending run must not
-  recursively generate more callbacks.
+  Switch PAT. Cron (every 5 minutes), checked Next Task/Sync Main/Loop Switch/
+  Replenish completions and main pushes are recovery signals, not the normal
+  timer. D1 removes Proposal Review callbacks, not the four regular sources or
+  their non-success terminal signals. Continue does not trigger itself through
+  `workflow_run`: cancellation of a replaced pending run must not recursively
+  generate more callbacks.
   Polling uses 5 minutes for new/changed foreground research, 15 minutes after
   30 minutes without a state change, and 30 minutes for implementation, detached
   research or known waiting when no earlier research is due. Deadlines use
@@ -1226,6 +1382,14 @@ branch is unique to the run; cleanup only deletes that owned ref if its SHA stil
 matches. A conflict, failed gate or moved head leaves live lab unchanged. Disabling
 the loop during verification also prevents publication.
 
+The full-history checkouts in Sync, NEXT and CONTINUE use `filter: blob:none`
+with `fetch-depth: 0`. Commit/tree ancestry and exact frozen controller revisions
+remain available; historical file bodies are fetched only when needed. This is
+neither a shallow nor a sparse checkout, and credentials remain nonpersistent.
+Checkout must still fit the existing preparation and handoff job deadlines.
+A checkout error alone does not prove an unused execution right: inspect native
+step outcomes and the authoritative journal before classifying its effects.
+
 Fix the reported conflict or failing check, then review the durable frontier before
 explicit admission of another sync on `main`. A spent unknown/prepared/finalize
 claim is not a retry capability; reconcile actual effects under a separately
@@ -1242,6 +1406,13 @@ Every completed implementation PR waits as
 scope, exact checks, proof and remaining risks. `ready_for_review` still requires
 your or Main AI's usefulness review and explicit acceptance. New commits or a
 moved lab base require a fresh report. Labels do not approve a revision.
+
+Under D1, late Quality Gate or owner review changes are reflected by the next
+successful scheduled Proposal Review, not an immediate review-event callback.
+The 17,47 schedule has no latency guarantee; an owner may separately authorize a
+manual report with a bounded observation window. See [D1 isolation](#d1-review-isolation-and-cutover)
+for source-only status, admission/provenance checks and the old-graph bootstrap.
+Dot Drafts into `main` are not Jules lab acceptance candidates.
 
 `blocked` means resolve the listed blockers and rerun the report. In particular,
 a failed supported TypeScript proof cannot be approved away. For

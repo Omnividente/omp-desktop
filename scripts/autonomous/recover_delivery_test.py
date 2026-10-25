@@ -793,7 +793,10 @@ class ObservationOutputTests(unittest.TestCase):
                 self.validate(value)
 
 
-class ReservedDispatchOwnerEntryTests(unittest.TestCase):
+class ReservedDispatchOwnerFixture(unittest.TestCase):
+    def prepare_fixture(self, fixture):
+        fixture.prepare()
+
     def setUp(self):
         from reserved_dispatch_checkpoint_test import ReservedDispatchCheckpointTests
         from dispatch_recovery_test import PRIMARY
@@ -805,7 +808,7 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         f.git(f.repo, "add", "autonomous-project.json")
         f.git(f.repo, "commit", "-m", "synthetic checked owner config")
         self.control = f.git(f.repo, "rev-parse", "HEAD")
-        f.prepare()
+        self.prepare_fixture(f)
         self.expected = f.pin
         f.git(f.repo, "remote", "set-url", "origin", "https://github.com/" + f.config["repository"])
         native_git = state_store._git
@@ -906,6 +909,48 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         self.assertEqual(self.fixture.authoritative(), before)
         self.assertEqual(self.pushes, pushes)
 
+
+class ReservedDispatchAbortEntryTests(ReservedDispatchOwnerFixture):
+    def prepare_fixture(self, fixture):
+        fixture.prepare_abort()
+
+    def test_abort_cli_preserves_identity_and_returns_only_one_durable_receipt(self):
+        self.select("dispatch_abort")
+        before = self.fixture.authoritative()
+        with patch.dict(os.environ, {"GITHUB_ACTOR": "foreign", "GITHUB_TRIGGERING_ACTOR": "foreign"}):
+            self.assert_blocked_unchanged("owner_dispatch_abort_context_rejected")
+        self.assertEqual(self.fixture.provider.calls, [])
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"], self.pushes), (0, "aborted", 1))
+        self.assertEqual(set(result), {"outcome", "decision_id", "receipt_id", "state_sha", "frontier_seq"})
+        after = self.fixture.authoritative()
+        self.assertNotEqual(after[0], before[0])
+        task = self.fixture.target(json.loads(after[1]))
+        self.assertEqual((task["status"], task["execution"]["state"], task["execution"]["attempts"]),
+                         ("blocked", "dispatch_aborted", 1))
+        self.assertEqual(task["execution"]["research_request"], self.fixture.target(self.fixture.native)["execution"]["research_request"])
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+        os.environ["GITHUB_RUN_ATTEMPT"] = "2"
+        status, replay = self.invoke()
+        self.assertEqual((status, replay["outcome"], replay["receipt_id"]), (0, "already_aborted", result["receipt_id"]))
+        self.assertEqual(self.fixture.authoritative(), after)
+        self.assertEqual((self.pushes, len(self.fixture.provider.calls)), (1, 1))
+
+    def test_abort_cli_lost_push_ack_never_repeats_provider_lookup_or_cas(self):
+        self.select("dispatch_abort")
+        self.lose_ack = True
+        status, result = self.invoke()
+        self.assertEqual((status, result), (1, {"outcome": "blocked", "reason": "owner_dispatch_abort_acknowledgement_unknown"}))
+        self.assertEqual(self.pushes, 1)
+        after = self.fixture.authoritative()
+        self.lose_ack = False
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "already_aborted"))
+        self.assertEqual(self.fixture.authoritative(), after)
+        self.assertEqual((self.pushes, len(self.fixture.provider.calls)), (1, 1))
+
+
+class ReservedDispatchOwnerEntryTests(ReservedDispatchOwnerFixture):
     def test_get_only_cli_observation_retains_proof_without_state_push(self):
         before = self.fixture.authoritative()
         status, result = self.invoke()
@@ -916,6 +961,32 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         self.assertEqual(self.pushes, 0)
         self.assertEqual(len(self.fixture.provider.calls), 2)
         self.fixture.assert_get_only()
+
+    def test_cli_observation_retains_later_owner_decision_without_binding_or_state_push(self):
+        from proposal_backlog import decide
+        from proposal_backlog_test import proposal
+
+        f = self.fixture
+        native = copy.deepcopy(f.native)
+        native["tasks"].append(proposal("later-owner-proposal"))
+        f.native_sha = f.raw_commit(native, publish=True)
+        f.set_report_pin(f.native_sha)
+        current = copy.deepcopy(native)
+        decide(current, f.config, action="resolve", task_id="later-owner-proposal", actor="owner-a",
+               note="SYNTHETIC later owner decision", now="2026-10-06T10:10:00Z")
+        self.expected = f.raw_commit(current, publish=True)
+        self.event["inputs"]["expected_state_sha"] = self.expected
+        self.event_path.write_text(json.dumps(self.event), encoding="utf-8")
+        before = f.authoritative()
+        status, result = self.invoke()
+        self.assertEqual((status, result["outcome"]), (0, "observed"))
+        self.assertEqual(result["state_sha"], self.expected)
+        self.assertEqual(result["native_report"]["state_sha"], f.native_sha)
+        self.assertNotEqual(result["state_sha"], result["native_report"]["state_sha"])
+        self.assertEqual(f.authoritative(), before)
+        self.assertEqual(self.pushes, 0)
+        self.assertEqual(len(f.provider.calls), 2)
+        f.assert_get_only()
 
     def test_binding_calls_one_cas_and_rerun_only_reads_same_receipt(self):
         self.select("dispatch_binding")
@@ -1015,6 +1086,105 @@ class ReservedDispatchOwnerEntryTests(unittest.TestCase):
         with patch.object(JournalStore, "observe_reserved_dispatch", unsafe_acknowledgement):
             self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
         self.assertEqual(len(self.fixture.provider.calls), 2)
+        self.assertEqual(self.pushes, 0)
+
+    def assert_observer_diagnostic(self, stage, category):
+        from checkpoint_diagnostics import MAX_DIAGNOSTIC_BYTES, validate_diagnostics
+
+        raw = self.result_path.with_name("checkpoint-diagnostics.json").read_bytes()
+        diagnostic = json.loads(raw)
+        self.assertTrue(validate_diagnostics(diagnostic))
+        self.assertEqual(diagnostic["checkpoint_stage"], stage)
+        self.assertEqual(diagnostic["exception_category"], category)
+        self.assertLessEqual(len(raw), MAX_DIAGNOSTIC_BYTES)
+        self.fixture.assert_private(diagnostic)
+        self.assertNotIn("SYNTHETIC_PRIVATE", raw.decode("utf-8"))
+        return diagnostic
+
+    def test_observer_state_read_timeout_retains_safe_cause_without_provider_or_queue_write(self):
+        native_git = state_store._git
+
+        def unavailable(repo, *args, **kwargs):
+            if args[0] == "ls-remote":
+                failure = subprocess.TimeoutExpired(["git", "SYNTHETIC_PRIVATE_ARGV"], 90,
+                                                    stderr=b"SYNTHETIC_PRIVATE_STDERR")
+                failure.checkpoint_metadata = {"git_operation": "ls-remote", "git_timeout": True}
+                raise failure
+            return native_git(repo, *args, **kwargs)
+
+        with patch.object(state_store, "_git", side_effect=unavailable):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        diagnostic = self.assert_observer_diagnostic("observer_state_read", "timeout")
+        self.assertEqual(diagnostic["git_operation"], "ls-remote")
+        self.assertIs(diagnostic["git_timeout"], True)
+        self.assertEqual(self.fixture.provider.calls, [])
+
+    def test_observer_provider_auth_failure_is_not_mistaken_for_missing_session(self):
+        import jules_dispatch
+        import urllib.error
+
+        requests = []
+
+        def rejected(request, timeout):
+            requests.append(request.get_method())
+            raise urllib.error.HTTPError(request.full_url, 403, "SYNTHETIC_PRIVATE_MESSAGE", {},
+                                         io.BytesIO(b"SYNTHETIC_PRIVATE_BODY"))
+
+        with patch.object(jules_dispatch.urllib.request, "urlopen", side_effect=rejected):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assert_observer_diagnostic("observer_provider_read", "provider_auth")
+        self.assertEqual(requests, ["GET", "GET"])
+
+    def test_observer_completed_empty_list_is_distinct_from_failed_provider_get(self):
+        from dispatch_recovery_test import page
+
+        self.fixture.provider.responses = [page()]
+        self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assert_observer_diagnostic("observer_provider_read", "session_missing")
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+        self.fixture.assert_get_only()
+
+    def test_observer_ambiguous_original_sessions_never_selects_or_binds_one(self):
+        from dispatch_recovery_test import page
+
+        second = {**self.fixture.session, "id": "second-original", "name": "sessions/second-original"}
+        self.fixture.provider.responses = [page(self.fixture.session, second)]
+        self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assert_observer_diagnostic("observer_provider_read", "session_ambiguous")
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+        self.fixture.assert_get_only()
+
+    def test_observer_optional_diagnostic_failure_preserves_original_blocked_envelope(self):
+        from dispatch_recovery_test import page
+
+        self.fixture.provider.responses = [page()]
+        native_write = recover_delivery._atomic_bytes
+
+        def unavailable(path, raw):
+            if path.name == "checkpoint-diagnostics.json":
+                raise OSError("SYNTHETIC_PRIVATE_DIAGNOSTIC_IO")
+            return native_write(path, raw)
+
+        with patch.object(recover_delivery, "_atomic_bytes", side_effect=unavailable):
+            self.assert_blocked_unchanged("owner_dispatch_observation_acknowledgement_unknown")
+        self.assertFalse(self.result_path.with_name("checkpoint-diagnostics.json").exists())
+        self.assertEqual(len(self.fixture.provider.calls), 1)
+
+    def test_observer_diagnostic_cannot_overwrite_revision_file(self):
+        from dispatch_recovery_test import page
+
+        self.fixture.provider.responses = [page()]
+        arguments = self.arguments()
+        diagnostic_path = self.result_path.with_name("checkpoint-diagnostics.json")
+        arguments[arguments.index("--revision-file") + 1] = str(diagnostic_path)
+        before = self.fixture.authoritative()
+        status, result = self.invoke(arguments)
+        self.assertEqual((status, result), (1, {"outcome": "blocked",
+                         "reason": "owner_dispatch_observation_acknowledgement_unknown"}))
+        metadata = json.loads(diagnostic_path.read_text(encoding="utf-8"))
+        self.assertEqual(metadata["state_sha"], self.expected)
+        self.assertEqual(metadata["source"], "state")
+        self.assertEqual(self.fixture.authoritative(), before)
         self.assertEqual(self.pushes, 0)
 
 

@@ -14,12 +14,18 @@ CHECKPOINT_STAGES = frozenset({
     "research_planner", "dispatch_reservation", "quarantine_before_create",
     "quarantine_create_guard", "created_session_binding", "quarantine_during_create",
     "owner_quarantine", "owner_recovery_queue", "owner_recovery_claim",
+    "observer_context", "observer_state_read", "observer_native_proof",
+    "observer_provider_read", "observer_state_recheck",
+})
+OBSERVATION_FAILURES = frozenset({
+    "provider_auth", "provider_unavailable", "provider_invalid",
+    "session_missing", "session_ambiguous",
 })
 EXCEPTION_CATEGORIES = frozenset({
     "state_write", "state_conflict", "state_uncertain", "journal_conflict",
     "journal_uncertain", "validation", "os_error", "timeout", "subprocess",
     "runtime", "unknown",
-})
+}) | OBSERVATION_FAILURES
 GIT_OPERATIONS = frozenset({
     "unknown", "ls-remote", "cat-file", "fetch", "show", "hash-object", "mktree",
     "commit-tree", "push",
@@ -79,6 +85,10 @@ def _category(exc):
     # Import lazily: the state store also attaches these safe metadata fields.
     from state_store import StateConflict, StateUncertain
     from dispatch_journal import JournalConflict, JournalUncertain
+    from dispatch_recovery import ObservationError
+    if isinstance(exc, ObservationError):
+        code = exc.reason_code
+        return code if type(code) is str and code in OBSERVATION_FAILURES else "unknown"
     for kind, category in (
         (StateWriteError, "state_write"), (StateUncertain, "state_uncertain"),
         (StateConflict, "state_conflict"), (JournalUncertain, "journal_uncertain"),

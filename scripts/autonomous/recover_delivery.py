@@ -7,9 +7,10 @@ no-op, failed queued report checkpoint, or proven automatic pre-mutation save
 failure against its immutable baseline. Reserved
 dispatch observation is GET-only; original-session binding may change only the
 selected task's execution.state and execution.session_id by one native state CAS,
-appending only its typed owner recovery receipt to the journal.
+appending only its typed owner recovery receipt to the journal. A separately
+selected pre-create abort parks the original reservation without a worker result.
 None creates a provider session, switches the loop, issues execution rights, or
-changes task attempts, requests, history, receipts, outcomes, or clocks.
+changes task attempts, requests, prior history, receipts, outcomes or controller clocks.
 """
 from __future__ import annotations
 
@@ -22,11 +23,12 @@ from pathlib import Path
 from datetime import datetime
 
 from build_jules_request import dispatch_key
+from checkpoint_diagnostics import MAX_DIAGNOSTIC_BYTES, diagnostic_for_failure, validate_diagnostics
 from dispatch_journal import (DIGEST, SHA, JournalConflict, JournalStore, JournalUncertain)
 from jules_dispatch import KeyRing
 from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
-from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_BINDING,
+from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_ABORT, OWNER_DISPATCH_BINDING,
                                 OWNER_DISPATCH_OBSERVATION, OWNER_FAILED_NEXT_CHECKPOINT,
                                 OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
                                 add_arguments, context, recheck_context)
@@ -45,6 +47,8 @@ OPERATIONS = {
                              frozenset(("observed",))),
     "dispatch_binding": (OWNER_DISPATCH_BINDING, "owner_dispatch_binding",
                          frozenset(("bound", "already_bound"))),
+    "dispatch_abort": (OWNER_DISPATCH_ABORT, "owner_dispatch_abort",
+                       frozenset(("aborted", "already_aborted"))),
 }
 
 
@@ -255,6 +259,7 @@ def main(argv=None):
     args = None
     attempted = False
     out = None
+    failure = None
     try:
         # Retain a safe rejection even if the full argument parser rejects input.
         output_parser = _Parser(add_help=False, allow_abbrev=False)
@@ -285,10 +290,11 @@ def main(argv=None):
                            "report_checkpoint": store.complete_failed_report_checkpoint,
                            "failed_next_checkpoint": store.complete_failed_next_checkpoint,
                            "dispatch_observation": store.observe_reserved_dispatch,
-                           "dispatch_binding": store.bind_reserved_dispatch}[operation]
+                           "dispatch_binding": store.bind_reserved_dispatch,
+                           "dispatch_abort": store.abort_reserved_dispatch}[operation]
         parameters = dict(decision_id=args.decision_id, expected_state_sha=args.expected_state_sha,
                           owner_trigger=binding.trigger, config=config)
-        if operation in {"dispatch_observation", "dispatch_binding"}:
+        if operation in {"dispatch_observation", "dispatch_binding", "dispatch_abort"}:
             # Reuse the existing Jules keyring, with no endpoint override or secret output.
             parameters["api_keys"] = KeyRing([os.environ.get("JULES_API_KEY", ""),
                                              os.environ.get("JULES_API_KEY_BACKUP", "")])
@@ -297,14 +303,29 @@ def main(argv=None):
         result = (_observed_result(value, args.decision_id, args.expected_state_sha, config)
                   if operation == "dispatch_observation" else
                   _acknowledged_result(value, args.decision_id, operation))
-    except (JournalUncertain, StateUncertain):
+    except (JournalUncertain, StateUncertain) as exc:
+        failure = exc
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] + "_acknowledgement_unknown"}
-    except (JournalConflict, StateConflict):
+    except (JournalConflict, StateConflict) as exc:
+        failure = exc
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] + "_conflict"}
     except (ValueError, KeyError, TypeError, AttributeError, OSError, RuntimeError,
-            subprocess.SubprocessError):
+            subprocess.SubprocessError) as exc:
+        failure = exc
         result = {"outcome": "blocked", "reason": OPERATIONS[operation][1] +
                   ("_acknowledgement_unknown" if attempted else "_context_rejected")}
+    if operation == "dispatch_observation" and attempted and failure is not None and out is not None:
+        # Optional causal facts must not alter the blocked envelope or expose errors.
+        try:
+            diagnostic = diagnostic_for_failure(getattr(failure, "checkpoint_stage", "unknown"), failure)
+            encoded = (json.dumps(diagnostic, separators=(",", ":")) + "\n").encode("utf-8")
+            diagnostic_args = argparse.Namespace(**vars(args))
+            diagnostic_args.out = out.with_name("checkpoint-diagnostics.json")
+            path = _output_path(diagnostic_args)
+            if path != out and validate_diagnostics(diagnostic) and len(encoded) <= MAX_DIAGNOSTIC_BYTES:
+                _atomic_bytes(path, encoded)
+        except (OSError, ValueError, TypeError):
+            pass
     text = json.dumps(result, indent=2) + "\n"
     if out is not None:
         try:

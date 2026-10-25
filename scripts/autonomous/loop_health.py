@@ -394,6 +394,9 @@ def assess_health(
               and execution.get("state") == "exhausted" and execution.get("outcome") == "failed"):
             attention.append({"reason": "research_failed", "task_id": task["id"],
                               "observed_at": execution.get("finished_at")})
+        elif execution.get("state") == "dispatch_aborted":
+            attention.append({"reason": "dispatch_aborted", "task_id": task["id"],
+                              "observed_at": execution.get("dispatch_aborted_at")})
     failed_sync = not main_is_ancestor and last_sync is not None and last_sync.get("conclusion") in FAILED_CONCLUSIONS
     failed_sync = failed_sync or bool(observed_sync and (observed_sync.get("publication") == "blocked" or observed_sync.get("status") == "conflict"))
     if failed_sync:

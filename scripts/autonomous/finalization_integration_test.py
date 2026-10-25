@@ -11,7 +11,7 @@ import unittest
 
 from dispatch_integration_test import (
     CONTINUE, NEXT, REPOSITORY, child, git, make_fixture, source_checkout, state_snapshot,
-    Endpoint,
+    Endpoint, callback_source,
 )
 from dispatch_journal import JournalStore, materialize
 from workflow_admission import OWNER_RECOVERY
@@ -104,14 +104,14 @@ class FinalizationCLI(unittest.TestCase):
         self.assertEqual(sender["exit"], 0, sender)
         self.assertEqual(self.endpoint.posts[0]["workflow"], CONTINUE)
         before = self.snapshot()
-        callback = self.step("sender", run="701", event="workflow_run", source_run_id="700")
+        callback = self.step("sender", run="701", event="workflow_run", source_run_id="600")
         self.assertEqual(callback["exit"], 0, callback)
         self.assertEqual((callback["output"]["outcome"], callback["output"]["reason"]),
                          ("coalesced", "existing_receiver_active"))
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(len(self.endpoint.posts), 1)
         self.endpoint.runs[0].update(status="completed", conclusion="failure")
-        unresolved = self.step("sender", run="702", event="workflow_run", source_run_id="700")
+        unresolved = self.step("sender", run="702", event="workflow_run", source_run_id="600")
         self.assertEqual(unresolved["exit"], 1, unresolved)
         self.assertEqual((unresolved["output"]["outcome"], unresolved["output"]["reason"]),
                          ("blocked", "delivery_unresolved"))
@@ -154,6 +154,8 @@ class FinalizationCLI(unittest.TestCase):
         failed = self.step("receiver", run="800", event="workflow_dispatch", fault="executor-before-effect")
         self.assertEqual(failed["exit"], 86, failed)
         before = self.snapshot()
+        self.endpoint.seed_callback(callback_source(800, self.control, workflow=NEXT,
+                                                    event="workflow_dispatch", conclusion="failure"))
         callback = self.step("sender", run="801", event="workflow_run", source_run_id="800")
         self.assertEqual(callback["exit"], 1, callback)
         self.assertEqual((callback["output"]["outcome"], callback["output"]["reason"]),

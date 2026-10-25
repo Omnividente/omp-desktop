@@ -20,6 +20,8 @@ from datetime import datetime
 WORKFLOW = "autonomous_next_task.yml"
 # Source-order proof is established only for this immutable historical producer.
 FAILED_AUTOMATIC_NEXT_PRODUCER = "e4b46f52c431459fce33d25f93d7324440b59cb2"
+# This producer's single CreateSession call is behind the recorded create guard.
+ABORTED_DISPATCH_PRODUCER = "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb"
 NATIVE_JOB = "Research and collect proposals without accepting them"
 NATIVE_STEP = "Reconcile saved attempts and run one laboratory tick"
 UPLOAD_STEP = "Preserve laboratory outcome and redacted report diagnostics"
@@ -461,3 +463,28 @@ def authenticated_failed_automatic_next_save(repository, executor_trigger, decis
         raise ValueError("unsupported failed automatic NEXT producer")
     return _authenticate(repository, executor_trigger, decision_id, correlation_key,
                          _failed_save_checkpoint, get_json=get_json, get_archive=get_archive)
+
+
+def authenticated_aborted_dispatch(repository, executor_trigger, decision_id, correlation_key,
+                                   *, get_json=None, get_archive=None) -> dict:
+    """Prove the frozen single-POST producer failed before forwarding CreateSession."""
+    if (not isinstance(executor_trigger, dict)
+            or executor_trigger.get("control_sha") != ABORTED_DISPATCH_PRODUCER):
+        raise ValueError("unsupported aborted dispatch producer")
+    diagnostic = None
+
+    def read_checkpoint(archive, original_decision):
+        nonlocal diagnostic
+        report, report_digest = _failed_save_checkpoint(archive, original_decision)
+        # _failed_save_checkpoint already validates the exact ZIP member and schema.
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            _require("checkpoint-diagnostics.json" in bundle.namelist(), "missing native pre-create proof")
+            diagnostic = json.loads(bundle.read("checkpoint-diagnostics.json").decode("utf-8"),
+                                    object_pairs_hook=_unique_object, parse_constant=_invalid_constant)
+        _require(diagnostic["checkpoint_stage"] == "quarantine_create_guard"
+                 and diagnostic["exception_category"] == "state_write", "native failure is not before CreateSession")
+        return report, report_digest
+
+    result = _authenticate(repository, executor_trigger, decision_id, correlation_key, read_checkpoint,
+                           get_json=get_json, get_archive=get_archive)
+    return {**result, "checkpoint_diagnostics": diagnostic}
