@@ -191,13 +191,7 @@
       "critical": true
     }
   },
-  "lease": {
-    "id": "r2j-20261025T140500Z-readonly-sweep",
-    "holder": "dot/astra",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T14:36:15Z",
-    "purpose": "metadata-only read-only sweep checkpoint"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -419,7 +413,23 @@
       "expected_content_sha": "208b5b35583b0a589dc2bccbd1466f181c3d489c",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T140500Z-readonly-sweep",
-      "ack": "get-confirm-required"
+      "ack": "confirmed",
+      "result": {
+        "commit_sha": "9b8b9e7fb3f5e183b88788f1d7d4b301c33212a9",
+        "content_sha": "b25e81830dca8d2ba8928d5be3cb50a7b452c969"
+      }
+    },
+    {
+      "id": "r2j-20261025T140500Z-readonly-sweep-checkpoint",
+      "kind": "metadata-sweep-checkpoint",
+      "expected_content_sha": "b25e81830dca8d2ba8928d5be3cb50a7b452c969",
+      "send_claim": "consumed",
+      "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "scope": "Dot metadata only; read-only sweep receipt and lease release; source and PR unchanged",
+      "status": "confirmed-read-only-sweep",
+      "observed_at": "2026-10-25T14:36:44Z",
+      "note": "No source/PR mutation; checkpoint CAS result verified separately by exact GET."
     }
   ],
   "backlog": [
@@ -448,11 +458,11 @@
       }
     }
   ],
-  "last_sweep_at": "2026-10-25T13:34:30Z",
+  "last_sweep_at": "2026-10-25T14:36:44Z",
   "last_attempt": {
-    "scheduled_for": "2026-10-25T13:05:00Z",
-    "started_at": "2026-10-25T13:29:52Z",
-    "checkpoint_at": "2026-10-25T13:34:30Z",
+    "scheduled_for": "2026-10-25T14:05:00Z",
+    "started_at": "2026-10-25T14:33:41Z",
+    "checkpoint_at": "2026-10-25T14:36:44Z",
     "status": "completed-read-only-awaiting-owner",
     "authority": {
       "grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
@@ -471,37 +481,53 @@
       "reviews": 0,
       "checks_success": 8
     },
+    "inventory": {
+      "open_prs": 18,
+      "files_complete": true,
+      "renames": 0,
+      "source_overlap": false,
+      "unrelated_conflict": 136
+    },
     "health_evidence": {
-      "scope": "Safe retained artifacts and Actions metadata, not full live queue",
+      "scope": "Safe retained artifact and Actions metadata, not full live queue",
       "next": {
         "run_id": 40195039166,
         "conclusion": "success",
-        "artifact_id": 12599398640,
-        "reason": "no_todo_tasks",
-        "research_reason": "cooldown",
-        "research_next_at": "2026-10-26T01:54:28Z",
-        "attention": []
+        "note": "No newer NEXT in recent run window; prior completed report remains historical"
       },
       "continue": {
-        "run_id": 40195243857,
+        "run_id": 40200340704,
         "conclusion": "success",
-        "artifact_id": 12600611743,
+        "artifact_id": 12600949790,
+        "observed_at": "2026-10-25T14:24:57.569173Z",
         "reason": "successor_requested",
         "health_reason": "cooldown",
-        "successor_run_id": 40196933606,
+        "due_at": "2026-10-26T01:54:28Z",
+        "scheduler_state": "waiting",
+        "overdue_seconds": 0,
+        "failed_ticks": 0,
+        "pending_proposals": 7,
+        "approved_proposals": 0,
+        "successor_run_id": 40202106601,
         "successor_status": "in_progress",
         "successor_step": "Wait for the next deadline and confirm the successor"
       },
-      "historical_attention": "dispatch_aborted at 2026-10-24T23:08:04.203436Z only; not new incident",
+      "historical_attention": "dispatch_aborted at 2026-10-24T23:08:04.203436Z only; not a new incident",
+      "research_quality": "No new completed report since previous evidence-calibration observation; no new product claim",
       "replenish": {
         "run_id": 40189401229,
-        "status": "previously-known-state-fetch-timeout; no newer Replenish in recent run window"
+        "status": "previously-known state-fetch timeout; no new result in recent window"
       }
+    },
+    "governance_observation": {
+      "pr": 149,
+      "head_sha": "55a7199d0305b5e582376e7ab4150db9d01c2b32",
+      "state": "open",
+      "note": "Proposed R2-J v2 is not effective authority. Current main and owner control remain v1; no governance/grant/source changes made."
     },
     "state_reconciliation": {
       "current_lease": null,
-      "current_pending_operation": null,
-      "prior_reacquire_annotation": "Historical operation r2j-20261025T120500Z-reacquire retains get-confirm-required; not rewritten. Current GET confirms final first-run checkpoint with released lease and confirmed source/PR receipts; no effect resent."
+      "current_pending_operation": null
     }
   }
 }
