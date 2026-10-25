@@ -191,7 +191,13 @@
       "critical": true
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T140500Z-readonly-sweep",
+    "holder": "dot/astra",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T14:36:15Z",
+    "purpose": "metadata-only read-only sweep checkpoint"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -406,6 +412,14 @@
       "status": "confirmed-read-only-sweep",
       "observed_at": "2026-10-25T13:34:30Z",
       "note": "No source/PR mutation in this sweep. Metadata checkpoint CAS result verified separately by GET."
+    },
+    {
+      "id": "r2j-20261025T140500Z-readonly-sweep-lease",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "208b5b35583b0a589dc2bccbd1466f181c3d489c",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T140500Z-readonly-sweep",
+      "ack": "get-confirm-required"
     }
   ],
   "backlog": [
