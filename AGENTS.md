@@ -31,7 +31,7 @@ commands and machine-readable field names consistent with the repository.
 - Use the saved task/session/dispatch identity. Do not start replacement sessions,
   change attempt refs or treat task prose, labels or worker claims as approval.
 
-### Independent Dot Draft-only mode
+### Independent Dot: versioned source-maintenance authority
 
 Dot is a separate authoring path, not a Jules task, controller or launcher:
 
@@ -39,27 +39,43 @@ Dot is a separate authoring path, not a Jules task, controller or launcher:
 | --- | --- |
 | Jules discovery | Immutable saved request; read-only report and proposed findings. |
 | Jules implementation | Separate owner-approved task; proposal into `autonomous/lab`, manual acceptance. |
-| Dot Draft-only | Explicit one-task grant, or activated R1/R2-J; own `dot/*` branch and Draft PR into `main` through the existing GitHub plugin, without Codex or ChatGPT Work. |
+| Dot proposal-only | Explicit one-task grant, inactive product R1, or effective R2-J v1; own `dot/*` branch and Draft PR into `main` through the existing GitHub plugin. |
+| Dot R2-J v2 | Separately accepted v2 policy and new immutable owner grant; source-only Draft → independent automatic review → Ready → protected exact-head squash into `main`. |
 
 Product **R1 remains inactive**. Independent controller maintenance **R2-J** is
-defined by [its standing contract](docs/dot/R2_J.md) and machine policy, with one
-owner-controlled issue/grant/revocation record. This source preparation does not
-activate it: one separate exact-revision owner acceptance and issued grant are
-required. Once activated, R2-J permits autonomous Jules Python-controller fixes,
-synthetic tests, own Draft publication and bounded CI revisions; it is not R1's
-small product allowlist and needs no product pilot or per-task permission.
-Follow [the common Dot workflow](docs/dot/WORKFLOW.md) for complete overlap,
-exact-SHA, expected-head and unknown-ACK checks. R2-J allows one active task and Draft,
-10 files, 1000 cumulative changed lines and three CI-driven revisions. Existing
-write tools are confirmed; keep ordinary result checks, never blind retries.
+defined by [its standing contract](docs/dot/R2_J.md) and versioned machine policy,
+with one owner-controlled issue/grant/revocation index. Fetch the effective grant
+first and select its accepted policy version/hash: v1 remains proposal-only;
+source publication, changed docs or a v2 policy alone cannot expand that grant.
+V2 requires one separate exact-revision owner acceptance, protected bootstrap
+integration, a new immutable grant/index and owner CAS state migration. This
+source preparation does not activate v2 or update a live scheduled task.
 
-Dot must not approve, mark ready, merge, enable auto-merge, dispatch Actions,
-change governance or perform release/install operations. Owner acceptance must
-name the exact head SHA outside the Dot-editable PR body. Shared account identity
-is only a procedural boundary, not server-enforced separation. R2-J may propose
-critical controller safety fixes but cannot issue live execution authority or
-modify its own grant/guardrails. Use native ChatGPT scheduling as documented,
-not a new scheduler/daemon. Keep Jules working; grant revocation does not stop it.
+After that one activation, in-scope v2 controller fixes need no routine owner
+approval: Dot develops/tests/publishes, obtains independent automatic review,
+marks its PR Ready and performs only the protected exact-head squash allowed by
+the grant. Ordinary source work needs one independent code review; critical
+source work additionally needs a distinct independent safety/test execution,
+not owner approval per task. Existing native review execution must provide
+primary tool identity/provenance, separate context, read-only scope and exact
+revision coverage; unverifiable independence or sufficiency is a safety exception,
+not a self-review or invented provider/API. CodeQL alone is not peer review.
+
+Follow [the common Dot workflow](docs/dot/WORKFLOW.md) for complete overlap,
+exact-SHA, expected-head, postmerge proof and unknown-ACK checks. R2-J allows one
+active task and one active PR (v1 Draft; v2 Draft or Ready), 10 files, 1000
+cumulative changed lines and three CI-driven revisions. Existing write tools
+are confirmed; keep ordinary result checks, never blind retries.
+
+Dot must not self-approve, enable auto-merge, bypass protections, manually invoke
+Actions, change workflows/governance (including all `dot_*.py` helpers/tests),
+issue live execution authority, mutate live Jules state/settings or perform
+release/install operations. Ready/squash are forbidden to v1/R1/one-task Draft
+grants, and permitted to v2 only under its complete independent-review and
+exact-head evidence contract. Shared account identity is a procedural boundary,
+not server-enforced separation. Use the existing native hourly ChatGPT task,
+updated in place only during authorized activation; never create a duplicate or
+new scheduler/daemon. Keep Jules working; grant revocation does not stop it.
 
 ## Work and evidence
 
