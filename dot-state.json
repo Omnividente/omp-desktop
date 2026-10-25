@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "grant_id": "r2-j-v2-e5a6941a09e542169680985532825877",
+  "grant_id": "r2-j-v2-cd18d9f291614822a73fd59dc276f47a",
   "active_task": {
     "id": "terminal-worker-observation-20261025",
     "branch": "dot/jules-terminal-worker-observation-20261025",
@@ -876,6 +876,91 @@
         "native_autonomy_proven": false
       },
       "prepared_at": "2026-10-25T15:14:11.519740+00:00"
+    },
+    {
+      "from_schema": 2,
+      "to_schema": 2,
+      "old_grant_id": "r2-j-v2-e5a6941a09e542169680985532825877",
+      "new_grant_id": "r2-j-v2-cd18d9f291614822a73fd59dc276f47a",
+      "expected_state_blob_sha": "ce0cbe08501ee30064e957700368c282c37740cb",
+      "state_sha256": "76f8dea622c106d7a2f509b5068f6e2be1f2087a10c414cc4c2b73089f87fdfc",
+      "grant_sha256": "7521b332b652dc7d5a389afdf4986d793261ce6136aae6d5cdbd7371f95ac089",
+      "acceptance": {
+        "decision": "accept",
+        "decision_ref": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6402646284",
+        "accepted_pr": 151,
+        "accepted_head_sha": "7549e973acfd2bbbd76cd8503d2e74af2fa63a2d",
+        "accepted_base_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+        "accepted_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+        "policy_path": "docs/dot/r2-j-policy-v3.json",
+        "policy_sha256": "8bf3cdfc83a5a4e2a56ed20144af02d86d195b0397afcd4a7dd283effb7fdaf9",
+        "check_runs": [
+          {
+            "run_id": 40230014475,
+            "attempt": 1,
+            "head_sha": "7549e973acfd2bbbd76cd8503d2e74af2fa63a2d",
+            "conclusion": "success",
+            "workflow": ".github/workflows/pr.yml",
+            "url": "https://github.com/Omnividente/omp-desktop/actions/runs/40230014475"
+          },
+          {
+            "run_id": 40225003503,
+            "attempt": 1,
+            "head_sha": "7549e973acfd2bbbd76cd8503d2e74af2fa63a2d",
+            "conclusion": "success",
+            "workflow": ".github/workflows/codeql.yml",
+            "url": "https://github.com/Omnividente/omp-desktop/actions/runs/40225003503"
+          },
+          {
+            "run_id": 40225003454,
+            "attempt": 1,
+            "head_sha": "7549e973acfd2bbbd76cd8503d2e74af2fa63a2d",
+            "conclusion": "success",
+            "workflow": ".github/workflows/autonomous_control_ci.yml",
+            "url": "https://github.com/Omnividente/omp-desktop/actions/runs/40225003454"
+          }
+        ],
+        "supersedes_grant_id": "r2-j-v2-e5a6941a09e542169680985532825877",
+        "expected_state_blob_sha": "ce0cbe08501ee30064e957700368c282c37740cb",
+        "state_sha256": "76f8dea622c106d7a2f509b5068f6e2be1f2087a10c414cc4c2b73089f87fdfc",
+        "adopted_task_id": "terminal-worker-observation-20261025",
+        "adopted_pr": 148,
+        "adopted_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "native_hourly_task_id": "6addb9feec0881918d110269b2243e01",
+        "bootstrap_post_merge_ci": {
+          "main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+          "runs": [
+            {
+              "id": 40230701493,
+              "path": ".github/workflows/pr.yml",
+              "head_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+              "event": "push",
+              "run_attempt": 1,
+              "status": "completed",
+              "conclusion": "success"
+            },
+            {
+              "id": 40230701540,
+              "path": ".github/workflows/autonomous_control_ci.yml",
+              "head_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+              "event": "push",
+              "run_attempt": 1,
+              "status": "completed",
+              "conclusion": "success"
+            },
+            {
+              "id": 40230701497,
+              "path": ".github/workflows/codeql.yml",
+              "head_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+              "event": "push",
+              "run_attempt": 1,
+              "status": "completed",
+              "conclusion": "success"
+            }
+          ]
+        }
+      },
+      "prepared_at": "2026-10-25T20:35:28.792Z"
     }
   ],
   "last_maintenance_check": {
