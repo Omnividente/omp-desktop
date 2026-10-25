@@ -608503,6 +608503,16 @@
           "actor": "Omnividente"
         },
         "event_id": "6ca0f1c1996a8128d40123d114ea2821b89c5d805826be9e29a483b3d205c57e"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T03:52:49.685136Z",
+        "decision_id": "c6583173c1f4580a5fc3f490fdcebdd06fd917d808b16228a711165d90dbaefc",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T03:52:47.972876Z"
+        },
+        "event_id": "01b8a659a980ee0d3c08e4fbe58ba959b08855f0e548527cc55d10d2aa82b459"
       }
     ]
   }
