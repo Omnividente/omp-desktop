@@ -604472,6 +604472,15 @@
         },
         "receipt_id": "b60170d078349b559dcab45555fd48d6de2d862fd0bff8e6d9a3e6e54b4efdaa",
         "event_id": "3d811c3c1e645ad75dbe95ccb15b5804a2a696db7482650fb7aacc0ff0cf309b"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T03:27:26.591218Z",
+        "decision_id": "027e5dbbb9dd8d2185bcf8978ef872be6d37d437486d7782a0cafda94a94941e",
+        "executor_claim_id": "655eafa020d69797dcb17071b30ba08ad02c1cbd4602d8e5933e08299f8df89e",
+        "receipt_id": "b60170d078349b559dcab45555fd48d6de2d862fd0bff8e6d9a3e6e54b4efdaa",
+        "frontier_seq": 777,
+        "event_id": "87490bb83e0085f310271d7361e87ac4ce919c2ab102fd52edea79c515b5947b"
       }
     ]
   }
