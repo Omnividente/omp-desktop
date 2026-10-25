@@ -125,7 +125,8 @@
       ],
       "missing": "No exposed clientMutationId binding; no approved generic GraphQL transport found",
       "independent_review_status": "Not established for current v2 exact manifest; native separate agents available, provider receipt sufficiency not yet verified. NOT a claim that review execution is unavailable.",
-      "safe_next_step": "Read-only reconciliation; supported Ready operation binding or separately owner-approved contract change required. No rebase/revision consumed."
+      "safe_next_step": "Read-only reconciliation; supported Ready operation binding or separately owner-approved contract change required. No rebase/revision consumed.",
+      "last_checked_at": "2026-10-25T17:23:42.941637+00:00"
     },
     "ci": {
       "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
@@ -204,12 +205,7 @@
       "critical": true
     }
   },
-  "lease": {
-    "id": "r2j-20261025T172300Z-readonly-sweep-checkpoint",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T17:23:02.080244+00:00",
-    "purpose": "metadata-only bounded read-only Jules sweep and unchanged Ready capability exception"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -508,9 +504,30 @@
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T172300Z-readonly-sweep-checkpoint",
-      "ack": "pending-readback",
+      "ack": "confirmed",
       "prepared_at": "2026-10-25T17:23:02.080244+00:00",
-      "digest": "65cc20b12f0f66bf15e85afb85e9b02b0ef83c6ea52d60c57597412afde7dab9"
+      "digest": "65cc20b12f0f66bf15e85afb85e9b02b0ef83c6ea52d60c57597412afde7dab9",
+      "result": {
+        "commit_sha": "be9effd310d53711678f1753feb0a0a0d36f4181",
+        "content_sha": "45fbeaddf7f2e77949ec24dd2bb12ec041d4a537"
+      }
+    },
+    {
+      "id": "r2j-20261025T172300Z-readonly-sweep-checkpoint-checkpoint",
+      "kind": "metadata-sweep-checkpoint",
+      "expected_content_sha": "45fbeaddf7f2e77949ec24dd2bb12ec041d4a537",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T172300Z-readonly-sweep-checkpoint",
+      "expected_main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "scope": "Dot metadata heartbeat/backlog and lease release only",
+      "prepared_at": "2026-10-25T17:23:42.941637+00:00",
+      "status": "readback-required",
+      "previous_checkpoint_get_reconciled": {
+        "commit_sha": "3236ebaa0d3f07f3659cd4adb5c24d14c2dcccd7",
+        "content_sha": "d4f1ba9a36b9f1bccd017189b413d458c178f048"
+      },
+      "digest": "61f2eb37fae8059c22f78f26bd159793dd5cd97d3bb296e58977c70c6d8031e7"
     }
   ],
   "backlog": [
@@ -525,7 +542,14 @@
       "fingerprint": "exact-state-fetch-timeout-180s",
       "status": "read-only-investigation",
       "evidence": "https://github.com/Omnividente/omp-desktop/actions/runs/40189401229",
-      "note": "Replenish exact-state fetch timed out; NEXT/CONTINUE succeeded. Distinct from historical state_write_failed."
+      "note": "Replenish exact-state fetch timed out; NEXT/CONTINUE succeeded. Distinct from historical state_write_failed.",
+      "latest_evidence": {
+        "run_id": 40211551664,
+        "job_id": 121223790916,
+        "revision": "469d0e55e4089e1b5a2e5a6e188d32440d33ca85",
+        "timeout_seconds": 180,
+        "at": "2026-10-25T16:31:39Z"
+      }
     },
     {
       "fingerprint": "research-consumer-evidence-calibration",
@@ -544,16 +568,30 @@
       "task_id": "terminal-worker-observation-20261025",
       "pr": 148,
       "evidence": "docs/dot/R2_J.md:195 at 376b8c6203dfccbddcec2b2750c0b5f2d1a214f5; actual Ready tool schema exposes repo/pr only",
-      "observed_at": "2026-10-25T15:48:12.492137+00:00"
+      "observed_at": "2026-10-25T15:48:12.492137+00:00",
+      "last_checked_at": "2026-10-25T17:23:42.941637+00:00"
     }
   ],
-  "last_sweep_at": "2026-10-25T14:51:00Z",
+  "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
   "last_attempt": {
-    "at": "2026-10-25T15:48:12.492137+00:00",
-    "kind": "v2-authority-state-inventory-capability-preflight",
+    "at": "2026-10-25T17:23:42.941637+00:00",
+    "kind": "bounded-authority-capability-jules-sweep",
     "status": "blocked-ready-capability",
-    "preflight_completed_at": "2026-10-25T15:48:12.492137+00:00",
-    "scope": "Authority/hash/migration/state/refs/full open-PR file rename inventory/main ruleset/tool capability checked. Not full Jules sweep or new independent review/CI."
+    "scope": "Fresh accepted authority and complete comments/events pages, grant/policy hash verification, state/refs, all 17 open PR full file/rename inventory, recent Actions and Continue/Replenish/Monitor logs. Not new independent review, synthetic test execution, or new research-result acceptance.",
+    "health_evidence": {
+      "continue_run": 40213385357,
+      "successor_run": 40215153488,
+      "successor_observed_status": "in_progress",
+      "reason": "cooldown",
+      "research_next_at": "2026-10-26T01:54:28Z",
+      "failed_ticks": 0,
+      "last_next_run": 40195039166,
+      "historical_dispatch_aborted": "unchanged attention, not new incident",
+      "replenish_run": 40211551664,
+      "replenish_error": "exact revision git fetch 469d0e55e4089e1b5a2e5a6e188d32440d33ca85 timeout 180s",
+      "monitor_run": 40209667033,
+      "monitor_result": "attention exit; no standalone proof of new halt"
+    }
   },
   "migrations": [
     {
