@@ -698988,6 +698988,24 @@
         },
         "evidence_hash": "2171e67cad0b7af2eae7fea6a50bdb175670f941b3506223ca7279260e087144",
         "event_id": "b69ca13f4504465da3ffa1fd6d3fce7ad779c18a7d597e0d347a8fddfe9feb84"
+      },
+      {
+        "type": "PhaseClaim",
+        "at": "2026-10-25T18:05:14.001328Z",
+        "decision_id": "0f22ef6950e963d9dab5aff5f4454db4bd16a183adcc74204c5da971aa17a683",
+        "executor_claim_id": "dec7faf755663020253ec458c185a0de3de28c979fde20ebc60ca4b7b0061c1c",
+        "phase": "sync_finalize",
+        "claim_id": "ddfe8b4c6e413506339bd6c2e367a886a39ab935a80d741baf5f660f320ef8b7",
+        "trigger": {
+          "run_id": "40218771883",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "stage_id": "a8289ff4ab38878ae95a76c222f3c9e4b620fa580da45c00ee02ab6f2f0d2611",
+        "event_id": "b0fec79cb177451837b33fd609c1cdf4723bc8f236940fa8d90a648070a5a0c7"
       }
     ]
   }
