@@ -601408,6 +601408,16 @@
           "actor": "Omnividente"
         },
         "event_id": "60199a6bac72ad8fa6dc2274f02af386b02d5760f77dfff859c5a218bff7a6f9"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T03:08:42.182428Z",
+        "decision_id": "a2b35f82689b2bfe08f55d7ac18bb8e15f73355995d9666f2039ff2c6d9c63b4",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T03:08:40.309662Z"
+        },
+        "event_id": "86e96d72a52b9f8b6b318aa6ff2bf553b4b401c19eecd7b70305ddc6cb85c6f1"
       }
     ]
   }
