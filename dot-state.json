@@ -247,7 +247,11 @@
       "reason": "native-review-provenance-not-verifiable"
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T210000Z-pr148-v3-refresh",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T20:59:56.915102+00:00"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -654,6 +658,18 @@
       "ack": "pending-readback",
       "prepared_at": "2026-10-25T18:56:35.463469+00:00",
       "digest": "21571d7f951a509adb1e98181b21313755986faf59b2d2a035e30f57782b3115"
+    },
+    {
+      "id": "r2j-20261025T210000Z-pr148-v3-refresh-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "dded9aade13958177be0e6ffa82b2604d2716e63",
+      "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T210000Z-pr148-v3-refresh",
+      "prepared_at": "2026-10-25T20:59:56.915102+00:00",
+      "ack": "pending-readback",
+      "digest": "f19700850e5f39667fabe84f3341ee667a579a01be0746cfed83fffd0ccedb7e"
     }
   ],
   "backlog": [
@@ -722,9 +738,12 @@
   ],
   "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
   "last_attempt": {
-    "at": "2026-10-25T18:56:35.463469+00:00",
-    "outcome": "bounded-read-only-sweep-no-new-exception",
-    "details": "Fresh accepted authority/17-PR file inventory and continuation artifact. Existing native provenance blocker retained; no source/revision/Ready/merge."
+    "at": "2026-10-25T20:59:56.915102+00:00",
+    "outcome": "v3-resume-lease-claim",
+    "canonical_grant_hash_verified": true,
+    "policy_hash_verified": true,
+    "inventory_count": 17,
+    "raw_export_metadata": "legacy raw export hash is not a normative canonical grant binding; preserved without self-edit"
   },
   "migrations": [
     {
