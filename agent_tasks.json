@@ -657513,6 +657513,15 @@
         },
         "receipt_id": "0962e45471822800cd251ff52f08ae36576f482b3799aa3d06b7f8a92c0c1fc6",
         "event_id": "4e73bc734555ab679a019d0572f03c7cc2d032554a9f9930b32168366ad0be1c"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T09:43:52.707154Z",
+        "decision_id": "c367d2bb253f6e12b3b3d585544928e0b06f88ff477d96f1bb128805277eedbf",
+        "executor_claim_id": "8115cbb0a2442d8318f46ae351be09ce8d4a8f64f6513e85d11cc10af168d1a7",
+        "receipt_id": "0962e45471822800cd251ff52f08ae36576f482b3799aa3d06b7f8a92c0c1fc6",
+        "frontier_seq": 854,
+        "event_id": "40bae54951fe2a70c6b19e54383148071353c0f3a5773e278d5c2af6dc72f356"
       }
     ]
   }
