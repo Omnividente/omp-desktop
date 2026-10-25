@@ -230787,7 +230787,7 @@
       "id": "research-sessions-persistence-ux-23",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -230911,16 +230911,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17698947840747729565",
         "dispatch_key": "0cd6254047a077b6792a0327",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-0cd6254047a077b6792a0327",
         "started_at": "2026-10-25T06:43:57.860774Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T07:10:54.522867Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -231093,13 +231093,109 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T06:55:03.396855Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T07:10:54.522867Z"
+      },
+      "research_result": {
+        "summary": "Investigated empty states and disable behavior in modals, finding that ImportSessionModal fails to disable the Import button when the path is empty, which can confuse users or trigger invalid imports.",
+        "observations": [
+          {
+            "scenario": "ImportSessionModal with empty path",
+            "evidence": "Ran a synthetic test `test-import-empty-path.test.tsx` rendering `ImportSessionModal` with `importing=false` and `path=\"\"`. The 'Import' button was verified to be enabled (`disabled=false`). Inspected `src/ImportSessionModal.tsx` and confirmed the primary button's disabled state is `disabled={importing}`, not taking an empty path into account.",
+            "result": "The Import button is enabled even when there is no path. However, a previous triage marked this behavior as rejected because the modal is only mounted when a valid path is returned by the OS picker, and thus an empty path is not a user-reachable state. This means it is not a valid bug."
+          },
+          {
+            "scenario": "SessionList empty state accessibility",
+            "evidence": "Ran a synthetic test `test-session-list-empty-a11y.test.tsx` simulating a workspace with zero sessions. The `showEmpty` condition evaluates to true and renders a `div.sidebar-empty`. The div lacks a `role=\"status\"` or `aria-live` attribute.",
+            "result": "The empty state text ('History is empty', 'Create your first session in this folder') is not announced by screen readers when it dynamically appears because there is no `role=\"status\"` or `aria-live=\"polite\"` on the `.sidebar-empty` container."
+          },
+          {
+            "scenario": "CodexImportModal empty state accessibility",
+            "evidence": "Ran a synthetic test `test-codex-empty.test.tsx` simulating zero sessions. The modal renders `<p className=\"field-help\" role=\"status\">No Codex sessions found</p>` when `sessions.length === 0`.",
+            "result": "The empty state for Codex Import already correctly uses `role=\"status\"`."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming a session using keyboard shortcuts loses focus when navigating through rapid `CodexImportModal` interactions."
+        ],
+        "proposed_task_ids": [
+          "discovery-6e4108f1fe931764"
+        ],
+        "completed_at": "2026-10-25T07:10:54.522867Z",
+        "source": {
+          "activity_id": "sessions/17698947840747729565/activities/cc8de514bd0543f8a1585d1f8a371d84",
+          "report_sha256": "fa3c0425e7eed7c5559027803b35aeeb0359a9877e955030f6a1022f99ae7484",
+          "activity_created_at": "2026-10-25T07:03:35.599667Z",
+          "session_id": "17698947840747729565",
+          "dispatch_key": "0cd6254047a077b6792a0327"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17698947840747729565/activities/cc8de514bd0543f8a1585d1f8a371d84",
+          "report_sha256": "fa3c0425e7eed7c5559027803b35aeeb0359a9877e955030f6a1022f99ae7484",
+          "activity_created_at": "2026-10-25T07:03:35.599667Z",
+          "session_id": "17698947840747729565",
+          "dispatch_key": "0cd6254047a077b6792a0327"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-6e4108f1fe931764"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-6e4108f1fe931764",
+      "title": "Add role=\"status\" to SessionList empty state for screen reader announcements",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "a11y"
+      ],
+      "created_at": "2026-10-25T07:10:54.522867Z",
+      "acceptance": [
+        "When the session list is empty, the `.sidebar-empty` element must include `role=\"status\"` so that screen readers announce the empty state to the user."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "In `src/SessionList.tsx`, the `.sidebar-empty` container does not have an ARIA role. Adding `role=\"status\"` will ensure that when the list becomes empty (e.g., after a search or session deletion), the message is announced.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render `SessionList` with `allSessions=[]`.",
+            "Verify the presence of `.sidebar-empty`.",
+            "Check that `.sidebar-empty` has `role=\"status\"`."
+          ],
+          "expected": "The element has `role=\"status\"`.",
+          "actual": "The element does not have `role=\"status\"`."
+        }
+      },
+      "target_paths": [
+        "src/SessionList.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-ux-23",
+        "activity_id": "sessions/17698947840747729565/activities/cc8de514bd0543f8a1585d1f8a371d84",
+        "report_sha256": "fa3c0425e7eed7c5559027803b35aeeb0359a9877e955030f6a1022f99ae7484",
+        "activity_created_at": "2026-10-25T07:03:35.599667Z",
+        "session_id": "17698947840747729565",
+        "dispatch_key": "0cd6254047a077b6792a0327"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T07:03:20.613936Z",
+    "last_poll_at": "2026-10-25T07:11:20.961562Z",
     "last_tick_at": "2026-10-25T07:03:33.289596Z",
     "run_id": "40171279695",
     "owner_recovery_requests": [
