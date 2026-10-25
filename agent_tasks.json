@@ -662705,6 +662705,15 @@
         },
         "receipt_id": "6bf16ff97f47d666b800c3a10d7ba2698f42c68043853ce666908ca854cd6902",
         "event_id": "a7d350605aa843a89aa25995f05b713074f2b4a1f7e8054ed7dcacfe011eecf5"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T10:20:18.713824Z",
+        "decision_id": "3ac5c1ceefddd6a7763474738e8231a46372d97bb8271736bfe5fac190ad6fe0",
+        "executor_claim_id": "3d2ffb87fad0e297b43302fd60c2bcf426305f0421855dc6a7fd22d1d67bc642",
+        "receipt_id": "6bf16ff97f47d666b800c3a10d7ba2698f42c68043853ce666908ca854cd6902",
+        "frontier_seq": 862,
+        "event_id": "2e6e8a9b54ffddbcb5f4da4a6dfda2ee9fd443a49ffed80995c55c95275547fa"
       }
     ]
   }
