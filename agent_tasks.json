@@ -234859,7 +234859,7 @@
       "id": "research-workspace-navigation-reliability-23",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -234986,16 +234986,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "2576545545596452099",
         "dispatch_key": "8a647afaa4b45053fe063940",
         "base_sha": "a5ba1c086bddd48bb68e21fde9b40598465b020b",
         "starting_branch": "autonomous/attempt-8a647afaa4b45053fe063940",
         "started_at": "2026-10-25T11:25:57.306519Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T11:49:17.420042Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
@@ -235167,13 +235167,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T11:41:18.859476Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T11:49:17.420042Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation and project switching focus behaviors.",
+        "observations": [
+          {
+            "scenario": "Simulated failed addWorkspace action in WorkspaceHome/ProjectRail to check focus recovery.",
+            "evidence": "Observed that if addWorkspace fails, focus behavior might need verification in WorkspaceHome.",
+            "result": "Tested and confirmed current fallback logic."
+          },
+          {
+            "scenario": "Analyzed useLayoutEffect handling focus for removal in ProjectRail.",
+            "evidence": "Verified openFolderRef focuses when workspace removal occurs.",
+            "result": "Focus gracefully returns to 'Open folder' button on project removal."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate how failed workspace creation handles focus restoration."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-25T11:49:17.420042Z",
+        "source": {
+          "activity_id": "sessions/2576545545596452099/activities/40a91aa469204974aab19173ebbd7038",
+          "report_sha256": "4daf0c54e0180955ba83c1f35a107f7696c0238701ba6c96a2f696a5341c77c3",
+          "activity_created_at": "2026-10-25T11:41:21.705431Z",
+          "session_id": "2576545545596452099",
+          "dispatch_key": "8a647afaa4b45053fe063940"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T11:41:44.090055Z",
+    "last_poll_at": "2026-10-25T11:49:48.251286Z",
     "last_tick_at": "2026-10-25T11:41:57.067470Z",
     "run_id": "40189610053",
     "owner_recovery_requests": [
