@@ -234208,8 +234208,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "5101828587206766834",
         "dispatch_key": "b4ca06a07b8eb297c562b0d1",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-b4ca06a07b8eb297c562b0d1",
