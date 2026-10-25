@@ -227326,7 +227326,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T05:02:46.646039Z"
+        "observed_at": "2026-10-25T05:02:46.646039Z",
+        "released_attempt_ref": "autonomous/attempt-f3df3674e9c34aab0cc42e0a"
       },
       "research_result": {
         "summary": "Investigated the session import recovery and transaction rollback mechanisms. Verified that focus remains on the newly renamed item after cancellation, matching owner decisions. In CodexImportModal, observed rapid interaction navigation drops focus or skips elements correctly when doing burst actions.",
