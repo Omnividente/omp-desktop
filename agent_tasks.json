@@ -226025,7 +226025,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T03:34:00.673707Z"
+        "observed_at": "2026-10-25T03:34:00.673707Z",
+        "released_attempt_ref": "autonomous/attempt-a085a43cad845fd667127e1c"
       },
       "research_result": {
         "summary": "Investigated Settings recovery fallback UI trap in App.tsx. Using source inspection and a mock scenario based on the previously reported deferred finding, verified that `settingsRecovery` state is not cleared on generic fallback errors. This causes the UI to persist the recovery screen and trap the user. Addressed via bugfix proposal.",
