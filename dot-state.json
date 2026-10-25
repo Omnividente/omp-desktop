@@ -247,7 +247,12 @@
       "reason": "native-review-provenance-not-verifiable"
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T185600Z-bounded-sweep",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T18:55:46.485598+00:00",
+    "purpose": "metadata-only bounded hourly authority/PR/Actions/continuation/sync evidence checkpoint"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -627,6 +632,18 @@
       "prepared_at": "2026-10-25T18:21:39.678Z",
       "ack": "exact-result-to-be-confirmed-by-GET",
       "digest": "f6d62f6ea19fd19de1849bad90a343069f3fa06eada3ccbe39ba91127909a884"
+    },
+    {
+      "id": "r2j-20261025T185600Z-bounded-sweep-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "d44f297d95b321f0d3293b9db47eb9a5d5bda56e",
+      "expected_main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T185600Z-bounded-sweep",
+      "ack": "pending-readback",
+      "prepared_at": "2026-10-25T18:55:46.485598+00:00",
+      "digest": "fecc40eb2786a8740f7edf2454d8a63bddca5943fc6a3fa971a443c45312dc5e"
     }
   ],
   "backlog": [
