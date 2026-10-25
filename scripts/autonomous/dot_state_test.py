@@ -265,6 +265,65 @@ class StateTest(unittest.TestCase):
             self.assertEqual(result["operations"][-1]["send_claim"], source["operations"][-1]["send_claim"])
             self.deny_prepare(result, kind=kind, operation_id="attempt-2")
 
+    def test_ready_lost_ack_settles_by_get_without_a_transport_correlation_echo(self):
+        reserved = prepared("ready_for_review")
+        unknown = self.call(reconcile_operation, reserved, {"error": "lost acknowledgement"}, now=NOW)
+        self.assertEqual(unknown, reserved)
+        self.deny_prepare(unknown, kind="ready_for_review", operation_id="retry-after-timeout")
+        confirmed = self.call(reconcile_operation, unknown, ready_observation(), now=NOW)
+        self.assertIsNone(confirmed["pending_operation"])
+        self.assertEqual(confirmed["active_task"]["phase"], "ready")
+        self.assertEqual(confirmed["operations"][-1]["send_claim"], reserved["pending_operation"]["send_claim"])
+        self.assertEqual(confirmed["operations"][-1]["request_sha256"], reserved["pending_operation"]["request_sha256"])
+        self.assertEqual(len(confirmed["operations"]), len(reserved["operations"]))
+        self.assertEqual((confirmed["active_task"]["spent_lines"], confirmed["active_task"]["ci_revisions"]), (79, 0))
+        self.deny_prepare(confirmed, kind="ready_for_review", operation_id="retry-after-get")
+        self.denied(complete_task, confirmed, post_evidence(), now=NOW)
+
+    def test_ready_ref_race_after_lost_ack_cannot_confirm_or_issue_another_ready(self):
+        source = self.call(reconcile_operation, prepared("ready_for_review"),
+                           {"result": "unknown"}, now=NOW)
+        for key, value in (("head_sha", MAIN), ("base_sha", ORIGINAL_BASE),
+                           ("number", 149), ("repository", "foreign/repo")):
+            observed = ready_observation(); observed["pr"][key] = value
+            with self.subTest(changed=key):
+                self.denied(reconcile_operation, source, observed, now=NOW)
+                self.deny_prepare(source, kind="ready_for_review", operation_id="another-ready")
+                self.deny_prepare(source, kind="squash_merge", operation_id="premature-merge")
+
+    def test_ready_cas_conflict_cannot_adopt_an_unpersisted_candidate(self):
+        source = state()
+        candidate = self.prepare(source, kind="ready_for_review")
+        # A conflicting writer's durable state has no copy of our candidate.
+        persisted = copy.deepcopy(source)
+        persisted["backlog"].append({"id": "concurrent-read-only-checkpoint"})
+        self.denied(reconcile_operation, persisted, ready_observation(), now=NOW)
+        self.assertIsNone(persisted["pending_operation"])
+        self.assertEqual(persisted["operations"], source["operations"])
+        self.assertEqual((persisted["active_task"]["spent_lines"], persisted["active_task"]["ci_revisions"]), (79, 0))
+        self.assertEqual(candidate["pending_operation"]["intent"]["expected_state_blob_sha"], BLOB)
+
+    def test_ready_pending_history_disagreement_cannot_adopt_the_observed_pr(self):
+        source = prepared("ready_for_review")
+        source["operations"][-1]["send_claim"]["lease_id"] = "another-sender"
+        self.denied(reconcile_operation, source, ready_observation(), now=NOW)
+        self.deny_prepare(source, kind="ready_for_review", operation_id="replacement-ready")
+
+    def test_ready_cannot_relabel_the_plugin_call_even_with_recomputed_digests(self):
+        for mutate in (
+            lambda request: request["arguments"].update(repository_full_name="foreign/repo"),
+            lambda request: request["arguments"].update(pr_number=149),
+            lambda request: request["arguments"].update(clientMutationId="not-supported-by-plugin"),
+            lambda request: request.update(tool="merge_pull_request"),
+        ):
+            source = prepared("ready_for_review")
+            pending = source["pending_operation"]
+            mutate(pending["intent"]["request"])
+            pending["request_sha256"] = digest(pending["intent"]["request"])
+            pending["intent_sha256"] = digest(pending["intent"])
+            source["operations"][-1] = copy.deepcopy(pending)
+            self.denied(reconcile_operation, source, ready_observation(), now=NOW)
+
     def test_ready_only_settles_exact_open_unmerged_nondraft_pr(self):
         source = prepared("ready_for_review")
         result = self.call(reconcile_operation, source, ready_observation(), now=NOW)
