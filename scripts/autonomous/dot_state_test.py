@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dot_authority import digest
-from dot_state import (REPOSITORY, WORKFLOWS, complete_task, migrate_state,
+from dot_state import (REPOSITORY, WORKFLOWS, complete_task, migrate_state, regrant_state,
                        prepare_operation, reconcile_operation)
 
 NOW = datetime(2026, 10, 25, 13, tzinfo=timezone.utc)
@@ -680,5 +680,56 @@ class StateTest(unittest.TestCase):
                         operation_id="op", lease_id="lease-1", now=invalid_now)
 
 
+
+class RegrantTest(unittest.TestCase):
+    call = StateTest.call
+    denied = StateTest.denied
+    deny_prepare = StateTest.deny_prepare
+    def fixture(self):
+        source = state(); source["lease"] = None
+        source["active_task"].update(phase="ready", spent_lines=999, ci_revisions=3,
+                                    independent_review={"historical": True})
+        source["migrations"] = [{"retained": [1]}]
+        accepted = owner_acceptance(source)
+        accepted["supersedes_grant_id"] = source["grant_id"]
+        grant = new_grant(accepted)
+        grant.update(version=3, id="r2-j-v2-" + "4" * 32,
+                     policy_path="docs/dot/r2-j-policy-v3.json", supersedes_grant_id=source["grant_id"])
+        return source, grant, accepted
+
+    def test_v3_regrant_preserves_entire_task_and_history_except_review_phase(self):
+        source, grant, accepted = self.fixture()
+        result = self.call(regrant_state, source, grant, accepted, expected_blob_sha=BLOB, now=NOW)
+        expected = copy.deepcopy(source)
+        expected["grant_id"] = grant["id"]
+        expected["active_task"]["phase"] = "review_required"
+        self.assertEqual(result["migrations"][:-1], expected["migrations"])
+        result["migrations"] = result["migrations"][:-1]
+        self.assertEqual(result, expected)
+        self.deny_prepare(result)  # regrant is not a lease or a permission to send.
+
+    def test_v3_regrant_denies_pending_effect_lease_and_postmerge(self):
+        for mutate in (lambda s: s.update(lease={"id": "expired"}),
+                       lambda s: s.update(pending_operation={"result": "unknown"}),
+                       lambda s: s["active_task"].update(unresolved_operation={"result": "unknown"}),
+                       *[lambda s, phase=p: s["active_task"].update(phase=phase)
+                         for p in ("ready_pending", "merge_pending", "post_merge")]):
+            source, grant, accepted = self.fixture(); mutate(source)
+            # Bind new snapshot too: it must still be rejected as unsafe.
+            accepted["state_sha256"] = digest(source); grant["acceptance"] = copy.deepcopy(accepted)
+            self.denied(regrant_state, source, grant, accepted, expected_blob_sha=BLOB, now=NOW)
+
+    def test_v3_regrant_denies_same_grant_wrong_policy_and_snapshot(self):
+        for key, value in (("id", NEW_GRANT), ("version", 2), ("schema", 1),
+                           ("policy_path", "docs/dot/r2-j-policy-v2.json")):
+            source, grant, accepted = self.fixture(); grant[key] = value
+            self.denied(regrant_state, source, grant, accepted, expected_blob_sha=BLOB, now=NOW)
+        source, grant, accepted = self.fixture()
+        source["backlog"].append({"new": "must not be overwritten"})
+        self.denied(regrant_state, source, grant, accepted, expected_blob_sha=BLOB, now=NOW)
+        source, grant, accepted = self.fixture()
+        self.denied(regrant_state, source, grant, accepted, expected_blob_sha="9" * 40, now=NOW)
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -53,9 +53,17 @@ def policy_check(policy: dict) -> None:
             or policy.get("branch_prefix") != "dot/jules-" or policy.get("base_branch") != "main"
             or policy.get("schedule_minutes") != 60):
         raise ValueError("unsupported R2-J policy; owner policy changes require separate acceptance")
-    if version == 2 and (policy.get("version") != 2
+    if version == 2 and (type(policy.get("version")) is not int or policy.get("version") not in (2, 3)
                          or set(policy.get("allowed_actions", [])) != V2_ACTIONS):
         raise ValueError("unsupported autonomous-integration policy version/actions")
+    if version == 2 and policy["version"] == 3:
+        review = policy.get("review", {})
+        if (review.get("origin") != "native-agent-tool-result"
+                or review.get("independence") != "procedural-not-provider-attested"
+                or review.get("permissions") != "read-only-task-scope"
+                or review.get("ordinary_executions") != ["code-review", "safety-review"]
+                or review.get("critical_executions") != ["code-review", "safety-review"]):
+            raise ValueError("policy v3 requires the explicit procedural native review contract")
 
 
 def _acceptance_check(acceptance: dict) -> None:
@@ -91,7 +99,7 @@ def prepare_grant(policy: dict, acceptance: dict, now: datetime) -> dict:
         previous = acceptance.get("supersedes_grant_id")
         if not isinstance(previous, str) or not re.fullmatch(r"r2-j-(?:v2-)?[0-9a-f]{32}", previous):
             raise ValueError("v2 acceptance must explicitly supersede the old grant")
-        grant.update(version=2, policy_path="docs/dot/r2-j-policy-v2.json",
+        grant.update(version=policy["version"], policy_path="docs/dot/r2-j-policy-v%d.json" % policy["version"],
                      supersedes_grant_id=previous)
     return grant
 
@@ -120,13 +128,18 @@ def authority(policy: dict, packet: dict, now: datetime) -> str:
         raise ValueError("grant/index/export binding is invalid or revoked")
     _acceptance_check(grant.get("acceptance") or {})
     previous = grant.get("supersedes_grant_id")
-    if version == 2 and (grant.get("version") != 2 or index.get("policy_version") != 2
-                         or grant.get("policy_path") != "docs/dot/r2-j-policy-v2.json"
+    if version == 2 and (grant.get("version") != policy["version"]
+                         or index.get("policy_version") != policy["version"]
+                         or grant.get("policy_path") != "docs/dot/r2-j-policy-v%d.json" % policy["version"]
                          or not isinstance(previous, str)
                          or not re.fullmatch(r"r2-j-(?:v2-)?[0-9a-f]{32}", previous)
                          or previous != grant["acceptance"].get("supersedes_grant_id")
                          or previous not in index["revoked_grants"]):
         raise ValueError("new owner grant/index must explicitly supersede, not reinterpret, v1")
+    if version == 2 and policy["version"] == 3 and (
+            index.get("policy_path") != grant["policy_path"]
+            or index.get("policy_sha256") != digest(policy)):
+        raise ValueError("policy v3 index must bind its exact path and hash")
     issued = instant(grant["issued_at"])
     if issued > now or (grant["expires_at"] is not None and instant(grant["expires_at"]) <= now):
         raise ValueError("grant is not currently effective")
@@ -294,3 +307,4 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
