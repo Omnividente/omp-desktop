@@ -247,7 +247,12 @@
       "reason": "native-review-provenance-not-verifiable"
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T182000Z-bounded-sweep",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T18:20:35.720467+00:00",
+    "purpose": "metadata-only bounded hourly authority/PR/Actions/continuation/sync evidence checkpoint"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -599,6 +604,18 @@
       "scope": "Own Dot metadata only: resolved Ready exception, provenance exception and lease release",
       "status": "readback-required",
       "digest": "fd206f28d5677c3a43a65c37f1851c1ef2695ae221fc0518130db0881a283b20"
+    },
+    {
+      "id": "r2j-20261025T182000Z-bounded-sweep-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "4835a4beb4c39a3154222099a0ff38f08609ae82",
+      "expected_main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T182000Z-bounded-sweep",
+      "ack": "pending-readback",
+      "prepared_at": "2026-10-25T18:20:35.720467+00:00",
+      "digest": "5771ed286ba4e24dbe73d032e03592770814406c81e7e9a039e9ab75f8c737aa"
     }
   ],
   "backlog": [
