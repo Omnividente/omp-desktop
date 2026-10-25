@@ -247,12 +247,7 @@
       "reason": "native-review-provenance-not-verifiable"
     }
   },
-  "lease": {
-    "id": "r2j-20261025T182000Z-bounded-sweep",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T18:20:35.720467+00:00",
-    "purpose": "metadata-only bounded hourly authority/PR/Actions/continuation/sync evidence checkpoint"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -613,9 +608,25 @@
       "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T182000Z-bounded-sweep",
-      "ack": "pending-readback",
+      "ack": "confirmed",
       "prepared_at": "2026-10-25T18:20:35.720467+00:00",
-      "digest": "5771ed286ba4e24dbe73d032e03592770814406c81e7e9a039e9ab75f8c737aa"
+      "digest": "5771ed286ba4e24dbe73d032e03592770814406c81e7e9a039e9ab75f8c737aa",
+      "receipt": {
+        "commit_sha": "b6da2967f9baff2c8a544a707cec97ea0b9fe00c",
+        "content_sha": "0312474d2a27fb797be786c19602d9ac4e9117a2",
+        "exact_readback": true
+      }
+    },
+    {
+      "id": "r2j-20261025T182000Z-bounded-sweep-checkpoint",
+      "kind": "state_checkpoint_release",
+      "expected_content_sha": "0312474d2a27fb797be786c19602d9ac4e9117a2",
+      "expected_main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "prepared_at": "2026-10-25T18:21:39.678Z",
+      "ack": "exact-result-to-be-confirmed-by-GET",
+      "digest": "f6d62f6ea19fd19de1849bad90a343069f3fa06eada3ccbe39ba91127909a884"
     }
   ],
   "backlog": [
@@ -684,24 +695,10 @@
   ],
   "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
   "last_attempt": {
-    "at": "2026-10-25T17:23:42.941637+00:00",
-    "kind": "bounded-authority-capability-jules-sweep",
-    "status": "blocked-ready-capability",
-    "scope": "Fresh accepted authority and complete comments/events pages, grant/policy hash verification, state/refs, all 17 open PR full file/rename inventory, recent Actions and Continue/Replenish/Monitor logs. Not new independent review, synthetic test execution, or new research-result acceptance.",
-    "health_evidence": {
-      "continue_run": 40213385357,
-      "successor_run": 40215153488,
-      "successor_observed_status": "in_progress",
-      "reason": "cooldown",
-      "research_next_at": "2026-10-26T01:54:28Z",
-      "failed_ticks": 0,
-      "last_next_run": 40195039166,
-      "historical_dispatch_aborted": "unchanged attention, not new incident",
-      "replenish_run": 40211551664,
-      "replenish_error": "exact revision git fetch 469d0e55e4089e1b5a2e5a6e188d32440d33ca85 timeout 180s",
-      "monitor_run": 40209667033,
-      "monitor_result": "attention exit; no standalone proof of new halt"
-    }
+    "at": "2026-10-25T18:21:39.678Z",
+    "scheduled_for": "2026-10-25T18:05:00Z",
+    "result": "bounded-read-only-sweep-no-new-exception",
+    "scope": "authority/versioned docs/state/complete PR inventory/Actions/continuation and sync artifacts; not full live queue or new research report review"
   },
   "migrations": [
     {
@@ -856,19 +853,37 @@
     }
   ],
   "last_maintenance_check": {
-    "at": "2026-10-25T18:08:30.956934+00:00",
-    "scope": "authority/amendment/current refs/full open PR-file inventory/native review provenance only; not full Jules sweep",
+    "at": "2026-10-25T18:21:39.678Z",
+    "scheduled_for": "2026-10-25T18:05:00Z",
+    "started_at": "2026-10-25T18:16:36Z",
     "main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
     "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
     "open_pr_count": 17,
+    "inventory": "All open PR/file/rename lists freshly read; unchanged heads and full file payloads versus 18:08 semantic-overlap pass",
+    "authority": "schema2 grant/export/raw+canonical hash/policy verified; 7 comments and empty page2; no issue events including page2",
     "source_mutations": 0,
     "tests_executed": 0,
-    "push_main_ci_runs": [
-      40218445070,
-      40218445071,
-      40218445052
-    ],
-    "lease_release": "checkpoint",
-    "result": "Ready transport blocker resolved; native review provenance safety exception"
+    "scope": "Bounded continuation/sync health check; full queue and new research report quality not re-read; historical last_sweep_at preserved",
+    "jules": {
+      "continue_run": 40219655499,
+      "status": "in_progress",
+      "active_step": "Wait for the next deadline and confirm the successor",
+      "skip_run": 40219679690,
+      "previous_continue_run": 40216980453,
+      "previous_outcome": "handed_off/successor_observed",
+      "artifact_id": 12608496501,
+      "health_observed_at": "2026-10-25T17:55:11Z",
+      "pending_proposals": 7,
+      "failed_ticks": 0,
+      "historical_attention": "dispatch_aborted 2026-10-24T23:08:04.203436Z unchanged, not new incident",
+      "sync_run": 40218771883,
+      "sync_artifact": 12609076851,
+      "sync_result": "published; refresh outcome ok",
+      "actual_lab_sha": "0598316ced7731b18e22e22433e7463d65938ae3",
+      "latest_next_run": 40195039166,
+      "latest_next_conclusion": "success"
+    },
+    "exception": "native-review-provenance-not-verifiable remains; no capability re-audit or new primary provenance; no repeated notification",
+    "lease_release": "checkpoint"
   }
 }
