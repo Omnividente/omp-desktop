@@ -654713,6 +654713,16 @@
           "actor": "Omnividente"
         },
         "event_id": "f31da91d39dd7d908261c67771b540ea7d2beda4a232e871580957bd6d06bb8e"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T09:19:36.944511Z",
+        "decision_id": "51029b69d6cf58e43fc751643effc94351e50d3aa0637f4cfd77511b205a7507",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T09:19:35.061886Z"
+        },
+        "event_id": "085abb49d73d76212349a9215c32f5b2c5f66e2ca04803e227a72de291c78a82"
       }
     ]
   }
