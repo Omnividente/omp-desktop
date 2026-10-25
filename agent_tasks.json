@@ -232068,7 +232068,7 @@
       "id": "research-terminal-input-reliability-23",
       "title": "Investigate Terminal input, output and continuity: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -232235,16 +232235,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15240217752729706722",
         "dispatch_key": "a94be685b0d2208d84ebbd85",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-a94be685b0d2208d84ebbd85",
         "started_at": "2026-10-25T07:50:49.687384Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T08:11:58.428759Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -232417,13 +232417,112 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T08:03:27.377064Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T08:11:58.428759Z"
+      },
+      "research_result": {
+        "summary": "Investigated the terminal shortcut mapping logic and its compatibility with non-QWERTY layouts (AZERTY, QWERTZ, Dvorak, Russian). Found that the hardcoded reliance on physical event.code for specific actions (like undo via Ctrl+Z mapped to code KeyZ) fails on layouts where the logical key is in a different physical position. For instance, AZERTY users pressing Ctrl+Z trigger KeyW instead of KeyZ, thereby missing the undo alias.",
+        "observations": [
+          {
+            "scenario": "A user on an AZERTY layout presses Ctrl+Z (logical key 'z', physical code 'KeyW').",
+            "evidence": "Executed an isolated Node.js script mapping AZERTY Ctrl+Z through terminalShortcutInput.",
+            "result": "The terminalShortcutInput function returned '\\u0017' (Ctrl+W) instead of the intended undo command '\\u001f' (Ctrl+Z) because it relies on the physical event.code ('KeyZ') for the Ctrl+Z shortcut override."
+          },
+          {
+            "scenario": "A user on a QWERTZ layout presses Ctrl+Z (logical key 'z', physical code 'KeyY').",
+            "evidence": "Executed an isolated Node.js script mapping QWERTZ Ctrl+Z through terminalShortcutInput.",
+            "result": "The terminalShortcutInput function returned '\\u0019' (Ctrl+Y) instead of the expected undo command '\\u001f' because it uses event.code === 'KeyZ' which corresponds to 'Y' on QWERTZ."
+          },
+          {
+            "scenario": "A user on a Russian layout presses Ctrl+Z (logical key 'я', physical code 'KeyZ').",
+            "evidence": "Executed an isolated Node.js script mapping Russian Ctrl+Z through terminalShortcutInput.",
+            "result": "The terminalShortcutInput function returned '\\u001f' correctly because the physical code 'KeyZ' matched, although the logical key was 'я'."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if terminal text selection and copying behavior differs between Latin and non-Latin character boundaries."
+        ],
+        "proposed_task_ids": [
+          "discovery-eb2db800e5cc5f6a"
+        ],
+        "completed_at": "2026-10-25T08:11:58.428759Z",
+        "source": {
+          "activity_id": "sessions/15240217752729706722/activities/b4a309ad6b334b10b35714260a7562fd",
+          "report_sha256": "f1febdb7f1852bf01f64eb73a9d0da0e02755904d27b03bd7b59d7120c5e7ae4",
+          "activity_created_at": "2026-10-25T08:03:59.627774Z",
+          "session_id": "15240217752729706722",
+          "dispatch_key": "a94be685b0d2208d84ebbd85"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15240217752729706722/activities/b4a309ad6b334b10b35714260a7562fd",
+          "report_sha256": "f1febdb7f1852bf01f64eb73a9d0da0e02755904d27b03bd7b59d7120c5e7ae4",
+          "activity_created_at": "2026-10-25T08:03:59.627774Z",
+          "session_id": "15240217752729706722",
+          "dispatch_key": "a94be685b0d2208d84ebbd85"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-eb2db800e5cc5f6a"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-eb2db800e5cc5f6a",
+      "title": "Fix terminal Ctrl+Z undo mapping on AZERTY and QWERTZ layouts",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "compat",
+        "bugfix",
+        "terminal"
+      ],
+      "created_at": "2026-10-25T08:11:58.428759Z",
+      "acceptance": [
+        "terminalShortcutInput returns '\\x1f' for Ctrl+Z when event.key is 'z', even if event.code is not 'KeyZ' (like 'KeyW' on AZERTY).",
+        "terminalShortcutInput still returns '\\x1f' for Ctrl+Z on a Russian layout where event.code is 'KeyZ' and event.key is 'я'."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "The terminal shortcut input handler hardcodes event.code === 'KeyZ' to map to the OMP undo command ('\\x1f'). On AZERTY and QWERTZ, the logical 'Z' key produces event.code 'KeyW' and 'KeyY' respectively. As a result, AZERTY and QWERTZ users pressing Ctrl+Z do not trigger the undo mapping and instead send the sequence for the physical key.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Simulate a KeyboardEvent for Ctrl+Z on an AZERTY layout: { code: 'KeyW', key: 'z', ctrlKey: true, shiftKey: false, altKey: false, metaKey: false }.",
+            "Pass this event to terminalShortcutInput.",
+            "Check if the returned sequence is '\\x1f'."
+          ],
+          "expected": "The function returns '\\x1f'.",
+          "actual": "The function returns '\\x17'."
+        }
+      },
+      "target_paths": [
+        "src/terminalShortcuts.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-reliability-23",
+        "activity_id": "sessions/15240217752729706722/activities/b4a309ad6b334b10b35714260a7562fd",
+        "report_sha256": "f1febdb7f1852bf01f64eb73a9d0da0e02755904d27b03bd7b59d7120c5e7ae4",
+        "activity_created_at": "2026-10-25T08:03:59.627774Z",
+        "session_id": "15240217752729706722",
+        "dispatch_key": "a94be685b0d2208d84ebbd85"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T08:03:55.113483Z",
+    "last_poll_at": "2026-10-25T08:12:26.999933Z",
     "last_tick_at": "2026-10-25T08:04:07.278268Z",
     "run_id": "40175067322",
     "owner_recovery_requests": [
