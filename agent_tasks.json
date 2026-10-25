@@ -234059,6 +234059,153 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-terminal-input-ux-23",
+      "title": "Investigate Terminal input, output and continuity: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TerminalView.tsx",
+        "src/terminalInput.ts",
+        "src/terminalShortcuts.ts",
+        "src/terminalContinuity.ts",
+        "src/terminalOutputBatcher.ts",
+        "src-tauri/src/terminal.rs"
+      ],
+      "created_at": "2026-10-25T10:29:55Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "terminal-input",
+        "perspective_id": "ux",
+        "fingerprint": "2b3ce7db2736a707ee3c9b59d6d7958baa9bdbb5e51faa4cdf2efba7b6b6f47e",
+        "cycle": 23,
+        "previous_reports": [
+          {
+            "summary": "Investigated terminal input behavior and found that createMouseSelectionEdit incorrectly calculates the deletion length for complex Unicode sequences (like emojis with zero-width joiners) by counting code points instead of grapheme clusters. This results in too many deletion keystrokes being generated.",
+            "observations": [
+              {
+                "scenario": "A multi-character grapheme cluster (like an emoji with ZWJ) is selected with the mouse to edit.",
+                "evidence": "Executed an isolated Node.js script using `createMouseSelectionEdit` with the text '👨‍👩‍👧‍👦' (an emoji with zero-width joiners).",
+                "result": "The returned `length` (which dictates the number of deletions) was 7, whereas `Intl.Segmenter` counts it correctly as 1 grapheme cluster."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if terminal shortcut keys map gracefully on non-Latin layouts where event.code doesn't match event.key natively."
+            ],
+            "proposed_task_ids": [
+              "discovery-b09a36ea7ba4534e"
+            ],
+            "completed_at": "2026-10-25T07:30:43.223210Z",
+            "source": {
+              "activity_id": "sessions/15686771330889389636/activities/200dfa466acb4c67bcab2abfdb461d82",
+              "report_sha256": "1f38e4b9f64dc21e4f0b93fa5eb9aa1b55c1a19e58f6edbbf4328d3cf5dd0053",
+              "activity_created_at": "2026-10-25T07:23:13.479732Z",
+              "session_id": "15686771330889389636",
+              "dispatch_key": "694cd35df2d5ebe124b6fb51"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the terminal shortcut mapping logic and its compatibility with non-QWERTY layouts (AZERTY, QWERTZ, Dvorak, Russian). Found that the hardcoded reliance on physical event.code for specific actions (like undo via Ctrl+Z mapped to code KeyZ) fails on layouts where the logical key is in a different physical position. For instance, AZERTY users pressing Ctrl+Z trigger KeyW instead of KeyZ, thereby missing the undo alias.",
+            "observations": [
+              {
+                "scenario": "A user on an AZERTY layout presses Ctrl+Z (logical key 'z', physical code 'KeyW').",
+                "evidence": "Executed an isolated Node.js script mapping AZERTY Ctrl+Z through terminalShortcutInput.",
+                "result": "The terminalShortcutInput function returned '\\u0017' (Ctrl+W) instead of the intended undo command '\\u001f' (Ctrl+Z) because it relies on the physical event.code ('KeyZ') for the Ctrl+Z shortcut override."
+              },
+              {
+                "scenario": "A user on a QWERTZ layout presses Ctrl+Z (logical key 'z', physical code 'KeyY').",
+                "evidence": "Executed an isolated Node.js script mapping QWERTZ Ctrl+Z through terminalShortcutInput.",
+                "result": "The terminalShortcutInput function returned '\\u0019' (Ctrl+Y) instead of the expected undo command '\\u001f' because it uses event.code === 'KeyZ' which corresponds to 'Y' on QWERTZ."
+              },
+              {
+                "scenario": "A user on a Russian layout presses Ctrl+Z (logical key 'я', physical code 'KeyZ').",
+                "evidence": "Executed an isolated Node.js script mapping Russian Ctrl+Z through terminalShortcutInput.",
+                "result": "The terminalShortcutInput function returned '\\u001f' correctly because the physical code 'KeyZ' matched, although the logical key was 'я'."
+              }
+            ],
+            "next_hypotheses": [
+              "Verify if terminal text selection and copying behavior differs between Latin and non-Latin character boundaries."
+            ],
+            "proposed_task_ids": [
+              "discovery-eb2db800e5cc5f6a"
+            ],
+            "completed_at": "2026-10-25T08:11:58.428759Z",
+            "source": {
+              "activity_id": "sessions/15240217752729706722/activities/b4a309ad6b334b10b35714260a7562fd",
+              "report_sha256": "f1febdb7f1852bf01f64eb73a9d0da0e02755904d27b03bd7b59d7120c5e7ae4",
+              "activity_created_at": "2026-10-25T08:03:59.627774Z",
+              "session_id": "15240217752729706722",
+              "dispatch_key": "a94be685b0d2208d84ebbd85"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated terminal input editing latency and accuracy on large multi-line selections with complex Unicode characters, and examined shortcut translation mapping for non-QWERTY logical layouts.",
+            "observations": [
+              {
+                "scenario": "Mouse selection editing over multi-line text with complex Unicode (e.g., emojis).",
+                "evidence": "Executed an isolated Node.js test invoking `createMouseSelectionEdit` with text containing ZWJ emojis ('👨‍👩‍👧‍👦').",
+                "result": "The function iterates using a standard `for...of` string iterator, counting Unicode code points instead of grapheme clusters. This results in an exaggerated `length` (7 instead of 1) for the deletion span."
+              },
+              {
+                "scenario": "Non-QWERTY layout translating physical `event.code` to logical `event.key` for shortcuts.",
+                "evidence": "Source code inspection of `terminalShortcutInput` in `src/terminalShortcuts.ts` and previous autonomous lab cycle observation.",
+                "result": "The function checks `event.code === 'KeyZ'` to emit a `\\x1f` (undo) sequence. On non-QWERTY layouts (AZERTY, QWERTZ), pressing the physical 'Z' key emits the wrong physical code (e.g., KeyW, KeyY), causing the logical undo command (Ctrl+Z) to fail."
+              }
+            ],
+            "next_hypotheses": [
+              "Test if the clipboard `paste` behavior incorrectly counts lengths or mishandles trailing zero-width chars on non-Windows platforms.",
+              "Verify if TerminalView batch output scheduling correctly recovers and writes the remaining buffer without dropping bytes if the JS thread is blocked for over 100ms."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T10:29:55.047635Z",
+            "source": {
+              "activity_id": "sessions/7141655142471957233/activities/986123783c5b4151858ff523118d7160",
+              "report_sha256": "2900cdde056b094d1945b00f153938a9ab2f3ab1ef8ae32b2f55142000b772ce",
+              "activity_created_at": "2026-10-25T10:15:17.380460Z",
+              "session_id": "7141655142471957233",
+              "dispatch_key": "319f932497803335895ef119"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix deletion length for multi-character grapheme clusters during mouse selection edits",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-b09a36ea7ba4534e; not established as a duplicate. {\"detail\": \"Testing createMouseSelectionEdit with text containing emojis like '👨‍👩‍👧‍👦' yields an exaggerated deletion length (7 instead of 1) because the for...of loop counts code points. This breaks terminal editing accuracy.\", \"reproduction\": {\"actual\": \"Length is 7 (number of code points).\", \"expected\": \"Length should be correctly reported as 1 (or the exact number of visual graphemes).\", \"steps\": [\"Create a multi-character grapheme emoji (e.g., '👨‍👩‍👧‍👦').\", \"Pass it as the text parameter to createMouseSelectionEdit.\", \"Observe the length property in the returned MouseSelectionEdit.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalInput.ts"
+                ],
+                "acceptance": [
+                  "The length of the deletion returned by createMouseSelectionEdit matches the number of grapheme clusters (via Intl.Segmenter) instead of UTF-16 surrogate pairs or code points."
+                ]
+              },
+              {
+                "title": "Fix terminal shortcut mapping for logical Ctrl+Z on non-QWERTY layouts",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-eb2db800e5cc5f6a; not established as a duplicate. {\"detail\": \"The terminalShortcutInput function currently depends on event.code === 'KeyZ' for the undo command. On AZERTY layouts, pressing Ctrl+Z logical key corresponds to KeyW code, leading to an incorrect or missing terminal escape sequence.\", \"reproduction\": {\"actual\": \"It returns null.\", \"expected\": \"It returns '\\\\x1f'.\", \"steps\": [\"Call terminalShortcutInput with an event simulating Ctrl+Z on an AZERTY layout: { type: 'keydown', key: 'z', code: 'KeyW', ctrlKey: true, shiftKey: false, metaKey: false, altKey: false }.\", \"Observe the return value.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/terminalShortcuts.ts"
+                ],
+                "acceptance": [
+                  "terminalShortcutInput maps logical Ctrl+Z ('z') to undo ('\\x1f') correctly on AZERTY and QWERTZ keyboards, rather than hardcoding event.code === 'KeyZ'."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
