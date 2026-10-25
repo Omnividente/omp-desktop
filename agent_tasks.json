@@ -648306,6 +648306,24 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "4955ab44224bf0b1f0a548c7e9570e735dcb587d9df02bfeb9c912a9842d1320"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-25T08:23:15.982168Z",
+        "decision_id": "ae5df3a0f78bf97dff65c3c079e00295e6483fef9300e2c93ecbc2d7d8cdb4c6",
+        "claim_id": "a66d3ae8e49d5b7fd734c538d2fb1eea0af2fa79c4e4443e46221bb8b5f2cb8f",
+        "trigger": {
+          "run_id": "40176370044",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "correlation_key": "c8f65a87446871388d5a5324b0e855c3",
+        "before_state_sha": "f284347ada1c71621ae957f1ca423c944bafcb68",
+        "before_digest": "abd827e142e0b3301843feaf3979a0f8c4fb0f8f0d5a2612b6b754693cdaf1b9",
+        "event_id": "f58e714ad4f732b0fad63998fc2a35a43241333159b85b838880fe12b0dbf852"
       }
     ]
   }
