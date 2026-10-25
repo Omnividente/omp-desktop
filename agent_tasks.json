@@ -233951,7 +233951,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T10:29:55.047635Z"
+        "observed_at": "2026-10-25T10:29:55.047635Z",
+        "released_attempt_ref": "autonomous/attempt-319f932497803335895ef119"
       },
       "research_result": {
         "summary": "Investigated terminal input editing latency and accuracy on large multi-line selections with complex Unicode characters, and examined shortcut translation mapping for non-QWERTY logical layouts.",
