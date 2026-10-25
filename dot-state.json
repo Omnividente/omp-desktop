@@ -41,7 +41,37 @@
     "phase": "synthetic-development",
     "automatic_takeover": false
   },
-  "pending_operation": null,
+  "pending_operation": {
+    "id": "terminal-worker-observation-20261025-create-tree",
+    "kind": "create-tree",
+    "request_sha256": "9f42382a77227b1d054fccd205767283a7d2c69482128de32809777c0b2efb3b",
+    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+    "send_claim": "consumed",
+    "status": "pending",
+    "planned_blobs": [
+      {
+        "path": "scripts/autonomous/loop_health.py",
+        "sha256": "c2b2e38281a039e222d81b10c380333c4190b143fec8bd82fc402034acd65e43",
+        "blob_sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e"
+      },
+      {
+        "path": "scripts/autonomous/loop_health_test.py",
+        "sha256": "d6ad8269ef87f4c4916868c9b527c164a412acee5495e46ec47e37309458d13a",
+        "blob_sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99"
+      },
+      {
+        "path": "scripts/autonomous/lab_controller.py",
+        "sha256": "f0745b78282b8f4fa2b2fbbf84757b8a87300b79e807167517e48982d48f2576",
+        "blob_sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5"
+      },
+      {
+        "path": "scripts/autonomous/lab_controller_test.py",
+        "sha256": "96d1d3769375f61bcf77a9dc27c45ca8d5522d5da8d60bc99021968d28d9939b",
+        "blob_sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe"
+      }
+    ],
+    "expected_parent_tree": "5835cb69b6569b5f1e8df5c31a12a11483b94a96"
+  },
   "retired_task_ids": [],
   "operations": [
     {
@@ -55,6 +85,37 @@
         "commit_sha": "e8b7da12ed02558dd7c19a3fc56471ce4a44c753",
         "content_sha": "2177107dc0a960cfd7db1f50e3b4654c0938ac02"
       }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-create-tree",
+      "kind": "create-tree",
+      "request_sha256": "9f42382a77227b1d054fccd205767283a7d2c69482128de32809777c0b2efb3b",
+      "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+      "send_claim": "consumed",
+      "status": "pending",
+      "planned_blobs": [
+        {
+          "path": "scripts/autonomous/loop_health.py",
+          "sha256": "c2b2e38281a039e222d81b10c380333c4190b143fec8bd82fc402034acd65e43",
+          "blob_sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e"
+        },
+        {
+          "path": "scripts/autonomous/loop_health_test.py",
+          "sha256": "d6ad8269ef87f4c4916868c9b527c164a412acee5495e46ec47e37309458d13a",
+          "blob_sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99"
+        },
+        {
+          "path": "scripts/autonomous/lab_controller.py",
+          "sha256": "f0745b78282b8f4fa2b2fbbf84757b8a87300b79e807167517e48982d48f2576",
+          "blob_sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5"
+        },
+        {
+          "path": "scripts/autonomous/lab_controller_test.py",
+          "sha256": "96d1d3769375f61bcf77a9dc27c45ca8d5522d5da8d60bc99021968d28d9939b",
+          "blob_sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe"
+        }
+      ],
+      "expected_parent_tree": "5835cb69b6569b5f1e8df5c31a12a11483b94a96"
     }
   ],
   "backlog": [],
