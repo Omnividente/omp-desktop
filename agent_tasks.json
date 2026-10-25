@@ -614868,6 +614868,16 @@
           "actor": "Omnividente"
         },
         "event_id": "3ef8b53ae62fe9a5bc05f2224298b3216b5f91a59bf2bc0854e9f772dc4abd74"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T04:35:08.199893Z",
+        "decision_id": "4cbdcf00e5c251c8763c600d97193603b6f677cc4cd13f6f995717234e9f97cd",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T04:35:06.818315Z"
+        },
+        "event_id": "adfde3fa7fd7304bc76b62a638b05c57c337e67b4f112242520febc6202a462c"
       }
     ]
   }
