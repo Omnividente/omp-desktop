@@ -15,7 +15,7 @@
     "spent_lines": 79,
     "ci_revisions": 1,
     "initial_published": true,
-    "unresolved_operation": "terminal-worker-observation-20261025-v3-native-evidence-comment",
+    "unresolved_operation": null,
     "phase": "review_required",
     "critical": true,
     "pr": {
@@ -600,14 +600,11 @@
             }
           ]
         }
-      }
+      },
+      "evidence_uri": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641"
     }
   },
-  "lease": {
-    "id": "r2j-20261025T211100Z-pr148-native-evidence",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T21:11:46.846Z"
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -1141,8 +1138,13 @@
       "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
       "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
       "send_claim": "consumed",
-      "status": "pending",
-      "prepared_at": "2026-10-25T21:11:47.339Z"
+      "status": "confirmed",
+      "prepared_at": "2026-10-25T21:11:47.339Z",
+      "result": {
+        "comment_id": 6403347641,
+        "url": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641",
+        "exact_body_verified": true
+      }
     }
   ],
   "backlog": [
@@ -1211,11 +1213,10 @@
   ],
   "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
   "last_attempt": {
-    "at": "2026-10-25T21:02:46.014Z",
-    "outcome": "v3-main-refresh-confirmed-awaiting-exact-review-and-CI",
+    "at": "2026-10-25T21:12:14.513Z",
+    "outcome": "two-independent-native-reviews-passed-awaiting-hosted-CI",
     "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
-    "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
-    "ci_revisions": 1
+    "evidence_uri": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641"
   },
   "migrations": [
     {
