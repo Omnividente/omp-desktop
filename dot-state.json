@@ -205,7 +205,12 @@
       "critical": true
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T180700Z-native-provenance-checkpoint",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T18:07:37.518478+00:00",
+    "purpose": "metadata-only verified Ready amendment resolution and native review provenance safety exception"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -528,6 +533,18 @@
         "content_sha": "d4f1ba9a36b9f1bccd017189b413d458c178f048"
       },
       "digest": "61f2eb37fae8059c22f78f26bd159793dd5cd97d3bb296e58977c70c6d8031e7"
+    },
+    {
+      "id": "r2j-20261025T180700Z-native-provenance-checkpoint-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "4c14d5f4ea436af8ec5eeb9346235c4ec1b713e4",
+      "expected_main_sha": "d05dc7554e3eeef67c774aa1dc4413d0abdfdcc3",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T180700Z-native-provenance-checkpoint",
+      "ack": "pending-readback",
+      "prepared_at": "2026-10-25T18:07:37.518478+00:00",
+      "digest": "370c58578eb781ff2edae922aea21922e34eebb27b9ba8f50b4e74f483471317"
     }
   ],
   "backlog": [
