@@ -223463,7 +223463,7 @@
       "id": "research-settings-models-behavior-22",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -223761,16 +223761,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5618413808588503265",
         "dispatch_key": "36dc90c6e10269fd563bab8c",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-36dc90c6e10269fd563bab8c",
         "started_at": "2026-10-25T01:34:31.947160Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T01:54:28.759132Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_context_missing",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -223942,13 +223942,204 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T01:46:37.273067Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T01:54:28.759132Z"
+      },
+      "research_result": {
+        "summary": "Investigated Settings recovery fallback UI trap when `startWithDefaults` fails with a non-settings error. Observed the code in App.tsx not clearing the recovery UI state.",
+        "observations": [
+          {
+            "scenario": "Simulating a non-settings error during startWithDefaults fallback in App.tsx",
+            "evidence": "Source code review of `src/App.tsx` (lines 780-801). When `recoverSettingsWithDefaults` calls `applyPayload(await startWithDefaults())` and it throws an error that is not parsed as `settings_unavailable` by `settingsUnavailableDetails`, it goes to the `else` branch of the catch block and calls `showError(errorMessage(error, lang))` but does not call `setSettingsRecovery(null)`. This leaves `settingsRecovery` set to its previous truthy value, trapping the user in the SettingsRecoveryScreen which renders when `settingsRecovery` is truthy.",
+            "result": "The SettingsRecoveryScreen state persists incorrectly on generic error, preventing the user from escaping the recovery trap."
+          },
+          {
+            "scenario": "Reviewing ModelPicker.tsx focus behavior during arrow key navigation",
+            "evidence": "Source code review of `src/ModelPicker.tsx` shows `handleListboxKeyDown` calls `.focus()` on option elements, which moves focus away from the search input. This was explicitly reported in `discovery-d9cbf8a07e35e4d1`, `discovery-e3f725a71e16644f`, and `discovery-5994f186e2d442af`. The controller's post-revisit historical context indicates the owner rejected these findings as the current button-option keyboard navigation remains accessible and intentional (roving focus).",
+            "result": "ModelPicker keyboard navigation uses intentional roving focus, replacing it is not a correctness fix."
+          },
+          {
+            "scenario": "Reviewing disabled provider exclusion from proxy overlays",
+            "evidence": "Source code review of proxy provider payload building. This was reported in `discovery-f7cec393fa805278`. The historical context indicates the owner rejected this finding because the proxy overlay only constrains retry and does not define or clear `disabledProviders`, and the user proxy preference should be preserved even when temporarily disabled.",
+            "result": "Disabled proxy providers are intentionally included in the proxy overlay generation."
+          },
+          {
+            "scenario": "Reviewing removal of custom providers from proxy and disabled lists",
+            "evidence": "Source code review of `src/SettingsPanel.tsx`. This was reported in `discovery-41885cca7ee5cfa0`. The historical context indicates the owner rejected this finding because the native save owns the atomic cleanup of both proxy and disabled provider lists in `omp_bridge.rs`, and frontend payload filtering is not required for persisted correctness.",
+            "result": "Frontend filtering of removed custom providers from proxy and disabled lists is not required."
+          }
+        ],
+        "next_hypotheses": [
+          "Test if the update checker or bootstrap functions have other untested state loops when generic network failures occur during settings recovery."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-25T01:54:28.759132Z",
+        "source": {
+          "activity_id": "sessions/5618413808588503265/activities/8af8066af51741b0b0b878a6e6385693",
+          "report_sha256": "2d5d312cf4bb6dda9759ff1da8f4de596df74c348d5093b7439f92f70207e9e1",
+          "activity_created_at": "2026-10-25T01:47:38.982263Z",
+          "session_id": "5618413808588503265",
+          "dispatch_key": "36dc90c6e10269fd563bab8c"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+            "reason": "historical_post_context_missing",
+            "evidence": "{\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen state is dismissed."
+            ],
+            "deferred_id": "60a6bfb5a38515897699538256e8849007a89a0f23630c64f27e6b897fcc153b",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+              "risk": "low",
+              "priority": 70,
+              "focus": [
+                "bugfix",
+                "quality"
+              ],
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen state is dismissed."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Trigger a settings parse error to enter the SettingsRecoveryScreen.",
+                    "Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults."
+                  ],
+                  "expected": "The recovery screen is dismissed (state cleared) and the generic error is displayed.",
+                  "actual": "The generic error is displayed but the recovery screen remains."
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-31392473c06b5573",
+                  "action": "reject",
+                  "decision_at": "2026-10-13T17:16:22Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_context_missing"
+            },
+            "source": {
+              "task_id": "research-settings-models-behavior-22",
+              "activity_id": "sessions/5618413808588503265/activities/8af8066af51741b0b0b878a6e6385693",
+              "report_sha256": "2d5d312cf4bb6dda9759ff1da8f4de596df74c348d5093b7439f92f70207e9e1",
+              "activity_created_at": "2026-10-25T01:47:38.982263Z",
+              "session_id": "5618413808588503265",
+              "dispatch_key": "36dc90c6e10269fd563bab8c"
+            }
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5618413808588503265/activities/8af8066af51741b0b0b878a6e6385693",
+          "report_sha256": "2d5d312cf4bb6dda9759ff1da8f4de596df74c348d5093b7439f92f70207e9e1",
+          "activity_created_at": "2026-10-25T01:47:38.982263Z",
+          "session_id": "5618413808588503265",
+          "dispatch_key": "36dc90c6e10269fd563bab8c"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e982e435945a44d3",
+              "reason": "historical_post_context_missing",
+              "existing_task_id": "discovery-31392473c06b5573"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+              "reason": "historical_post_context_missing",
+              "evidence": "{\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults.\"]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen state is dismissed."
+              ],
+              "deferred_id": "60a6bfb5a38515897699538256e8849007a89a0f23630c64f27e6b897fcc153b",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+                "risk": "low",
+                "priority": 70,
+                "focus": [
+                  "bugfix",
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen state is dismissed."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Trigger a settings parse error to enter the SettingsRecoveryScreen.",
+                      "Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults."
+                    ],
+                    "expected": "The recovery screen is dismissed (state cleared) and the generic error is displayed.",
+                    "actual": "The generic error is displayed but the recovery screen remains."
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-31392473c06b5573",
+                    "action": "reject",
+                    "decision_at": "2026-10-13T17:16:22Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_context_missing"
+              },
+              "source": {
+                "task_id": "research-settings-models-behavior-22",
+                "activity_id": "sessions/5618413808588503265/activities/8af8066af51741b0b0b878a6e6385693",
+                "report_sha256": "2d5d312cf4bb6dda9759ff1da8f4de596df74c348d5093b7439f92f70207e9e1",
+                "activity_created_at": "2026-10-25T01:47:38.982263Z",
+                "session_id": "5618413808588503265",
+                "dispatch_key": "36dc90c6e10269fd563bab8c"
+              }
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T01:47:04.590126Z",
+    "last_poll_at": "2026-10-25T01:55:00.342992Z",
     "last_tick_at": "2026-10-25T01:47:14.052255Z",
     "run_id": "40151915578",
     "owner_recovery_requests": [
