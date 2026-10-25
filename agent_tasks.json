@@ -651853,6 +651853,16 @@
           "actor": "Omnividente"
         },
         "event_id": "138ce27ec6009d8ef61d481c4d9f7e32a14f5970a6bfc7a80497b2317a037a4b"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T08:47:20.775645Z",
+        "decision_id": "41bdddd146800685f2730e35636c09f7b6c523c0f327abebf9c049371873ac59",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T08:47:18.916035Z"
+        },
+        "event_id": "0551012f1c9337130e3704f84d4e5a7f93b7b08dfdb9ed9f5374ab3d1253fd6b"
       }
     ]
   }
