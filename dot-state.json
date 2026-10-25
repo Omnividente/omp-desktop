@@ -5,7 +5,7 @@
     "id": "terminal-worker-observation-20261025",
     "branch": "dot/jules-terminal-worker-observation-20261025",
     "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "head_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+    "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
     "touched_paths": [
       "scripts/autonomous/lab_controller.py",
       "scripts/autonomous/lab_controller_test.py",
@@ -118,16 +118,7 @@
     "phase": "publication",
     "automatic_takeover": false
   },
-  "pending_operation": {
-    "id": "terminal-worker-observation-20261025-create-branch",
-    "kind": "create-branch",
-    "request_sha256": "e8b68a1051eb60f512e7c39dc04b6e64c89c911c1ce2f1edccef7b2519cbdadc",
-    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "send_claim": "consumed",
-    "status": "pending",
-    "expected_ref_absent": true,
-    "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104"
-  },
+  "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
     {
@@ -226,9 +217,15 @@
       "request_sha256": "e8b68a1051eb60f512e7c39dc04b6e64c89c911c1ce2f1edccef7b2519cbdadc",
       "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
       "send_claim": "consumed",
-      "status": "pending",
+      "status": "confirmed",
       "expected_ref_absent": true,
-      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104"
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "result": {
+        "branch": "dot/jules-terminal-worker-observation-20261025",
+        "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "commit_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "parent_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706"
+      }
     }
   ],
   "backlog": [
