@@ -602,13 +602,143 @@
         }
       },
       "evidence_uri": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641"
+    },
+    "exception": {
+      "fingerprint": "platform-approval-required-ready-v3-owner-acceptance",
+      "status": "blocked-platform-approval",
+      "observed_at": "2026-10-25T21:16:25.212Z",
+      "operation_id": "terminal-worker-observation-20261025-v3-ready",
+      "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "primary_tool_result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "This action was rejected due to unacceptable risk.\nReason: Перевод PR #148 из Draft в Ready — внешнее статусное обязательство; хотя сопровождение PR разрешено, явная формальная приёмка governance-поправки v3, являющаяся условием Ready, в доверенном тексте не подтверждена.\nDo not bypass this rejection through a workaround or indirect execution. Continue with a safer alternative, or carry out checks to prove that the action is authorized or low risk before trying again. Complete unaffected work without asking for confirmation. Report anything that remains blocked, clarify why it was blocked by auto-review, inform the user of the risk and ask for approval."
+          }
+        ],
+        "isError": true
+      },
+      "get_reconciliation": {
+        "at": "2026-10-25T21:16:25.212Z",
+        "pr": 148,
+        "state": "open",
+        "draft": true,
+        "merged": false,
+        "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46"
+      },
+      "outcome": "Platform refused tool execution; no confirmed GitHub Ready effect. Original send claim remains consumed; no retry or replacement intent.",
+      "safe_next_step": "Explicit owner/platform approval and bounded handling of this pre-dispatch rejection are required; ordinary standing authority does not permit repeating consumed Ready for this same task/head."
+    },
+    "v3_ci": {
+      "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "tested_merge_sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+      "tested_tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+      "runs": [
+        {
+          "id": 40233584763,
+          "path": ".github/workflows/autonomous_control_ci.yml",
+          "event": "pull_request",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 40233584762,
+          "path": ".github/workflows/codeql.yml",
+          "event": "pull_request",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success"
+        },
+        {
+          "id": 40233584680,
+          "path": ".github/workflows/pr.yml",
+          "event": "pull_request",
+          "run_attempt": 1,
+          "status": "completed",
+          "conclusion": "success"
+        }
+      ],
+      "checkouts": [
+        {
+          "run_id": 40233584763,
+          "job_id": 121290302888,
+          "run_attempt": 1,
+          "sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+          "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+          "parents": [
+            "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+            "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff"
+          ],
+          "origin": "github-job-log",
+          "evidence_uri": "https://github.com/Omnividente/omp-desktop/actions/runs/40233584763/job/121290302888",
+          "commit_evidence_uri": "https://api.github.com/repos/Omnividente/omp-desktop/git/commits/1e57460859263e160f30de4bb8bf9e14c6a74c6c"
+        },
+        {
+          "run_id": 40233584762,
+          "job_id": 121290303069,
+          "run_attempt": 1,
+          "sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+          "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+          "parents": [
+            "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+            "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff"
+          ],
+          "origin": "github-job-log",
+          "evidence_uri": "https://github.com/Omnividente/omp-desktop/actions/runs/40233584762/job/121290303069",
+          "commit_evidence_uri": "https://api.github.com/repos/Omnividente/omp-desktop/git/commits/1e57460859263e160f30de4bb8bf9e14c6a74c6c"
+        },
+        {
+          "run_id": 40233584762,
+          "job_id": 121290303235,
+          "run_attempt": 1,
+          "sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+          "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+          "parents": [
+            "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+            "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff"
+          ],
+          "origin": "github-job-log",
+          "evidence_uri": "https://github.com/Omnividente/omp-desktop/actions/runs/40233584762/job/121290303235",
+          "commit_evidence_uri": "https://api.github.com/repos/Omnividente/omp-desktop/git/commits/1e57460859263e160f30de4bb8bf9e14c6a74c6c"
+        },
+        {
+          "run_id": 40233584680,
+          "job_id": 121290302736,
+          "run_attempt": 1,
+          "sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+          "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+          "parents": [
+            "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+            "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff"
+          ],
+          "origin": "github-job-log",
+          "evidence_uri": "https://github.com/Omnividente/omp-desktop/actions/runs/40233584680/job/121290302736",
+          "commit_evidence_uri": "https://api.github.com/repos/Omnividente/omp-desktop/git/commits/1e57460859263e160f30de4bb8bf9e14c6a74c6c"
+        },
+        {
+          "run_id": 40233584680,
+          "job_id": 121290302949,
+          "run_attempt": 1,
+          "sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+          "tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+          "parents": [
+            "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+            "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff"
+          ],
+          "origin": "github-job-log",
+          "evidence_uri": "https://github.com/Omnividente/omp-desktop/actions/runs/40233584680/job/121290302949",
+          "commit_evidence_uri": "https://api.github.com/repos/Omnividente/omp-desktop/git/commits/1e57460859263e160f30de4bb8bf9e14c6a74c6c"
+        }
+      ],
+      "all_required_jobs": "success",
+      "preflight": "accepted-policy-v3 evaluate and integration_check passed"
     }
   },
-  "lease": {
-    "id": "r2j-20261025T211300Z-pr148-ready",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-25T21:13:43.731Z"
-  },
+  "lease": null,
   "pending_operation": {
     "id": "terminal-worker-observation-20261025-v3-ready",
     "kind": "ready_for_review",
@@ -1241,6 +1371,16 @@
         "consumed": true,
         "lease_id": "r2j-20261025T211300Z-pr148-ready"
       }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-v3-platform-exception-checkpoint",
+      "kind": "metadata-exception-checkpoint",
+      "expected_content_sha": "97be6c165f174c5a3f6441ad922eff2ab6540bc5",
+      "expected_main_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+      "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "send_claim": "consumed",
+      "prepared_at": "2026-10-25T21:16:25.212Z",
+      "scope": "Preserve original pending Ready intent/counters and record actual platform rejection; release known lease only"
     }
   ],
   "backlog": [
@@ -1305,14 +1445,21 @@
         "provider-produced exact input manifest hash and result hash"
       ],
       "next_action": "Existing native provider support must expose verifiable primary review provenance; otherwise separately owner-accepted contract amendment is required. No new service/token/executor and no author attestation substitute."
+    },
+    {
+      "fingerprint": "platform-approval-required-ready-v3-owner-acceptance",
+      "task_id": "terminal-worker-observation-20261025",
+      "pr": 148,
+      "status": "blocked-platform-approval",
+      "observed_at": "2026-10-25T21:16:25.212Z",
+      "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff"
     }
   ],
   "last_sweep_at": "2026-10-25T17:23:42.941637+00:00",
   "last_attempt": {
-    "at": "2026-10-25T21:12:14.513Z",
-    "outcome": "two-independent-native-reviews-passed-awaiting-hosted-CI",
-    "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
-    "evidence_uri": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641"
+    "at": "2026-10-25T21:16:25.212Z",
+    "outcome": "platform-rejected-ready-no-retry",
+    "exception": "platform-approval-required-ready-v3-owner-acceptance"
   },
   "migrations": [
     {
