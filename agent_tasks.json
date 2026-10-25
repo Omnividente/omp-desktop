@@ -232525,7 +232525,7 @@
       "id": "research-sessions-persistence-reliability-23",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -232662,16 +232662,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16433290923799025479",
         "dispatch_key": "d14b07d44d5cae0cf84b53ef",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-d14b07d44d5cae0cf84b53ef",
         "started_at": "2026-10-25T08:11:58.428759Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T09:06:11.333295Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -232844,13 +232844,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T08:23:32.053756Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T09:06:11.333295Z"
+      },
+      "research_result": {
+        "summary": "Investigated session lifecycle, import, and persistence failure recovery mechanisms.",
+        "observations": [
+          {
+            "scenario": "A failed import followed by a delete attempt or scan while the import destination is held by a Resume lease.",
+            "evidence": "Ran a synthetic test `test_failed_import_recovery_with_held_lease`. Created an interrupted import (a transaction marker and staged sidecar files). Acquired a `Resume` lease on the destination, simulating an active terminal. Verified that `recover_imports_in_directory` blocked recovery because of the active lease, warning correctly. Then verified that explicitly providing the held lease to `recover_import_transaction(&marker, Some(&resume_lease))` correctly performed the cleanup. We also verified with `delete_session_safely_recovers_interrupted_import_when_lease_is_delete` that `delete_session` successfully recovers the interrupted import since it legitimately holds the `Delete` lease.",
+            "result": "The failure recovery mechanism safely rolls back interrupted imports, even if the user attempts to delete the session while the interrupted import artifacts are present, as the explicit lease ownership is validated and cleanup executes cleanly."
+          },
+          {
+            "scenario": "Checking for deadlocks when ensure_import_inactive encounters active paths.",
+            "evidence": "Ran a synthetic test `test_ensure_import_inactive_deadlock`. Mocked an active path and called `ensure_import_inactive(&session, &active_paths)`. Verified that it returned an `Err` immediately with `[session_lease_active]` instead of deadlocking or waiting.",
+            "result": "The import mechanism safely handles active paths by bailing out immediately."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate how the frontend handles the immediate `[session_lease_active]` error from `import_sessions` and if it is surfaced cleanly to the user or causes infinite retries."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-25T09:06:11.333295Z",
+        "source": {
+          "activity_id": "sessions/16433290923799025479/activities/ce703929a31044ba9d194d99cd953548",
+          "report_sha256": "0cf7bc3cea7db3b84ea489b8ff20d3eed804b7d2a1b536164d74f20715e97c7a",
+          "activity_created_at": "2026-10-25T08:45:25.875805Z",
+          "session_id": "16433290923799025479",
+          "dispatch_key": "d14b07d44d5cae0cf84b53ef"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T08:48:37.249102Z",
+    "last_poll_at": "2026-10-25T09:06:40.714389Z",
     "last_tick_at": "2026-10-25T08:48:49.289490Z",
     "run_id": "40178011700",
     "owner_recovery_requests": [
