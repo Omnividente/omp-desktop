@@ -1,6 +1,6 @@
 {
-  "schema": 1,
-  "grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
+  "schema": 2,
+  "grant_id": "r2-j-v2-e5a6941a09e542169680985532825877",
   "active_task": {
     "id": "terminal-worker-observation-20261025",
     "branch": "dot/jules-terminal-worker-observation-20261025",
@@ -16,7 +16,7 @@
     "ci_revisions": 0,
     "initial_published": true,
     "unresolved_operation": null,
-    "phase": "awaiting-owner",
+    "phase": "review_required",
     "critical": true,
     "pr": {
       "number": 148,
@@ -529,5 +529,157 @@
       "current_lease": null,
       "current_pending_operation": null
     }
-  }
+  },
+  "migrations": [
+    {
+      "from_schema": 1,
+      "to_schema": 2,
+      "old_grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
+      "new_grant_id": "r2-j-v2-e5a6941a09e542169680985532825877",
+      "expected_state_blob_sha": "18ecd84194fb5c6aa558de69188cacb31466ab8d",
+      "state_sha256": "ba88bd20dcea1c844eb9ac2da8dce4dfe56540c9c7ce0afce09b98f51edaf126",
+      "grant_sha256": "b3decf4dbc66075239a66fa8e68c650560a55b156affa6fec6682378ddce633b",
+      "acceptance": {
+        "decision": "accept",
+        "decision_ref": "https://github.com/Omnividente/omp-desktop/issues/146#issuecomment-6399143967",
+        "accepted_pr": 149,
+        "accepted_head_sha": "55a7199d0305b5e582376e7ab4150db9d01c2b32",
+        "accepted_base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+        "accepted_main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+        "owner_decision_canonical_sha256": "674fb1820c641cce7921475ce56da48deade0a5c6e8f1b486e39dbdedba2542c",
+        "owner_decision_export_sha256": "87e805d4a5fe80e96b0b921ac0b735b1484d7862190857248da15177f25c9e22",
+        "policy_path": "docs/dot/r2-j-policy-v2.json",
+        "policy_sha256": "cdbbfda5e2528a932cd34ee4ebf29d13ef07d5b98ae134cd516b9a6b6efab011",
+        "check_runs": [
+          {
+            "run_id": 40200743292,
+            "attempt": 1,
+            "head_sha": "55a7199d0305b5e582376e7ab4150db9d01c2b32",
+            "conclusion": "success",
+            "workflow": ".github/workflows/pr.yml",
+            "url": "https://github.com/Omnividente/omp-desktop/actions/runs/40200743292"
+          },
+          {
+            "run_id": 40199441230,
+            "attempt": 1,
+            "head_sha": "55a7199d0305b5e582376e7ab4150db9d01c2b32",
+            "conclusion": "success",
+            "workflow": ".github/workflows/codeql.yml",
+            "url": "https://github.com/Omnividente/omp-desktop/actions/runs/40199441230"
+          },
+          {
+            "run_id": 40199441317,
+            "attempt": 1,
+            "head_sha": "55a7199d0305b5e582376e7ab4150db9d01c2b32",
+            "conclusion": "success",
+            "workflow": ".github/workflows/autonomous_control_ci.yml",
+            "url": "https://github.com/Omnividente/omp-desktop/actions/runs/40199441317"
+          }
+        ],
+        "supersedes_grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
+        "expected_state_blob_sha": "18ecd84194fb5c6aa558de69188cacb31466ab8d",
+        "state_sha256": "ba88bd20dcea1c844eb9ac2da8dce4dfe56540c9c7ce0afce09b98f51edaf126",
+        "adopted_task_id": "terminal-worker-observation-20261025",
+        "adopted_pr": 148,
+        "adopted_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "native_hourly_task_id": "6addb9feec0881918d110269b2243e01",
+        "bootstrap_post_merge_ci": {
+          "at": "2026-10-25T15:09:13.294425+00:00",
+          "main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+          "installed_main_proof": "r2j-v2-bootstrap-installed-main-proof.json",
+          "runs": [
+            {
+              "id": 40204473462,
+              "path": ".github/workflows/codeql.yml",
+              "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+              "event": "push",
+              "head_branch": "main",
+              "run_attempt": 1,
+              "status": "completed",
+              "conclusion": "success",
+              "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473462",
+              "jobs": [
+                {
+                  "id": 121202358638,
+                  "name": "Analyze (javascript-typescript)",
+                  "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+                  "run_attempt": 1,
+                  "status": "completed",
+                  "conclusion": "success",
+                  "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473462/job/121202358638"
+                },
+                {
+                  "id": 121202358730,
+                  "name": "Analyze (rust)",
+                  "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+                  "run_attempt": 1,
+                  "status": "completed",
+                  "conclusion": "success",
+                  "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473462/job/121202358730"
+                }
+              ]
+            },
+            {
+              "id": 40204473445,
+              "path": ".github/workflows/pr.yml",
+              "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+              "event": "push",
+              "head_branch": "main",
+              "run_attempt": 1,
+              "status": "completed",
+              "conclusion": "success",
+              "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473445",
+              "jobs": [
+                {
+                  "id": 121202358626,
+                  "name": "Checks (ubuntu-latest)",
+                  "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+                  "run_attempt": 1,
+                  "status": "completed",
+                  "conclusion": "success",
+                  "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473445/job/121202358626"
+                },
+                {
+                  "id": 121202358825,
+                  "name": "Checks (windows-latest)",
+                  "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+                  "run_attempt": 1,
+                  "status": "completed",
+                  "conclusion": "success",
+                  "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473445/job/121202358825"
+                }
+              ]
+            },
+            {
+              "id": 40204473444,
+              "path": ".github/workflows/autonomous_control_ci.yml",
+              "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+              "event": "push",
+              "head_branch": "main",
+              "run_attempt": 1,
+              "status": "completed",
+              "conclusion": "success",
+              "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473444",
+              "jobs": [
+                {
+                  "id": 121202358388,
+                  "name": "Validate the autonomous control plane",
+                  "head_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+                  "run_attempt": 1,
+                  "status": "completed",
+                  "conclusion": "success",
+                  "html_url": "https://github.com/Omnividente/omp-desktop/actions/runs/40204473444/job/121202358388"
+                }
+              ]
+            }
+          ]
+        },
+        "identity_mode": "shared-github-procedural",
+        "authority_boundary": "source-only; no workflows/live Jules queue/state/sessions/execution authority/settings/releases",
+        "independent_native_review_required": true,
+        "native_autonomy_proven": false
+      },
+      "prepared_at": "2026-10-25T15:14:11.519740+00:00"
+    }
+  ]
 }
