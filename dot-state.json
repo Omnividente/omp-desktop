@@ -118,7 +118,16 @@
     "phase": "publication",
     "automatic_takeover": false
   },
-  "pending_operation": null,
+  "pending_operation": {
+    "id": "terminal-worker-observation-20261025-create-branch",
+    "kind": "create-branch",
+    "request_sha256": "e8b68a1051eb60f512e7c39dc04b6e64c89c911c1ce2f1edccef7b2519cbdadc",
+    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+    "send_claim": "consumed",
+    "status": "pending",
+    "expected_ref_absent": true,
+    "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104"
+  },
   "retired_task_ids": [],
   "operations": [
     {
@@ -210,6 +219,16 @@
         "tree_sha": "4d0fc55d035ffd4b4ce0c7874eae729c65a70009",
         "parent_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706"
       }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-create-branch",
+      "kind": "create-branch",
+      "request_sha256": "e8b68a1051eb60f512e7c39dc04b6e64c89c911c1ce2f1edccef7b2519cbdadc",
+      "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+      "send_claim": "consumed",
+      "status": "pending",
+      "expected_ref_absent": true,
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104"
     }
   ],
   "backlog": [
