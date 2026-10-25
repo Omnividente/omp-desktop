@@ -228276,7 +228276,7 @@
       "id": "research-diagnostics-resources-behavior-22",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -228559,16 +228559,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1888724930251361872",
         "dispatch_key": "8945a5837f4e2a00b61330e6",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-8945a5837f4e2a00b61330e6",
         "started_at": "2026-10-25T05:30:09.479707Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T05:49:50.411585Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: historical_post_unexplained, possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -228739,13 +228739,453 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T05:41:38.789411Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T05:49:50.411585Z"
+      },
+      "research_result": {
+        "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, and enforceIncidentBound dropping unresolved primary errors under fallback saturation. Also profiled the redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log and tested a fast path avoiding line splitting when no sensitive markers are present.",
+        "observations": [
+          {
+            "scenario": "Keyboard focus trap logic inside IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+            "evidence": "Observed in both files that the inline check `.filter((element) => !element.hasAttribute(\"disabled\") && !element.hidden)` is used. A JS mock verifies this logic captures buttons inside a collapsed `<details>` element because they don't have the `hidden` attribute.",
+            "result": "The inline focus trap logic incorrectly includes elements hidden inside closed `<details>` tags. They should use `controlAvailable` from `useModalFocus.ts` or a similar robust visibility check."
+          },
+          {
+            "scenario": "enforceIncidentBound function dropping sole unresolved error incident under fallback saturation in src/runtimeIncidents.ts.",
+            "evidence": "Reviewed the source code of `enforceIncidentBound`. It calculates `candidates` to drop. If no active per terminal exceed limit, and no errors per terminal > 1, it will fallback to dropping from all incidents (`candidates = incidents`). It then selects the oldest candidate. If an error is older than 100 fallbacks on the same terminal, it will be dropped instead of one of the fallbacks.",
+            "result": "enforceIncidentBound erroneously drops a sole unresolved error incident under fallback saturation. The bug stems from not preferring to drop fallbacks over the sole error when the total limit across the terminal is reached."
+          },
+          {
+            "scenario": "Performance test of redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log.",
+            "evidence": "Wrote a rust test `test_redact.rs` with `redact_text` processing a 100k line string. Original string splitting per line takes ~2 seconds. A fast path check verifying absence of `has_bearer`, known secret tokens, and assignments across the string takes < 0.5s.",
+            "result": "Adding a fast-path to redact_text can significantly improve performance on large log payloads by avoiding string allocations when no redaction is necessary."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-25T05:49:50.411585Z",
+        "source": {
+          "activity_id": "sessions/1888724930251361872/activities/e018288c504f405cb6946654dd791266",
+          "report_sha256": "7b18c7d30586442811b1151e63ae95cbfd0545af0977cb2d60148cbb8bdb1158",
+          "activity_created_at": "2026-10-25T05:41:26.387023Z",
+          "session_id": "1888724930251361872",
+          "dispatch_key": "8945a5837f4e2a00b61330e6"
+        },
+        "deferred_findings": [
+          {
+            "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces execution time.\", \"reproduction\": {\"actual\": \"Original implementation splits and iterates all lines even if no sensitive markers exist.\", \"expected\": \"Fast-path avoids unnecessary work and executes quickly.\", \"steps\": [\"Create a large string with no sensitive information.\", \"Run redact_text on it.\"]}, \"revisit\": {\"change_kind\": \"mock_or_model\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The lab operates on an immutable pinned base, and this issue is demonstrably present there.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-2f466cea5a5c36d8\", \"responses\": [{\"decision_context_id\": \"eb932a2f00525d8b15d77cfbec11ebc77491d120d6d970a069a27364fdca8879\", \"decision_task_id\": \"discovery-2f466cea5a5c36d8\", \"why_previous_reason_no_longer_explains\": \"This is a synthetic benchmark and the owner explicitly asked for real bounded production cases. Since this lab cannot provide a real production case (only mock/synthetic experiments), the finding must be submitted under the mock_or_model evidence_mode for deferred review.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src-tauri/src/diagnostics.rs"
+            ],
+            "acceptance": [
+              "redact_text returns immediately if the input string contains no sensitive markers or secret prefixes."
+            ],
+            "deferred_id": "5570f9e1f8cd13264f091b4d5413723e168145b6826bbfb0fa9b3adc35986061",
+            "candidate": {
+              "task_type": "product_improvement",
+              "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+              "risk": "medium",
+              "priority": 10,
+              "focus": [
+                "perf"
+              ],
+              "target_paths": [
+                "src-tauri/src/diagnostics.rs"
+              ],
+              "acceptance": [
+                "redact_text returns immediately if the input string contains no sensitive markers or secret prefixes."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces execution time.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Create a large string with no sensitive information.",
+                    "Run redact_text on it."
+                  ],
+                  "expected": "Fast-path avoids unnecessary work and executes quickly.",
+                  "actual": "Original implementation splits and iterates all lines even if no sensitive markers exist."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "mock_or_model",
+                  "difference": "The lab operates on an immutable pinned base, and this issue is demonstrably present there.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-2f466cea5a5c36d8",
+                  "observation_refs": [
+                    2
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-2f466cea5a5c36d8",
+                      "decision_context_id": "eb932a2f00525d8b15d77cfbec11ebc77491d120d6d970a069a27364fdca8879",
+                      "why_previous_reason_no_longer_explains": "This is a synthetic benchmark and the owner explicitly asked for real bounded production cases. Since this lab cannot provide a real production case (only mock/synthetic experiments), the finding must be submitted under the mock_or_model evidence_mode for deferred review."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-2f466cea5a5c36d8",
+                  "action": "reject",
+                  "decision_at": "2026-09-28T20:42:06Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-behavior-22",
+              "activity_id": "sessions/1888724930251361872/activities/e018288c504f405cb6946654dd791266",
+              "report_sha256": "7b18c7d30586442811b1151e63ae95cbfd0545af0977cb2d60148cbb8bdb1158",
+              "activity_created_at": "2026-10-25T05:41:26.387023Z",
+              "session_id": "1888724930251361872",
+              "dispatch_key": "8945a5837f4e2a00b61330e6"
+            }
+          },
+          {
+            "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+            "reason": "historical_post_unexplained",
+            "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expected\": \"A fallback incident is dropped to maintain the limit, preserving the modelError.\", \"steps\": [\"Create a modelError incident for a terminal.\", \"Create 100 fallback incidents for the same terminal.\", \"Call enforceIncidentBound.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this finding stating it was fixed in PR95, but the lab operates on an immutable pinned base where the regression is still present.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"responses\": [{\"decision_context_id\": \"fd57aa6d17dd412ac4fed80bc8df29ccad783ea10cac1d274537610bf98fd4cd\", \"decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"why_previous_reason_no_longer_explains\": \"The lab operates on an immutable pinned base 3f542212066112284cc0e1d49096da512dd54207. Even if fixed in main, the regression exists in this pinned base and must be tracked within the lab's constraints.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+            ],
+            "deferred_id": "cf9f434b111f901e0952ac6fd52843f702324180bbe36e449d15122f93ab3c7a",
+            "candidate": {
+              "task_type": "bugfix",
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "risk": "medium",
+              "priority": 20,
+              "focus": [
+                "bugfix",
+                "quality"
+              ],
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ],
+              "evidence": {
+                "source": "autonomous_research",
+                "detail": "Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.",
+                "status": "reported",
+                "reproduction": {
+                  "steps": [
+                    "Create a modelError incident for a terminal.",
+                    "Create 100 fallback incidents for the same terminal.",
+                    "Call enforceIncidentBound."
+                  ],
+                  "expected": "A fallback incident is dropped to maintain the limit, preserving the modelError.",
+                  "actual": "The modelError incident is dropped as it is the oldest."
+                },
+                "revisit": {
+                  "contract_version": "post-revisit-v1",
+                  "change_kind": "different_contract",
+                  "difference": "The owner resolved this finding stating it was fixed in PR95, but the lab operates on an immutable pinned base where the regression is still present.",
+                  "evidence_mode": "mock_or_model",
+                  "primary_decision_task_id": "discovery-c3c404bd71dbb2bb",
+                  "observation_refs": [
+                    1
+                  ],
+                  "responses": [
+                    {
+                      "decision_task_id": "discovery-c3c404bd71dbb2bb",
+                      "decision_context_id": "fd57aa6d17dd412ac4fed80bc8df29ccad783ea10cac1d274537610bf98fd4cd",
+                      "why_previous_reason_no_longer_explains": "The lab operates on an immutable pinned base 3f542212066112284cc0e1d49096da512dd54207. Even if fixed in main, the regression exists in this pinned base and must be tracked within the lab's constraints."
+                    }
+                  ]
+                }
+              }
+            },
+            "review_context": {
+              "kind": "historical_decision_overlap",
+              "matches": [
+                {
+                  "task_id": "discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a",
+                  "action": "reject",
+                  "decision_at": "2026-10-23T20:33:25Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-c3c404bd71dbb2bb",
+                  "action": "resolve",
+                  "decision_at": "2026-10-13T17:16:28Z",
+                  "match": "possible",
+                  "timing": "post"
+                },
+                {
+                  "task_id": "discovery-940b5f71f3979b02",
+                  "action": "resolve",
+                  "decision_at": "2026-09-27T22:13:58Z",
+                  "match": "possible",
+                  "timing": "post"
+                }
+              ],
+              "rationale_status": "recorded",
+              "post_gate": "historical_post_unexplained"
+            },
+            "source": {
+              "task_id": "research-diagnostics-resources-behavior-22",
+              "activity_id": "sessions/1888724930251361872/activities/e018288c504f405cb6946654dd791266",
+              "report_sha256": "7b18c7d30586442811b1151e63ae95cbfd0545af0977cb2d60148cbb8bdb1158",
+              "activity_created_at": "2026-10-25T05:41:26.387023Z",
+              "session_id": "1888724930251361872",
+              "dispatch_key": "8945a5837f4e2a00b61330e6"
+            }
+          },
+          {
+            "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-1c22442ac9749b60de1406ee27a3f5abf2c6d1092f418859598f3abda74025b8; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter focusable elements accurately, matching `useModalFocus`'s `controlAvailable` behavior.\", \"reproduction\": {\"actual\": \"Children are included in the focusable list.\", \"expected\": \"Children of the closed details element are excluded from the focusable list.\", \"steps\": [\"Render IncidentCenter with a collapsed details element containing focusable children.\", \"Query the panel with the inline logic.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The lab must operate on the immutable pinned base where this regression demonstrably exists, irrespective of main branch state.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"8f84750a0e604e1c7cd9be84abfcf2107f904576088d062d00d24148d451d3af\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The reproduction explicitly shows the inline query logic used in these panels captures the hidden elements, proving the regression exists on this specific commit.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/IncidentCenter.tsx",
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1888724930251361872/activities/e018288c504f405cb6946654dd791266",
+          "report_sha256": "7b18c7d30586442811b1151e63ae95cbfd0545af0977cb2d60148cbb8bdb1158",
+          "activity_created_at": "2026-10-25T05:41:26.387023Z",
+          "session_id": "1888724930251361872",
+          "dispatch_key": "8945a5837f4e2a00b61330e6"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-2f466cea5a5c36d8",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-2f466cea5a5c36d8"
+            },
+            {
+              "id": "discovery-c3c404bd71dbb2bb",
+              "reason": "historical_post_unexplained",
+              "existing_task_id": "discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a"
+            },
+            {
+              "id": "discovery-b82daad4c8b8b9f9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-1c22442ac9749b60de1406ee27a3f5abf2c6d1092f418859598f3abda74025b8"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces execution time.\", \"reproduction\": {\"actual\": \"Original implementation splits and iterates all lines even if no sensitive markers exist.\", \"expected\": \"Fast-path avoids unnecessary work and executes quickly.\", \"steps\": [\"Create a large string with no sensitive information.\", \"Run redact_text on it.\"]}, \"revisit\": {\"change_kind\": \"mock_or_model\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The lab operates on an immutable pinned base, and this issue is demonstrably present there.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-2f466cea5a5c36d8\", \"responses\": [{\"decision_context_id\": \"eb932a2f00525d8b15d77cfbec11ebc77491d120d6d970a069a27364fdca8879\", \"decision_task_id\": \"discovery-2f466cea5a5c36d8\", \"why_previous_reason_no_longer_explains\": \"This is a synthetic benchmark and the owner explicitly asked for real bounded production cases. Since this lab cannot provide a real production case (only mock/synthetic experiments), the finding must be submitted under the mock_or_model evidence_mode for deferred review.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src-tauri/src/diagnostics.rs"
+              ],
+              "acceptance": [
+                "redact_text returns immediately if the input string contains no sensitive markers or secret prefixes."
+              ],
+              "deferred_id": "5570f9e1f8cd13264f091b4d5413723e168145b6826bbfb0fa9b3adc35986061",
+              "candidate": {
+                "task_type": "product_improvement",
+                "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+                "risk": "medium",
+                "priority": 10,
+                "focus": [
+                  "perf"
+                ],
+                "target_paths": [
+                  "src-tauri/src/diagnostics.rs"
+                ],
+                "acceptance": [
+                  "redact_text returns immediately if the input string contains no sensitive markers or secret prefixes."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces execution time.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Create a large string with no sensitive information.",
+                      "Run redact_text on it."
+                    ],
+                    "expected": "Fast-path avoids unnecessary work and executes quickly.",
+                    "actual": "Original implementation splits and iterates all lines even if no sensitive markers exist."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "mock_or_model",
+                    "difference": "The lab operates on an immutable pinned base, and this issue is demonstrably present there.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-2f466cea5a5c36d8",
+                    "observation_refs": [
+                      2
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-2f466cea5a5c36d8",
+                        "decision_context_id": "eb932a2f00525d8b15d77cfbec11ebc77491d120d6d970a069a27364fdca8879",
+                        "why_previous_reason_no_longer_explains": "This is a synthetic benchmark and the owner explicitly asked for real bounded production cases. Since this lab cannot provide a real production case (only mock/synthetic experiments), the finding must be submitted under the mock_or_model evidence_mode for deferred review."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-2f466cea5a5c36d8",
+                    "action": "reject",
+                    "decision_at": "2026-09-28T20:42:06Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-behavior-22",
+                "activity_id": "sessions/1888724930251361872/activities/e018288c504f405cb6946654dd791266",
+                "report_sha256": "7b18c7d30586442811b1151e63ae95cbfd0545af0977cb2d60148cbb8bdb1158",
+                "activity_created_at": "2026-10-25T05:41:26.387023Z",
+                "session_id": "1888724930251361872",
+                "dispatch_key": "8945a5837f4e2a00b61330e6"
+              }
+            },
+            {
+              "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+              "reason": "historical_post_unexplained",
+              "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expected\": \"A fallback incident is dropped to maintain the limit, preserving the modelError.\", \"steps\": [\"Create a modelError incident for a terminal.\", \"Create 100 fallback incidents for the same terminal.\", \"Call enforceIncidentBound.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The owner resolved this finding stating it was fixed in PR95, but the lab operates on an immutable pinned base where the regression is still present.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [1], \"primary_decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"responses\": [{\"decision_context_id\": \"fd57aa6d17dd412ac4fed80bc8df29ccad783ea10cac1d274537610bf98fd4cd\", \"decision_task_id\": \"discovery-c3c404bd71dbb2bb\", \"why_previous_reason_no_longer_explains\": \"The lab operates on an immutable pinned base 3f542212066112284cc0e1d49096da512dd54207. Even if fixed in main, the regression exists in this pinned base and must be tracked within the lab's constraints.\"}]}, \"source\": \"autonomous_research\", \"status\": \"reported\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+              ],
+              "deferred_id": "cf9f434b111f901e0952ac6fd52843f702324180bbe36e449d15122f93ab3c7a",
+              "candidate": {
+                "task_type": "bugfix",
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "risk": "medium",
+                "priority": 20,
+                "focus": [
+                  "bugfix",
+                  "quality"
+                ],
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ],
+                "evidence": {
+                  "source": "autonomous_research",
+                  "detail": "Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.",
+                  "status": "reported",
+                  "reproduction": {
+                    "steps": [
+                      "Create a modelError incident for a terminal.",
+                      "Create 100 fallback incidents for the same terminal.",
+                      "Call enforceIncidentBound."
+                    ],
+                    "expected": "A fallback incident is dropped to maintain the limit, preserving the modelError.",
+                    "actual": "The modelError incident is dropped as it is the oldest."
+                  },
+                  "revisit": {
+                    "contract_version": "post-revisit-v1",
+                    "change_kind": "different_contract",
+                    "difference": "The owner resolved this finding stating it was fixed in PR95, but the lab operates on an immutable pinned base where the regression is still present.",
+                    "evidence_mode": "mock_or_model",
+                    "primary_decision_task_id": "discovery-c3c404bd71dbb2bb",
+                    "observation_refs": [
+                      1
+                    ],
+                    "responses": [
+                      {
+                        "decision_task_id": "discovery-c3c404bd71dbb2bb",
+                        "decision_context_id": "fd57aa6d17dd412ac4fed80bc8df29ccad783ea10cac1d274537610bf98fd4cd",
+                        "why_previous_reason_no_longer_explains": "The lab operates on an immutable pinned base 3f542212066112284cc0e1d49096da512dd54207. Even if fixed in main, the regression exists in this pinned base and must be tracked within the lab's constraints."
+                      }
+                    ]
+                  }
+                }
+              },
+              "review_context": {
+                "kind": "historical_decision_overlap",
+                "matches": [
+                  {
+                    "task_id": "discovery-e14d53efc8dcea28e37024ad5fc2955dbde6c0a558103b9574c1d5380137079a",
+                    "action": "reject",
+                    "decision_at": "2026-10-23T20:33:25Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-c3c404bd71dbb2bb",
+                    "action": "resolve",
+                    "decision_at": "2026-10-13T17:16:28Z",
+                    "match": "possible",
+                    "timing": "post"
+                  },
+                  {
+                    "task_id": "discovery-940b5f71f3979b02",
+                    "action": "resolve",
+                    "decision_at": "2026-09-27T22:13:58Z",
+                    "match": "possible",
+                    "timing": "post"
+                  }
+                ],
+                "rationale_status": "recorded",
+                "post_gate": "historical_post_unexplained"
+              },
+              "source": {
+                "task_id": "research-diagnostics-resources-behavior-22",
+                "activity_id": "sessions/1888724930251361872/activities/e018288c504f405cb6946654dd791266",
+                "report_sha256": "7b18c7d30586442811b1151e63ae95cbfd0545af0977cb2d60148cbb8bdb1158",
+                "activity_created_at": "2026-10-25T05:41:26.387023Z",
+                "session_id": "1888724930251361872",
+                "dispatch_key": "8945a5837f4e2a00b61330e6"
+              }
+            },
+            {
+              "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-1c22442ac9749b60de1406ee27a3f5abf2c6d1092f418859598f3abda74025b8; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter focusable elements accurately, matching `useModalFocus`'s `controlAvailable` behavior.\", \"reproduction\": {\"actual\": \"Children are included in the focusable list.\", \"expected\": \"Children of the closed details element are excluded from the focusable list.\", \"steps\": [\"Render IncidentCenter with a collapsed details element containing focusable children.\", \"Query the panel with the inline logic.\"]}, \"revisit\": {\"change_kind\": \"different_contract\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The lab must operate on the immutable pinned base where this regression demonstrably exists, irrespective of main branch state.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"responses\": [{\"decision_context_id\": \"8f84750a0e604e1c7cd9be84abfcf2107f904576088d062d00d24148d451d3af\", \"decision_task_id\": \"discovery-b82daad4c8b8b9f9\", \"why_previous_reason_no_longer_explains\": \"The reproduction explicitly shows the inline query logic used in these panels captures the hidden elements, proving the regression exists on this specific commit.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/IncidentCenter.tsx",
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T05:42:08.917827Z",
+    "last_poll_at": "2026-10-25T05:50:15.205763Z",
     "last_tick_at": "2026-10-25T05:42:20.992415Z",
     "run_id": "40166421985",
     "owner_recovery_requests": [
