@@ -231981,7 +231981,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T07:50:49.687384Z"
+        "observed_at": "2026-10-25T07:50:49.687384Z",
+        "released_attempt_ref": "autonomous/attempt-6f1f36ef3de2160e425d4b05"
       },
       "research_result": {
         "summary": "Investigated the session import recovery and transaction rollback mechanisms, empty states, and focus behavior. Verified that ImportSessionModal fails to disable the Import button when the path is empty, although this state is currently inaccessible due to OS picker behavior. Verified that the SessionList empty state lacks a role=status or aria-live attribute, preventing screen readers from announcing it when it dynamically appears.",
