@@ -344,3 +344,20 @@ separately authorize and invoke the existing manual Review with a bounded wait/
 observation window; a timeout remains unverified, never implied readiness. No
 manual dispatch is authorized by this document. This trade-off does not change
 Continue's independent cadence or recover the blocked NEXT.
+
+
+## Proposed policy v3: native procedural evidence
+
+The separately owner-directed review-evidence amendment is proposal-only until
+its exact revision is accepted and the owner completes the grant/index/state
+transition in [R2_J.md](R2_J.md#policy-v3-owner-acceptance-and-regrant). It does
+not spend or reset the active R2-J task's budgets and does not authorize its own
+acceptance. Policy v2 remains byte-identical and effective under its old grant.
+Policy v3 changes evidence requirements, not allowed effects or protections;
+state/grant schema remains 2, while policy/grant version becomes 3.
+
+Two actual fresh native tasks are required, including for ordinary work. Their
+read-only scope is an instruction and their independence is procedural, not a
+provider attestation. Preserve primary spawn arguments/results, final reports,
+exact manifest and real safety command outputs, following the v3 contract.
+Never convert an author-written JSON fixture into an execution observation.

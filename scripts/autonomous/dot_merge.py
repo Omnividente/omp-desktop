@@ -7,6 +7,8 @@ An author-authored PR paragraph is never a provider execution receipt.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from datetime import datetime
 
@@ -176,6 +178,8 @@ def _protections_check(policy: dict, packet: dict, checks: dict) -> None:
 
 
 def _review_check(policy: dict, packet: dict, manifest: dict, now: datetime) -> tuple[bool, list]:
+    if policy.get("version") == 3:
+        return _native_review_check(policy, packet, manifest, now)
     evidence = packet["independent_review"]
     if evidence.get("complete") is not True:
         raise ValueError("independent provider execution evidence is incomplete")
@@ -224,6 +228,103 @@ def _review_check(policy: dict, packet: dict, manifest: dict, now: datetime) -> 
                        "receipt_id": row["receipt"]["id"], "input_sha256": input_hash,
                        "result_sha256": row["receipt"]["result_sha256"],
                        "evidence_uri": row["receipt"]["evidence_uri"]} for role, row in roles.items()]
+
+
+def _native_review_check(policy: dict, packet: dict, manifest: dict, now: datetime) -> tuple[bool, list]:
+    """Validate retained native calls/results, not provider-attested isolation.
+
+    The caller must obtain these records from actual tool observations, retain
+    their primary transcript, and verify their origin before invoking this pure
+    checker. Local hashes detect changed evidence; they do not authenticate an
+    agent, enforce read-only permissions, or turn authored JSON into a review.
+    """
+    evidence = packet["independent_review"]
+    if (evidence.get("complete") is not True
+            or evidence.get("independence") != "procedural-not-provider-attested"
+            or evidence.get("writers_complete") is not True):
+        raise ValueError("complete, honestly classified native observations are required")
+    author = _text(evidence.get("author", {}).get("execution_id"), "author task identity")
+    writers = evidence.get("writer_execution_ids")
+    if (not isinstance(writers, list) or author not in writers
+            or len(set(writers)) != len(writers) or any(not isinstance(x, str) or not x for x in writers)):
+        raise ValueError("all authoring execution identities must be retained")
+    reports, receipts = evidence.get("reports"), evidence.get("receipts")
+    if not isinstance(reports, list) or not isinstance(receipts, list) or len(reports) != len(receipts):
+        raise ValueError("one actual native invocation/completion per report is required")
+    fingerprint = digest(manifest)
+    paths = {name for row in manifest["files"] for name in (row["path"], row["previous_path"])}
+    roles, executions, ids = {}, set(), set()
+    critical = manifest["critical"]
+    for report in reports:
+        matches = [row for row in receipts if row.get("execution_id") == report.get("execution_id")]
+        if len(matches) != 1:
+            raise ValueError("report has no unique actual native call")
+        receipt = matches[0]
+        execution, role = receipt.get("execution_id"), report.get("role")
+        _text(execution, "native task identity")
+        _text(receipt.get("id"), "retained observation identity")
+        _text(receipt.get("evidence_uri"), "retrievable primary transcript reference")
+        if (execution in writers or execution in executions or role in roles
+                or role not in policy["review"]["critical_executions"]
+                or receipt.get("role") != role or receipt["id"] in ids
+                or receipt.get("origin") != "native-agent-tool-result"
+                or receipt.get("permissions") != "read-only-task-scope"
+                or receipt.get("status") != "completed" or instant(receipt["completed_at"]) > now):
+            raise ValueError("reviewers must be separate completed non-author native tasks")
+        invocation = receipt.get("invocation", {})
+        arguments = invocation.get("arguments", {})
+        if (invocation.get("tool") != "collaboration.spawn_agent"
+                or arguments.get("fork_turns") != "none"
+                or invocation.get("result", {}).get("task_name") != execution
+                or execution.rsplit("/", 1)[-1] != arguments.get("task_name")):
+            raise ValueError("actual fresh-context native spawn/result binding is required")
+        try:
+            request = json.loads(arguments["message"])
+            completed_report = json.loads(receipt["completion"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("retain actual JSON request and final agent result") from exc
+        if (request.get("manifest") != manifest or request.get("role") != role
+                or request.get("scope") != "read-only-review-and-isolated-tests"
+                or completed_report != report or receipt.get("input_sha256") != fingerprint
+                or report.get("input_sha256") != fingerprint
+                or receipt.get("result_sha256") != digest(report)
+                or report.get("verdict") != "approve" or report.get("sufficient") is not True
+                or report.get("findings") != [] or report.get("risk") not in ("ordinary", "critical")
+                or set(report.get("covered_paths", [])) != paths):
+            raise ValueError("native result does not approve the exact complete manifest")
+        _text(request.get("instructions"), "read-only review instructions")
+        _text(report.get("rationale"), "independent sufficiency analysis")
+        critical |= report["risk"] == "critical"
+        roles[role] = {"report": report, "receipt": receipt}
+        executions.add(execution); ids.add(receipt["id"])
+    if not set(policy["review"]["critical_executions" if critical else "ordinary_executions"]) <= set(roles):
+        raise ValueError("separate native code and safety reviews are required")
+    _tests_check(packet["test_evidence"], roles, manifest, critical)
+    if critical:
+        safety = roles["safety-review"]
+        logs = safety["receipt"].get("test_logs")
+        if not isinstance(logs, list) or not logs:
+            raise ValueError("retain actual independent safety command outputs")
+        executed = set()
+        for log in logs:
+            output = _text(log.get("output"), "actual test output")
+            _text(log.get("command"), "executed isolated command")
+            if (type(log.get("exit_code")) is not int or log["exit_code"] != 0
+                    or log.get("head_sha") != manifest["head_sha"]
+                    or log.get("input_sha256") != fingerprint
+                    or log.get("sha256") != hashlib.sha256(output.encode("utf-8")).hexdigest()
+                    or not isinstance(log.get("test_ids"), list) or not log["test_ids"]):
+                raise ValueError("safety log is unsuccessful, stale or has changed bytes")
+            executed.update(log["test_ids"])
+        required = {row["test_id"] for row in packet["test_evidence"]["safety"] if row["outcome"] == "passed"}
+        if not required <= executed:
+            raise ValueError("safety scenarios lack retained executed test logs")
+    return critical, [{"role": role, "execution_id": row["receipt"]["execution_id"],
+                       "receipt_id": row["receipt"]["id"], "input_sha256": fingerprint,
+                       "result_sha256": digest(row["report"]),
+                       "independence": "procedural-not-provider-attested",
+                       "evidence_uri": row["receipt"]["evidence_uri"],
+                       "observation_sha256": digest(row["receipt"])} for role, row in roles.items()]
 
 
 def _tests_check(tests: dict, roles: dict, manifest: dict, critical: bool) -> None:
@@ -310,3 +411,4 @@ def integration_check(policy: dict, packet: dict, now: datetime) -> dict:
                 "reviews": reviews, "ci_runs": ci["runs"], "action": packet["action"]}
     evidence["preflight_sha256"] = digest(evidence)
     return evidence
+
