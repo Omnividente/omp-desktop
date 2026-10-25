@@ -234817,7 +234817,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T11:25:57.306519Z"
+        "observed_at": "2026-10-25T11:25:57.306519Z",
+        "released_attempt_ref": "autonomous/attempt-6c0a4f5dd33c2476268bc39c"
       },
       "research_result": {
         "summary": "Investigated performance of transcript rendering, scrolling, and content links with large transcript inputs. Measured the time taken for various operations involved in rendering a transcript with 50,000 entries. Found that creating the 'contents' array (mapping markdown text to MarkdownDocument) using `markdownContent` function takes ~10 seconds for 50,000 entries, making it the primary bottleneck during initial load/mode changes in TranscriptModal. `contentLinks` function itself is relatively fast, taking ~600-800ms for 50,000 iterations. `TranscriptSearch` instantiation is also fast (140ms for query search on 50k entries). `useVirtualList` computeVisibleRange takes around 7ms for 100k calculations.",
