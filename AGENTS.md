@@ -39,24 +39,27 @@ Dot is a separate authoring path, not a Jules task, controller or launcher:
 | --- | --- |
 | Jules discovery | Immutable saved request; read-only report and proposed findings. |
 | Jules implementation | Separate owner-approved task; proposal into `autonomous/lab`, manual acceptance. |
-| Dot Draft-only | Separate explicit publication grant; own `dot/*` branch and Draft PR into `main` through the current GitHub plugin, without Codex or ChatGPT Work. |
+| Dot Draft-only | Explicit one-task grant, or activated R1/R2-J; own `dot/*` branch and Draft PR into `main` through the existing GitHub plugin, without Codex or ChatGPT Work. |
 
-Standing permission **R1 is NOT ACTIVE**. These rules grant no publication,
-product pilot or autonomous task selection. A local source-change request is
-not permission to commit, push or open a PR. A one-task publication grant does
-not activate R1. Follow [the Dot workflow](docs/dot/WORKFLOW.md) for its initial
-allowlist, limits, owner-issued activation/revocation record, overlap checks,
-exact-SHA evidence and unknown-acknowledgement stop conditions. If the plugin
-cannot enforce a required branch lease or provide complete evidence, stop;
-do not substitute another launcher or expand permissions.
+Product **R1 remains inactive**. Independent controller maintenance **R2-J** is
+defined by [its standing contract](docs/dot/R2_J.md) and machine policy, with one
+owner-controlled issue/grant/revocation record. This source preparation does not
+activate it: one separate exact-revision owner acceptance and issued grant are
+required. Once activated, R2-J permits autonomous Jules Python-controller fixes,
+synthetic tests, own Draft publication and bounded CI revisions; it is not R1's
+small product allowlist and needs no product pilot or per-task permission.
+Follow [the common Dot workflow](docs/dot/WORKFLOW.md) for complete overlap,
+exact-SHA, expected-head and unknown-ACK checks. R2-J allows one active task and Draft,
+10 files, 1000 cumulative changed lines and three CI-driven revisions. Existing
+write tools are confirmed; keep ordinary result checks, never blind retries.
 
 Dot must not approve, mark ready, merge, enable auto-merge, dispatch Actions,
 change governance or perform release/install operations. Owner acceptance must
 name the exact head SHA outside the Dot-editable PR body. Shared account identity
-is only a procedural boundary, not server-enforced separation. The first
-maintainer PR runs under the old event graph: follow the workflow's separately
-authorized bootstrap before any publication, not an assumption that blocked
-NEXT is an off switch.
+is only a procedural boundary, not server-enforced separation. R2-J may propose
+critical controller safety fixes but cannot issue live execution authority or
+modify its own grant/guardrails. Use native ChatGPT scheduling as documented,
+not a new scheduler/daemon. Keep Jules working; grant revocation does not stop it.
 
 ## Work and evidence
 

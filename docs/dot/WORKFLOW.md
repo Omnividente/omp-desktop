@@ -2,12 +2,15 @@
 
 ## Status and authority
 
-**Standing R1 is NOT ACTIVE.** This document defines rules and an activation
-template, not an activation, product-pilot grant, deployment report or permission
-to write to GitHub. D1 source preparation is local-only until the owner explicitly
-authorizes publication and the bootstrap below. The user-reported blocked Jules
-NEXT is a fact of this task; it is not evidence that callbacks, workers or other
-schedules are stopped. D1 neither repairs that incident nor authorizes live recovery.
+**Standing product R1 is NOT ACTIVE.** Controller-maintenance **R2-J** is a
+separate regime: see [R2_J.md](R2_J.md), its machine policy and owner control
+record. The R2-J bootstrap is prepared, not activated until the owner's separate
+exact-revision acceptance and issued grant. Its full Python-controller scope and
+10-file/1000-line/three-revision budget are not limited by R1 or a product pilot.
+
+D1 event isolation is already deployed in accepted main (#140). The historical
+first-maintainer bootstrap below is not a demand to pause the now-working Jules
+loop or repeat the old recovery. Neither R1 nor R2-J grants live recovery.
 
 Communicate with the owner in Russian. Keep repository documentation and evidence
 field names in English; never include credentials or private session data.
@@ -16,14 +19,15 @@ field names in English; never include credentials or private session data.
 | --- | --- | --- |
 | Jules discovery | Saved immutable research request | Read-only observations and proposed findings; no implementation or PR. |
 | Jules implementation | Separate approved task and saved dispatch identity | Proposal into `autonomous/lab`; separate manual acceptance, never product automerge. |
-| Dot Draft-only | Explicit one-task publication grant, or a separately activated R1 | Own `dot/<task-id>-<slug>` branch from pinned `main`; Draft PR with `base=main`, `draft=true`. |
+| Dot Draft-only | Explicit one-task grant, separately activated R1, or separately activated R2-J | Owned branch from pinned `main`; Draft PR with `base=main`, `draft=true`; R2-J uses `dot/jules-<task-id>`. |
 
 Dot uses the current GitHub plugin directly. It does not start Codex, ChatGPT
 Work, a Jules session, a new Dot controller or a new workflow. Naming, actor,
 labels and PR-body markers do not authorize a Jules task. A local source request
-is not a commit/push/PR grant. A one-task grant is not standing R1. Approval to
-publish a Draft is not approval to mark it ready, accept, merge, build installers,
-bump versions, tag, release or install. No product pilot is authorized now.
+is not a commit/push/PR grant. A one-task grant activates neither standing regime.
+Approval to publish a Draft is not approval to mark it ready, accept, merge,
+build installers, bump versions, tag, release or install. No product pilot is
+authorized. R2-J adds native ChatGPT scheduled maintenance, not a new controller.
 
 ## Inactive R1: initial scope and hard limits
 
@@ -58,13 +62,18 @@ updates. No approvals, ready-for-review, merge/auto-merge, server-side bypass,
 manual Actions dispatch/rerun/cancel, queue/provider/session or recovery operations.
 Normal PR-triggered CI is not permission to invoke Actions manually.
 
+R2-J uses its own scope, external grant/revocation index, CAS-owned maintenance
+state and cumulative budget. The common publication checks below still apply;
+the R1-only allowlist, pilot and five-file/200-line limits do not apply to R2-J.
+
 ## Before work and every future push
 
 These steps are mandatory for a later authorized publication, not instructions
 to perform remote operations during local-only D1 preparation.
 
 1. Read the effective owner grant and revocation references. Pin the exact current
-   `main` SHA and task scope; use only a new owned `dot/<task-id>-<slug>` branch.
+   `main` SHA and task scope; use a new owned `dot/jules-<task-id>` branch for
+   R2-J (or `dot/<task-id>-<slug>` for R1).
    Record the repository, branch ownership, base SHA and expected remote branch
    SHA (or proven absence for creation). Never update another contributor's ref,
    `main`, `autonomous/lab`, `autonomous/state` or an attempt ref.
@@ -121,9 +130,11 @@ record. Include:
 
 ## Owner activation, acceptance and revocation
 
-No durable owner-controlled record location has been selected or deployed by
-this change. Before activation the owner must select one, fill concrete URIs and
-immutable versions/content hashes, and approve it separately. An owner-controlled
+For inactive **R1**, no durable owner-controlled record location was selected by
+its original template. R2-J instead uses the concrete owner index in issue #146
+and the separate activation/revocation procedure in [R2_J.md](R2_J.md).
+Before R1 activation the owner must select a record location, fill concrete URIs
+and immutable versions/content hashes, and approve it separately. An owner-controlled
 local record plus a retained durable export/reference is acceptable as a
 procedural record only if the owner can preserve and retrieve both. The Dot PR
 body, an agent-written checkbox, label or copied text cannot be that authority.
