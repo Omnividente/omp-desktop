@@ -232845,7 +232845,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T09:06:11.333295Z"
+        "observed_at": "2026-10-25T09:06:11.333295Z",
+        "released_attempt_ref": "autonomous/attempt-d14b07d44d5cae0cf84b53ef"
       },
       "research_result": {
         "summary": "Investigated session lifecycle, import, and persistence failure recovery mechanisms.",
