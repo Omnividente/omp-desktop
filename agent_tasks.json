@@ -226243,7 +226243,7 @@
       "id": "research-transcript-links-reliability-22",
       "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -226363,16 +226363,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15050437306286657974",
         "dispatch_key": "d0353b45999605f2e84a6b28",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-d0353b45999605f2e84a6b28",
         "started_at": "2026-10-25T03:34:00.673707Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T04:09:20.581797Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -226543,13 +226543,102 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T03:45:27.638753Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T04:09:20.581797Z"
+      },
+      "research_result": {
+        "summary": "Investigated the transcript reading/loading logic. During an interrupted or failed operation like a refresh, if the retry fails, `useTranscript` currently wipes out the previously loaded `transcript` content via `setTranscript(null)` before the new network call resolves or rejects. Because the request resets the state immediately instead of waiting for a successful response, a failed refresh causes all visible entries and transcript data to disappear, rendering an error state but losing the loaded content. This also clears the underlying data driving reading position restoration. To fix this, `load` should only clear `transcript` if we are changing to a completely *new* file path, not when refreshing the current one.",
+        "observations": [
+          {
+            "scenario": "Clicking refresh in the TranscriptModal which subsequently fails due to an error.",
+            "evidence": "Observed via mock jsdom tests simulating network failure on `loadTranscript`: when `onRefresh` is triggered, `useTranscript`'s `load` calls `setTranscript(null)` immediately. The promise rejects, triggering `setTranscriptError`. Since `transcript` is null, the `<TranscriptModal>` replaces the rendered `<div className=\"transcript-entries\">` entirely with the error message view. If a user subsequently clicks retry and succeeds, their scroll position is lost because `transcript` was wiped, interrupting `TranscriptModal`'s `pendingRestoreRef` tracking.",
+            "result": "Established that `useTranscript` aggressively destroys state on same-file reload, failing the persistence requirement during a temporary read failure. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Retaining the previous transcript payload might cause minor UI inconsistencies if the user navigates quickly, so a 'refreshing' loading overlay should ideally render over the old text instead of wiping it.",
+          "If the old transcript is retained during a reload, we should ensure the virtual list doesn't get stuck caching obsolete sizes if the refreshed transcript actually changed."
+        ],
+        "proposed_task_ids": [
+          "discovery-32eb6e3f7f5f07fc"
+        ],
+        "completed_at": "2026-10-25T04:09:20.581797Z",
+        "source": {
+          "activity_id": "sessions/15050437306286657974/activities/ed60d7c8ce4c41608545a75140bfab70",
+          "report_sha256": "0cc1877951582e0cb7038586713c8adf1843d4dd5da6ff9821bcb2222525fddd",
+          "activity_created_at": "2026-10-25T03:54:56.233827Z",
+          "session_id": "15050437306286657974",
+          "dispatch_key": "d0353b45999605f2e84a6b28"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15050437306286657974/activities/ed60d7c8ce4c41608545a75140bfab70",
+          "report_sha256": "0cc1877951582e0cb7038586713c8adf1843d4dd5da6ff9821bcb2222525fddd",
+          "activity_created_at": "2026-10-25T03:54:56.233827Z",
+          "session_id": "15050437306286657974",
+          "dispatch_key": "d0353b45999605f2e84a6b28"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-32eb6e3f7f5f07fc"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-32eb6e3f7f5f07fc",
+      "title": "Prevent data loss by retaining existing transcript state during a reload of the same path",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix"
+      ],
+      "created_at": "2026-10-25T04:09:20.581797Z",
+      "acceptance": [
+        "When load() is called for the same path as the current session, it does not wipe the current `transcript` or `transcriptSession` before the network request finishes.",
+        "If the read fails, the UI still displays the previous transcript content (or an overlay) instead of dropping to an empty state."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed that `load` unconditionally sets `setTranscript(null)` before fetching, losing content if the network request fails on a refresh operation.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Open a transcript so it loads completely.",
+            "Trigger `loadTranscript` again with the same session.",
+            "Simulate a failure in `readSessionTranscript`."
+          ],
+          "expected": "The `transcript` state should not be cleared, preserving UI continuity.",
+          "actual": "The `transcript` state becomes null instantly, hiding the text and losing position anchors."
+        }
+      },
+      "target_paths": [
+        "src/useTranscript.ts"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-reliability-22",
+        "activity_id": "sessions/15050437306286657974/activities/ed60d7c8ce4c41608545a75140bfab70",
+        "report_sha256": "0cc1877951582e0cb7038586713c8adf1843d4dd5da6ff9821bcb2222525fddd",
+        "activity_created_at": "2026-10-25T03:54:56.233827Z",
+        "session_id": "15050437306286657974",
+        "dispatch_key": "d0353b45999605f2e84a6b28"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T04:01:51.614456Z",
+    "last_poll_at": "2026-10-25T04:09:50.566265Z",
     "last_tick_at": "2026-10-25T04:02:03.641398Z",
     "run_id": "40160298886",
     "owner_recovery_requests": [
