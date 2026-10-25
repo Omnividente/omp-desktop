@@ -233537,7 +233537,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T09:53:48.564082Z"
+        "observed_at": "2026-10-25T09:53:48.564082Z",
+        "released_attempt_ref": "autonomous/attempt-d9dff6aa0f7773b72493e8fb"
       },
       "research_result": {
         "summary": "Investigated the transcript loading behavior in `useTranscript` during same-path network refreshes. The investigation confirmed that `setTranscript(null)` is called aggressively when loading a transcript, even if the path being loaded is exactly the same as the currently loaded `sessionPathRef.current`. This destroys the visible document entries and loses the scroll position context tracked by `TranscriptModal` while the new network request is pending. It was verified that modifying the hook to retain `transcript` for same-path loads prevents this loss of state.",
