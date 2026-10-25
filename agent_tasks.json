@@ -234823,8 +234823,8 @@
   ],
   "controller": {
     "last_poll_at": "2026-10-25T10:53:14.671980Z",
-    "last_tick_at": "2026-10-25T10:34:16.903681Z",
-    "run_id": "40184954680",
+    "last_tick_at": "2026-10-25T10:53:27.005447Z",
+    "run_id": "40186353073",
     "owner_recovery_requests": [
       {
         "inputs": {
