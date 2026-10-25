@@ -620598,6 +620598,16 @@
           "actor": "Omnividente"
         },
         "event_id": "b33d08de849b8af9876efd7cd843b6d2b9413516dfaef0918389611f7105a75a"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T05:15:58.666360Z",
+        "decision_id": "c99a8d06d9a11d434506fdc9f74dbf2f7a2be8696cca62aee0116751237813f3",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T05:15:56.815836Z"
+        },
+        "event_id": "1e7ec165b5406fb6fe8c099210723e64732c802616f62a48c46f37a28bf38aae"
       }
     ]
   }
