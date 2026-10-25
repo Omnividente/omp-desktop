@@ -604583,6 +604583,15 @@
         },
         "receipt_id": "d54e252e2366055d17186b6ee6953503fc2d6500f0af4595514273e1c7a37eb9",
         "event_id": "6d1fc78d1657c1e14b26295237860358a12eb26b1e12ec21443b676c5413bd5d"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-25T03:32:48.243931Z",
+        "decision_id": "5d325242b17e77fb028034a882ae19d4029c554a5ee890f546038e9bf201d493",
+        "executor_claim_id": "0d7f99cbcde9ec736f2d1d3e6aa4fb9a681712d7ffafcbe982a207aadb52ff32",
+        "receipt_id": "d54e252e2366055d17186b6ee6953503fc2d6500f0af4595514273e1c7a37eb9",
+        "frontier_seq": 778,
+        "event_id": "fae7b6840c9f2d0f4ec7892f40a66bc7a81847c0f7c4ee14f34f563316221c54"
       }
     ]
   }
