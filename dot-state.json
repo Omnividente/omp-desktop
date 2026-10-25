@@ -14,11 +14,14 @@
     ],
     "spent_lines": 79,
     "ci_revisions": 0,
-    "initial_published": false,
+    "initial_published": true,
     "unresolved_operation": null,
-    "phase": "publication",
+    "phase": "waiting-ci",
     "critical": true,
-    "pr": null,
+    "pr": {
+      "number": 148,
+      "url": "https://github.com/Omnividente/omp-desktop/pull/148"
+    },
     "batches": [
       {
         "id": "initial",
@@ -100,24 +103,9 @@
       ],
       "checks": "4 regression methods and 8 snapshot tests, reverse patch restores pinned blobs; not owner acceptance"
     },
-    "exception": {
-      "kind": "inventory-read-unavailable",
-      "target": "GET pulls/34/files?per_page=100&page=1",
-      "detail": "RemoteProtocolError: Server disconnected without sending a response",
-      "at": "2026-10-25T12:01:58Z",
-      "source_effect_status": "create-tree confirmed; create-commit not attempted or consumed",
-      "next": "Fresh complete GET inventory before original task's next effect; no replacement task/branch",
-      "resolved_by": "Fresh complete 16-PR inventory after transient read transport failure; no source effect retried"
-    }
+    "exception": null
   },
-  "lease": {
-    "id": "r2j-20261025T120500Z-terminal-telemetry",
-    "owner": "dot/astra",
-    "invocation": "2026-10-25T12:05:00Z",
-    "acquired_at": "2026-10-25T12:03:25Z",
-    "phase": "publication",
-    "automatic_takeover": false
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -311,12 +299,12 @@
       "note": "Existing importer identifies possible duplicates; DOM tests are not screen-reader execution evidence."
     }
   ],
-  "last_sweep_at": null,
+  "last_sweep_at": "2026-10-25T12:06:55Z",
   "last_attempt": {
     "scheduled_for": "2026-10-25T12:05:00Z",
     "started_at": "2026-10-25T11:52:44Z",
     "checkpoint_at": "2026-10-25T12:02:30Z",
-    "status": "blocked",
+    "status": "published-awaiting-ci",
     "health_evidence": {
       "observed_at": "2026-10-25T11:58:23Z",
       "scope": "read-only safe workflow artifacts and logs; no whole queue downloaded",
