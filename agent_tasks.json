@@ -229593,7 +229593,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T06:16:50.419591Z"
+        "observed_at": "2026-10-25T06:16:50.419591Z",
+        "released_attempt_ref": "autonomous/attempt-c5d45cc792ab953498c0cf7e"
       },
       "research_result": {
         "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, and enforceIncidentBound dropping unresolved primary errors under fallback saturation. Confirmed via local scripts that inline focus traps misidentify elements nested in a collapsed <details> wrapper as focusable, whereas the controlAvailable helper correctly excludes them. Also confirmed via a local script that enforceIncidentBound incorrectly drops the active primary error incident when overwhelmed by active fallbacks on the same terminal. Profiled redact_text in src-tauri/src/diagnostics.rs on a 100k line clean log and tested a fast path avoiding line splitting when no sensitive markers are present, improving performance from ~1.3s to ~0.5s.",
