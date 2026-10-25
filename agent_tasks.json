@@ -235543,7 +235543,7 @@
       "id": "research-workspace-navigation-ux-23",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -235670,16 +235670,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5210389471572699823",
         "dispatch_key": "3682292020859c5122952f05",
         "base_sha": "a5ba1c086bddd48bb68e21fde9b40598465b020b",
         "starting_branch": "autonomous/attempt-3682292020859c5122952f05",
         "started_at": "2026-10-25T12:16:58.334043Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T12:52:54.154684Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
@@ -235851,13 +235851,102 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T12:28:05.143517Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T12:52:54.154684Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
+        "observations": [
+          {
+            "scenario": "Simulated failed addWorkspace action in App.tsx (Open Folder).",
+            "evidence": "Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open.",
+            "result": "Focus remains lost (defaults to document.body) if the workspace creation or folder selection fails."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+          "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+        ],
+        "proposed_task_ids": [
+          "discovery-64584f2ace44c556"
+        ],
+        "completed_at": "2026-10-25T12:52:54.154684Z",
+        "source": {
+          "activity_id": "sessions/5210389471572699823/activities/263b54ee675647ff88a30cdafbb4766d",
+          "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
+          "activity_created_at": "2026-10-25T12:41:44.996044Z",
+          "session_id": "5210389471572699823",
+          "dispatch_key": "3682292020859c5122952f05"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5210389471572699823/activities/263b54ee675647ff88a30cdafbb4766d",
+          "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
+          "activity_created_at": "2026-10-25T12:41:44.996044Z",
+          "session_id": "5210389471572699823",
+          "dispatch_key": "3682292020859c5122952f05"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-64584f2ace44c556"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-64584f2ace44c556",
+      "title": "Restore focus to initiating button when openFolder fails",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 25,
+      "risk": "low",
+      "focus": [
+        "a11y",
+        "bugfix"
+      ],
+      "created_at": "2026-10-25T12:52:54.154684Z",
+      "acceptance": [
+        "When openFolder fails (either due to user cancellation or backend error), focus is returned to the element that was active before the dialog opened.",
+        "The change passes existing lint and test requirements."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed missing focus restoration logic in openFolder callback in src/App.tsx.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Focus the 'Open folder' button.",
+            "Trigger the button with Space or Enter.",
+            "Simulate a backend error in addWorkspace or cancel the OS dialog."
+          ],
+          "expected": "Focus returns to the 'Open folder' button.",
+          "actual": "Focus is lost and resets to document.body."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-ux-23",
+        "activity_id": "sessions/5210389471572699823/activities/263b54ee675647ff88a30cdafbb4766d",
+        "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
+        "activity_created_at": "2026-10-25T12:41:44.996044Z",
+        "session_id": "5210389471572699823",
+        "dispatch_key": "3682292020859c5122952f05"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T12:45:16.774860Z",
+    "last_poll_at": "2026-10-25T12:53:23.528767Z",
     "last_tick_at": "2026-10-25T12:45:29.437345Z",
     "run_id": "40194439074",
     "owner_recovery_requests": [
