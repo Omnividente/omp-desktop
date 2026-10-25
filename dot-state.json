@@ -204,7 +204,12 @@
       "critical": true
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261025T172300Z-readonly-sweep-checkpoint",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-25T17:23:02.080244+00:00",
+    "purpose": "metadata-only bounded read-only Jules sweep and unchanged Ready capability exception"
+  },
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -494,6 +499,18 @@
       "scope": "Dot metadata exception and lease release only",
       "prepared_at": "2026-10-25T15:48:12.492137+00:00",
       "status": "readback-required"
+    },
+    {
+      "id": "r2j-20261025T172300Z-readonly-sweep-checkpoint-claim",
+      "kind": "state_lease_claim",
+      "expected_content_sha": "d4f1ba9a36b9f1bccd017189b413d458c178f048",
+      "expected_main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "send_claim": "consumed",
+      "lease_id": "r2j-20261025T172300Z-readonly-sweep-checkpoint",
+      "ack": "pending-readback",
+      "prepared_at": "2026-10-25T17:23:02.080244+00:00",
+      "digest": "65cc20b12f0f66bf15e85afb85e9b02b0ef83c6ea52d60c57597412afde7dab9"
     }
   ],
   "backlog": [
