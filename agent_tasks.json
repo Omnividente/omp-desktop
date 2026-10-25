@@ -227760,7 +227760,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T05:30:09.479707Z"
+        "observed_at": "2026-10-25T05:30:09.479707Z",
+        "released_attempt_ref": "autonomous/attempt-c1032254a59adca17e5c04e5"
       },
       "research_result": {
         "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the failure to resolve active fallbacks when a primary model recovers. Tested inline focus traps locally, verifying they incorrectly include hidden items in collapsed details, unlike useModalFocus. Tested enforceIncidentBound locally and verified that a solitary active modelError incident gets dropped when overridden by 100 fallback incidents on the same terminal. Examined model recovery lifecycle: clearing fallbacks when a primary model recovers was previously rejected because fallbacks are role-scoped and resolving them globally across roles hides unrelated transitions. Profiled redact_text function in src-tauri/src/diagnostics.rs on a 100k line synthetic clean log and confirmed ~3x execution time reduction by avoiding line allocations via a fast-path.",
