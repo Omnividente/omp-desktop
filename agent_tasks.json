@@ -606161,6 +606161,35 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "afe257bb4b2cac1f9be2417acc34d3e052cb94cfde60c779b519b51a7ebc5a64"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-25T03:38:21.668086Z",
+        "decision_id": "6ecc04eb5cfb3c7ebc01d26a235e8ffbac814d386a65f9de1e20cb19ff7e90e2",
+        "executor_claim_id": "10db27c5e7879be8cffedef8e464fb6d932cfb3e352f9e4fb773a88f24342415",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "daeba5aa346d102f1d57f546398f4c95016ba4c6",
+          "after_state_sha": "4c3a78ec2e8d8c4e5e6bb161f59e9e3dba34970a",
+          "poll_observations": [
+            {
+              "task_id": "research-settings-models-performance-22",
+              "session_id": "8911475622154707921",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-25T03:34:00Z"
+            },
+            {
+              "task_id": "research-transcript-links-reliability-22",
+              "session_id": "15050437306286657974",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-25T03:34:00Z"
+            }
+          ],
+          "before_digest": "192ce8ea41efa0346d1409ff28efcabe1f22f655eac7e05bf4e10127deda5b6c",
+          "after_digest": "290d066158dd7ac05fe8ac368ae8e3ddb5591e5f1a46b064ae495fea39e0a8e7"
+        },
+        "receipt_id": "d1577056af0836312b9520d0a858904d447735e491043bafb0dba26af3081366",
+        "event_id": "95c6e051772dc7d309b7f7b95d9da2d542b0a77309d61f25cc2968f29566712f"
       }
     ]
   }
