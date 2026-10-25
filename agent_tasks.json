@@ -231578,7 +231578,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T07:30:43.223210Z"
+        "observed_at": "2026-10-25T07:30:43.223210Z",
+        "released_attempt_ref": "autonomous/attempt-694cd35df2d5ebe124b6fb51"
       },
       "research_result": {
         "summary": "Investigated terminal input behavior and found that createMouseSelectionEdit incorrectly calculates the deletion length for complex Unicode sequences (like emojis with zero-width joiners) by counting code points instead of grapheme clusters. This results in too many deletion keystrokes being generated.",
