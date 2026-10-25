@@ -233189,7 +233189,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T09:33:58.623732Z"
+        "observed_at": "2026-10-25T09:33:58.623732Z",
+        "released_attempt_ref": "autonomous/attempt-fb4d19c871f03bc3321e3590"
       },
       "research_result": {
         "summary": "Investigated workspace navigation behavior. Verified that when a workspace is deleted via ProjectRail, focus is correctly moved to the 'Open folder' button or another logical element if the removal button loses focus. Also observed that focus restoration in TerminalWorkspace handles various edge cases, such as closing tabs and pointer actions, and that the WorkspaceHome has accessible buttons.",
