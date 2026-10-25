@@ -231094,7 +231094,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T07:10:54.522867Z"
+        "observed_at": "2026-10-25T07:10:54.522867Z",
+        "released_attempt_ref": "autonomous/attempt-0cd6254047a077b6792a0327"
       },
       "research_result": {
         "summary": "Investigated empty states and disable behavior in modals, finding that ImportSessionModal fails to disable the Import button when the path is empty, which can confuse users or trigger invalid imports.",
