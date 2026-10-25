@@ -226238,6 +226238,129 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-transcript-links-reliability-22",
+      "title": "Investigate Transcript rendering, scrolling and content links: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-10-25T03:34:00Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "reliability",
+        "fingerprint": "f111a5acb0d8d4f56858b124db55697d1e4911dc2e11be66d62bf09d8fd0e226",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Investigated the transcript rendering and interactions. Discovered that the clear search button in TranscriptModal successfully clears the search using `onClearSearch()` but attempts to restore focus to the search input via a ref `searchRef` that is never populated. As a result, clicking 'Clear search' inside the modal empty state resets the query but drops keyboard focus instead of keeping the user in the search flow.",
+            "observations": [
+              {
+                "scenario": "Observe clearSearch behavior when a user clears search from the empty state view",
+                "evidence": "In `TranscriptModal.tsx`, `const searchRef = useRef<HTMLInputElement>(null)` is declared. `clearSearch()` calls `searchRef.current?.focus({ preventScroll: true })`. However, `searchRef` is never attached to any element in the render method (`ref={searchRef}` does not exist anywhere in the modal). When executing this flow via jsdom tests, clicking the clear search button calls `onClearSearch()` but leaves focus unmanaged.",
+                "result": "Established that `clearSearch` incorrectly attempts to focus an unattached ref, dropping focus after execution. (Evidence mode: static_analysis)"
+              },
+              {
+                "scenario": "Identify missing search input or missing ref attachment",
+                "evidence": "Inspecting `TranscriptModal.tsx` reveals that it renders a `TranscriptSearch` component via another prop but does not render a raw `<input type='search'>` inside its own tree. Instead, the search input itself might live in a parent or `TranscriptSearch`. Wait, checking the codebase for `searchRef` shows it's completely detached. The parent or whoever handles `onClearSearch` should handle focus, or `TranscriptSearch` needs a ref forwarded.",
+                "result": "Established that focus management for the search clearing flow is broken. (Evidence mode: static_analysis)"
+              }
+            ],
+            "next_hypotheses": [
+              "The empty state layout contains an unintended DOM structure that impacts screen readers."
+            ],
+            "proposed_task_ids": [
+              "discovery-7a751ac6a14ae022"
+            ],
+            "completed_at": "2026-10-16T21:20:38.775069Z",
+            "source": {
+              "activity_id": "sessions/505057129258751932/activities/e0f4792e87d84efdaa889c9626bb3168",
+              "report_sha256": "be20422009bf90dd45430954e47b0a65edc22abc83a56a0d09d95a8461e48a44",
+              "activity_created_at": "2026-10-16T21:07:34.434121Z",
+              "session_id": "505057129258751932",
+              "dispatch_key": "fc311eacd6b7e06b196961af"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the empty state clear search focus behavior previously hypothesized as broken. Established that the focus restoration actually succeeds natively when `visibleEntries` is empty because the search input is still present in the DOM (rendered conditionally on `transcript.entries.length > 0`, not `visibleEntries.length`). Also investigated markdown URL parsing in `contentLinks.ts` and discovered that the backend file scheme and labeled URI matching logic successfully protects paths like `local://` and `.md` file references while passing them safely, but no new regressions were observed. I have no new actionable proposals as the previously noted empty state focus loss issue is fundamentally invalid based on actual component render logic observed via synthetic tests.",
+            "observations": [
+              {
+                "scenario": "Execute the 'clearSearch' operation from an empty state where transcript filtering yields zero visible entries.",
+                "evidence": "Executed Vitest interaction test mounting `TranscriptModal` with `transcript.entries.length = 1` but `visibleEntries.length = 0` (due to active search). The main toolbar search input remains mounted because it is keyed on `transcript.entries.length > 0`. Clicking the empty-state 'Clear search' button successfully triggers `clearSearch()`, which resolves `searchRef.current` and calls `focus({ preventScroll: true })`. Verified that `document.activeElement` matches the searchbox.",
+                "result": "Established that search focus restoration correctly handles the zero-match filter empty state without dropping focus, as the search input remains mounted. The previous hypothesis claiming dropping focus was incorrect. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Observe contentLinks label matcher behavior with escaped strings and mixed boundaries",
+                "evidence": "Observed via `contentLinks.test.ts` executing Vitest that `contentLinks` properly extracts `local://` and `.md` references and preserves escaped literal brackets inside markdown label matching without consuming the boundary.",
+                "result": "Established that contentLinks markdown parser matches expectations for labeled resources. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Using screen readers to navigate empty state might get stuck on aria-live regions without proper focus transition.",
+              "The empty state layout contains an unintended DOM structure that impacts screen readers."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-17T05:36:18.646201Z",
+            "source": {
+              "activity_id": "sessions/14738550020907438285/activities/9b8d25090b704f9b85afb2bfda30785b",
+              "report_sha256": "ec8d0c0461c33d785e529197f73ddfc2727765343c2683005c19c137c54a33a4",
+              "activity_created_at": "2026-10-17T05:01:57.235779Z",
+              "session_id": "14738550020907438285",
+              "dispatch_key": "724753dd96a63e9fad03ba65"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated performance and behavior of transcript rendering and scrolling, specifically around `useVirtualList` rendering scale and `contentLinks` regex latency. Measured `useVirtualList` layout calculations for 100,000 items (rendering in ~11ms initially) and `contentLinks` scanning of dense regex inputs (completing in ~65ms for 100 iterations of heavily nested strings). No new regressions were discovered. The previously identified 'Latest message' scroll anchoring issue remains deferred.",
+            "observations": [
+              {
+                "scenario": "Measure rendering performance and layout estimation latency for `useVirtualList` with 100,000 transcript elements.",
+                "evidence": "Executed synthetic component render benchmark with 100,000 simple virtual items. The initial hook invocation for `useVirtualList` layout calculation completed in ~11.42ms. The entire render pass including DOM updates in the mocked jsdom environment executed in ~84.87ms.",
+                "result": "Established that `useVirtualList` logic successfully bounds layout execution and performs efficiently under extreme element counts typical of large transcripts. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Measure the processing latency of `contentLinks` extracting complex labels and URLs iteratively.",
+                "evidence": "Executed native Node 22 performance test scanning heavily structured markdown string content using `contentLinks` matchers. 100 iterations on dense string with nested labels and URIs took ~65.17ms total.",
+                "result": "Established that `contentLinks` regular expression passes are properly bounded and scale reliably on large document lines. (Evidence mode: real_runtime)"
+              }
+            ],
+            "next_hypotheses": [
+              "Using screen readers to navigate empty state might get stuck on aria-live regions without proper focus transition.",
+              "The empty state layout contains an unintended DOM structure that impacts screen readers."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-17T07:02:57.986526Z",
+            "source": {
+              "activity_id": "sessions/6390792274771223913/activities/4a362b333d9448e0864269a7261f9859",
+              "report_sha256": "6c0dc921e6dc1fdbeccc6eafd5b517a42fdb5be6c2277b1be672765de7ed914c",
+              "activity_created_at": "2026-10-17T06:55:17.508644Z",
+              "session_id": "6390792274771223913",
+              "dispatch_key": "b484bbfd9ea51b154a104fb4"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
