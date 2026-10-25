@@ -607310,6 +607310,16 @@
           "actor": "Omnividente"
         },
         "event_id": "2fc6b7e756bee570bb546d8a52ffae421dc9bf4617422f8d3a11dd04516f644a"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T03:44:57.441271Z",
+        "decision_id": "7ab33bb92fee68fab0f92e3806cc6be72180e9d2fa2a1a91e9e6bd5cee36580e",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T03:44:55.938681Z"
+        },
+        "event_id": "3275cd02e7ff555d1807a38fb239b7cecfb7dfe7ce33c8b23e9b19f94ac1c336"
       }
     ]
   }
