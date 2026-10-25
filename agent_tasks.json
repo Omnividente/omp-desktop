@@ -691388,6 +691388,25 @@
         "before_state_sha": "fbdbf20369d3cbf7d7733b597183ef1491c1a3fe",
         "before_digest": "66f5779428a5a248cecc821888078eb858ee8e01c50b81c274c3dcf9203219a7",
         "event_id": "cdd9e63992c41fcaf144bb9a0e278d86c2430ee57ccd41d8d7f04d53608013e7"
+      },
+      {
+        "type": "ExecutionStage",
+        "at": "2026-10-25T15:10:23.144170Z",
+        "decision_id": "584e92571835fd873dc7c404ee91d1d8276a6531b3d12cbfa70d75366c36f56a",
+        "executor_claim_id": "f2286604b1de802ac98ba48c1bea4c4d6cdc4ff3b460426d0a0df1f659bef590",
+        "phase": "sync_prepared",
+        "stage_id": "5a6c4a0b2d800f7aa1d018451989309419a3aa2900ec7bb97d60c174501f6b2d",
+        "evidence": {
+          "status": "prepared",
+          "main_sha": "376b8c6203dfccbddcec2b2750c0b5f2d1a214f5",
+          "lab_sha": "a5ba1c086bddd48bb68e21fde9b40598465b020b",
+          "candidate_sha": "6d9950ebbfb0f2c8ef6e28ee80ebe60ab296b211",
+          "queue_blob": "076585bc9ffdfc4be0a571714e4cc0605d51dde3",
+          "candidate_branch": "autonomous/sync-40205605566-1",
+          "candidate_owned": true
+        },
+        "evidence_hash": "7c1716ef7bea9f11e5fc31c82714ff68ffb45e4f3e9210d33a776fe56dd1df36",
+        "event_id": "b0006ac4bbe68748ee1d9ff2f46d960f9475515d231cd774c4bce4037b70eeb3"
       }
     ]
   }
