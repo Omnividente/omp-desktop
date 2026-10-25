@@ -233226,6 +233226,134 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-transcript-links-behavior-22",
+      "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/useTranscript.ts",
+        "src/useVirtualList.ts",
+        "src/LinkedText.tsx",
+        "src/contentLinks.ts",
+        "src-tauri/src/content_links.rs"
+      ],
+      "created_at": "2026-10-25T09:33:58Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "transcript-links",
+        "perspective_id": "behavior",
+        "fingerprint": "f111a5acb0d8d4f56858b124db55697d1e4911dc2e11be66d62bf09d8fd0e226",
+        "cycle": 22,
+        "previous_reports": [
+          {
+            "summary": "Investigated performance and behavior of transcript rendering and scrolling, specifically around `useVirtualList` rendering scale and `contentLinks` regex latency. Measured `useVirtualList` layout calculations for 100,000 items (rendering in ~11ms initially) and `contentLinks` scanning of dense regex inputs (completing in ~65ms for 100 iterations of heavily nested strings). No new regressions were discovered. The previously identified 'Latest message' scroll anchoring issue remains deferred.",
+            "observations": [
+              {
+                "scenario": "Measure rendering performance and layout estimation latency for `useVirtualList` with 100,000 transcript elements.",
+                "evidence": "Executed synthetic component render benchmark with 100,000 simple virtual items. The initial hook invocation for `useVirtualList` layout calculation completed in ~11.42ms. The entire render pass including DOM updates in the mocked jsdom environment executed in ~84.87ms.",
+                "result": "Established that `useVirtualList` logic successfully bounds layout execution and performs efficiently under extreme element counts typical of large transcripts. (Evidence mode: mock_or_model)"
+              },
+              {
+                "scenario": "Measure the processing latency of `contentLinks` extracting complex labels and URLs iteratively.",
+                "evidence": "Executed native Node 22 performance test scanning heavily structured markdown string content using `contentLinks` matchers. 100 iterations on dense string with nested labels and URIs took ~65.17ms total.",
+                "result": "Established that `contentLinks` regular expression passes are properly bounded and scale reliably on large document lines. (Evidence mode: real_runtime)"
+              }
+            ],
+            "next_hypotheses": [
+              "Using screen readers to navigate empty state might get stuck on aria-live regions without proper focus transition.",
+              "The empty state layout contains an unintended DOM structure that impacts screen readers."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-17T07:02:57.986526Z",
+            "source": {
+              "activity_id": "sessions/6390792274771223913/activities/4a362b333d9448e0864269a7261f9859",
+              "report_sha256": "6c0dc921e6dc1fdbeccc6eafd5b517a42fdb5be6c2277b1be672765de7ed914c",
+              "activity_created_at": "2026-10-17T06:55:17.508644Z",
+              "session_id": "6390792274771223913",
+              "dispatch_key": "b484bbfd9ea51b154a104fb4"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the transcript reading/loading logic. During an interrupted or failed operation like a refresh, if the retry fails, `useTranscript` currently wipes out the previously loaded `transcript` content via `setTranscript(null)` before the new network call resolves or rejects. Because the request resets the state immediately instead of waiting for a successful response, a failed refresh causes all visible entries and transcript data to disappear, rendering an error state but losing the loaded content. This also clears the underlying data driving reading position restoration. To fix this, `load` should only clear `transcript` if we are changing to a completely *new* file path, not when refreshing the current one.",
+            "observations": [
+              {
+                "scenario": "Clicking refresh in the TranscriptModal which subsequently fails due to an error.",
+                "evidence": "Observed via mock jsdom tests simulating network failure on `loadTranscript`: when `onRefresh` is triggered, `useTranscript`'s `load` calls `setTranscript(null)` immediately. The promise rejects, triggering `setTranscriptError`. Since `transcript` is null, the `<TranscriptModal>` replaces the rendered `<div className=\"transcript-entries\">` entirely with the error message view. If a user subsequently clicks retry and succeeds, their scroll position is lost because `transcript` was wiped, interrupting `TranscriptModal`'s `pendingRestoreRef` tracking.",
+                "result": "Established that `useTranscript` aggressively destroys state on same-file reload, failing the persistence requirement during a temporary read failure. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Retaining the previous transcript payload might cause minor UI inconsistencies if the user navigates quickly, so a 'refreshing' loading overlay should ideally render over the old text instead of wiping it.",
+              "If the old transcript is retained during a reload, we should ensure the virtual list doesn't get stuck caching obsolete sizes if the refreshed transcript actually changed."
+            ],
+            "proposed_task_ids": [
+              "discovery-32eb6e3f7f5f07fc"
+            ],
+            "completed_at": "2026-10-25T04:09:20.581797Z",
+            "source": {
+              "activity_id": "sessions/15050437306286657974/activities/ed60d7c8ce4c41608545a75140bfab70",
+              "report_sha256": "0cc1877951582e0cb7038586713c8adf1843d4dd5da6ff9821bcb2222525fddd",
+              "activity_created_at": "2026-10-25T03:54:56.233827Z",
+              "session_id": "15050437306286657974",
+              "dispatch_key": "d0353b45999605f2e84a6b28"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated the transcript reading/loading logic. During an interrupted or failed operation like a refresh, if the retry fails, `useTranscript` currently wipes out the previously loaded `transcript` content via `setTranscript(null)` before the new network call resolves or rejects. Because the request resets the state immediately instead of waiting for a successful response, a failed refresh causes all visible entries and transcript data to disappear, rendering an error state but losing the loaded content. This also clears the underlying data driving reading position restoration. To fix this, `load` should only clear `transcript` if we are changing to a completely *new* file path, not when refreshing the current one.",
+            "observations": [
+              {
+                "scenario": "Clicking refresh in the TranscriptModal which subsequently fails due to an error.",
+                "evidence": "Observed via mock jsdom tests simulating network failure on `loadTranscript`: when `onRefresh` is triggered, `useTranscript`'s `load` calls `setTranscript(null)` immediately. The promise rejects, triggering `setTranscriptError`. Since `transcript` is null, the `<TranscriptModal>` replaces the rendered `<div className=\"transcript-entries\">` entirely with the error message view. If a user subsequently clicks retry and succeeds, their scroll position is lost because `transcript` was wiped, interrupting `TranscriptModal`'s `pendingRestoreRef` tracking.",
+                "result": "Established that `useTranscript` aggressively destroys state on same-file reload, failing the persistence requirement during a temporary read failure. (Evidence mode: mock_or_model)"
+              }
+            ],
+            "next_hypotheses": [
+              "Retaining the previous transcript payload might cause minor UI inconsistencies if the user navigates quickly, so a 'refreshing' loading overlay should ideally render over the old text instead of wiping it.",
+              "If the old transcript is retained during a reload, we should ensure the virtual list doesn't get stuck caching obsolete sizes if the refreshed transcript actually changed."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T04:35:35.452004Z",
+            "source": {
+              "activity_id": "sessions/4355028286922363208/activities/b6fae6a71ecd482b8a49e1f5a8a45050",
+              "report_sha256": "6f3315692dfeb7003251954e1cb24525d0fff75755aee360a39ad94303319cd0",
+              "activity_created_at": "2026-10-25T04:28:05.544157Z",
+              "session_id": "4355028286922363208",
+              "dispatch_key": "5b37b4cb3910385faf8a05d6"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix loss of transcript rendering state during refresh by retaining previous data while loading",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-32eb6e3f7f5f07fc; not established as a duplicate. {\"detail\": \"Verified via mock vitest simulation that `useTranscript` currently wipes the entire `transcript` state before a refresh network request completes, which replaces the existing UI with an empty or error state and destroys scroll tracking hooks in `<TranscriptModal>`. By modifying `load` to only clear `transcript` if `path !== sessionPathRef.current`, the transcript data is preserved during same-path refreshes.\", \"reproduction\": {\"actual\": \"`transcript` becomes `null` immediately, discarding all rendered entries.\", \"expected\": \"The `transcript` state remains populated and accessible while `transcriptLoading` is true.\", \"steps\": [\"Create a vitest mock that simulates calling `loadTranscript` on an already loaded session.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/useTranscript.ts"
+                ],
+                "acceptance": [
+                  "When a user triggers a reload/refresh (via `load` or `loadTranscript`) for the same active `sessionPath` already loaded in state, `transcript` and `transcriptSession` should not be cleared (`setTranscript(null)` should not be called).",
+                  "If the reload is for a different path, `setTranscript(null)` continues to clear state before the network call.",
+                  "If the reload fails for the same active path, the previous transcript content continues to display alongside an error (or gracefully retains content), so scroll position and visible text are not lost."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
