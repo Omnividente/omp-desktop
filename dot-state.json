@@ -73,8 +73,18 @@
       "policy": "passed",
       "environment": "isolated-synthetic-no-credentials",
       "controller_adapter": "Only source-root git rev-parse HEAD returns pinned base; unadapted suite had eight environment errors.",
-      "hosted_ci": "not-run",
-      "windows": "not-run"
+      "hosted_ci": "passed",
+      "windows": "passed",
+      "hosted_ci_evidence": {
+        "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+        "tested_merge_sha": "18bdb119c418c80718f0b8e873c828fad9f1125f",
+        "run_ids": [
+          40191689539,
+          40191689541,
+          40191689562
+        ],
+        "note": "Existing hosted receipts reconfirmed by exact-head checks; no tests launched this sweep."
+      }
     },
     "independent_review": {
       "status": "no-blocker",
@@ -181,21 +191,8 @@
       "critical": true
     }
   },
-  "lease": {
-    "id": "r2j-20261025T130500Z-readonly-sweep",
-    "owner": "dot-r2j",
-    "scheduled_for": "2026-10-25T13:05:00Z",
-    "acquired_at": "2026-10-25T13:33:30Z",
-    "expires_at": "2026-10-25T13:48:30Z"
-  },
-  "pending_operation": {
-    "id": "r2j-20261025T130500Z-readonly-sweep-checkpoint",
-    "kind": "metadata-sweep-checkpoint",
-    "send_claim": "consumed",
-    "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
-    "scope": "Dot metadata only; sweep receipt, advisory test/backlog status and lease release; source and PR unchanged"
-  },
+  "lease": null,
+  "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
     {
@@ -393,15 +390,31 @@
       "expected_content_sha": "d3ebf8b9bdb3fb09068ffd26252c6125ba3e8c62",
       "send_claim": "consumed",
       "lease_id": "r2j-20261025T130500Z-readonly-sweep",
-      "ack": "get-confirm-required"
+      "ack": "confirmed",
+      "result": {
+        "commit_sha": "f384f119c1cec8fb68e1b685c1c8ce965b2df08d",
+        "content_sha": "cda59b87f3db69880e385977af149ac1dc9b964d"
+      }
+    },
+    {
+      "id": "r2j-20261025T130500Z-readonly-sweep-checkpoint",
+      "kind": "metadata-sweep-checkpoint",
+      "send_claim": "consumed",
+      "expected_main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+      "expected_head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "scope": "Dot metadata only; sweep receipt, advisory test/backlog status and lease release; source and PR unchanged",
+      "status": "confirmed-read-only-sweep",
+      "observed_at": "2026-10-25T13:34:30Z",
+      "note": "No source/PR mutation in this sweep. Metadata checkpoint CAS result verified separately by GET."
     }
   ],
   "backlog": [
     {
       "fingerprint": "terminal-worker-observation-misclassification",
       "task_id": "terminal-worker-observation-20261025",
-      "status": "prepared-publication-blocked",
-      "evidence": "https://github.com/Omnividente/omp-desktop/actions/runs/40190423599"
+      "status": "awaiting-owner",
+      "evidence": "https://github.com/Omnividente/omp-desktop/actions/runs/40190423599",
+      "pr": 148
     },
     {
       "fingerprint": "exact-state-fetch-timeout-180s",
@@ -412,85 +425,69 @@
     {
       "fingerprint": "research-consumer-evidence-calibration",
       "status": "read-only-investigation",
-      "note": "Existing importer identifies possible duplicates; DOM tests are not screen-reader execution evidence."
+      "note": "Existing importer identifies possible duplicates; DOM tests are not screen-reader execution evidence.",
+      "latest_evidence": {
+        "run_id": 40195039166,
+        "artifact_id": 12599398640,
+        "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
+        "note": "Report parser accepted openFolder focus finding; supplied evidence cites source absence and simulated error, not native OS-dialog focus trace. Keep as evidence-calibration question, not reproduced product defect."
+      }
     }
   ],
-  "last_sweep_at": "2026-10-25T12:19:00Z",
+  "last_sweep_at": "2026-10-25T13:34:30Z",
   "last_attempt": {
-    "scheduled_for": "2026-10-25T12:05:00Z",
-    "started_at": "2026-10-25T11:52:44Z",
-    "checkpoint_at": "2026-10-25T12:02:30Z",
-    "status": "completed-checked-draft",
+    "scheduled_for": "2026-10-25T13:05:00Z",
+    "started_at": "2026-10-25T13:29:52Z",
+    "checkpoint_at": "2026-10-25T13:34:30Z",
+    "status": "completed-read-only-awaiting-owner",
+    "authority": {
+      "grant_id": "r2-j-5ced6a1fb5fa4440a69023073c964abf",
+      "events_complete": true,
+      "issue_events": 0,
+      "comments": 2,
+      "canonical_hashes_verified": true
+    },
+    "pr": {
+      "number": 148,
+      "state": "open",
+      "draft": true,
+      "head_sha": "41e16f1c096c72006a986bd7f5de877d9e11b104",
+      "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
+      "mergeable": true,
+      "reviews": 0,
+      "checks_success": 8
+    },
     "health_evidence": {
-      "observed_at": "2026-10-25T11:58:23Z",
-      "scope": "read-only safe workflow artifacts and logs; no whole queue downloaded",
+      "scope": "Safe retained artifacts and Actions metadata, not full live queue",
       "next": {
-        "run_id": 40190423599,
-        "attempt": 1,
+        "run_id": 40195039166,
         "conclusion": "success",
-        "updated_at": "2026-10-25T11:54:15Z",
-        "artifact_id": 12597816486,
-        "observed_at": "2026-10-25T11:49:17.420042Z",
-        "action": "dispatched",
-        "reason": "created",
-        "attention": [],
-        "completed_task": "research-workspace-navigation-reliability-23",
-        "completed_session": "2576545545596452099",
-        "completed_reason": "worker_running",
-        "new_task": "research-workspace-navigation-performance-23",
-        "new_session": "7316562788903133598",
-        "new_session_state": "QUEUED",
-        "report_parsers": "ok",
-        "report_outcome": "no_change",
-        "findings_count": 0
+        "artifact_id": 12599398640,
+        "reason": "no_todo_tasks",
+        "research_reason": "cooldown",
+        "research_next_at": "2026-10-26T01:54:28Z",
+        "attention": []
       },
       "continue": {
-        "run_id": 40190034186,
-        "attempt": 1,
+        "run_id": 40195243857,
         "conclusion": "success",
-        "artifact_id": 12598305130,
-        "observed_at": "2026-10-25T11:49:27.218769Z",
-        "outcome": "handed_off",
-        "reason": "successor_observed",
-        "confirmed_next_run": 40190423599
+        "artifact_id": 12600611743,
+        "reason": "successor_requested",
+        "health_reason": "cooldown",
+        "successor_run_id": 40196933606,
+        "successor_status": "in_progress",
+        "successor_step": "Wait for the next deadline and confirm the successor"
       },
-      "monitor": {
-        "run_id": 40187977528,
-        "artifact_id": 12597236905,
-        "observed_at": "2026-10-25T11:18:23Z",
-        "reason": "dispatch_journal_executing",
-        "executing_next": 40188211053,
-        "next_later_conclusion": "success",
-        "historical_attention": [
-          {
-            "reason": "dispatch_aborted",
-            "task_id": "research-workspace-navigation-performance-22",
-            "observed_at": "2026-10-24T23:08:04.203436Z"
-          }
-        ],
-        "sync_publication": "published",
-        "main_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-        "lab_sha": "a5ba1c086bddd48bb68e21fde9b40598465b020b"
-      },
+      "historical_attention": "dispatch_aborted at 2026-10-24T23:08:04.203436Z only; not new incident",
       "replenish": {
         "run_id": 40189401229,
-        "job_id": 121157087944,
-        "conclusion": "failure",
-        "at": "2026-10-25T11:40:42Z",
-        "stage": "Append and save evidence-backed tasks without moving lab",
-        "reason": "subprocess.TimeoutExpired: state_store exact state fetch after 180 seconds",
-        "requested_state_sha": "07d326cdfa07f0469ee58a6366f403295dbf2a1a",
-        "eslint_errors": 0,
-        "typescript_diagnostics": 0,
-        "interpretation": "Recurring state-fetch latency class; not evidence new original state_write_failed or stopped NEXT/CONTINUE; no retry launched"
-      },
-      "limits": [
-        "Latest100runs only, not full history census",
-        "No private worker prose inspected",
-        "No accepted product outcome inferred",
-        "No live queue/journal writes or workflow launches"
-      ]
+        "status": "previously-known-state-fetch-timeout; no newer Replenish in recent run window"
+      }
     },
-    "completed_at": "2026-10-25T12:19:00Z"
+    "state_reconciliation": {
+      "current_lease": null,
+      "current_pending_operation": null,
+      "prior_reacquire_annotation": "Historical operation r2j-20261025T120500Z-reacquire retains get-confirm-required; not rewritten. Current GET confirms final first-run checkpoint with released lease and confirmed source/PR receipts; no effect resent."
+    }
   }
 }
