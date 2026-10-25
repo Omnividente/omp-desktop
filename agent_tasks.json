@@ -231198,7 +231198,7 @@
       "id": "research-terminal-input-behavior-23",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -231395,16 +231395,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15686771330889389636",
         "dispatch_key": "694cd35df2d5ebe124b6fb51",
         "base_sha": "c5c9c68ebf7a489cf622f49d96d513a081333a18",
         "starting_branch": "autonomous/attempt-694cd35df2d5ebe124b6fb51",
         "started_at": "2026-10-25T07:10:54.522867Z",
-        "finished_at": "",
+        "finished_at": "2026-10-25T07:30:43.223210Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "a8c65c636c35c574d87c983bb935971e3a3e56e9",
@@ -231577,13 +231577,101 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-25T07:22:25.117770Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-25T07:30:43.223210Z"
+      },
+      "research_result": {
+        "summary": "Investigated terminal input behavior and found that createMouseSelectionEdit incorrectly calculates the deletion length for complex Unicode sequences (like emojis with zero-width joiners) by counting code points instead of grapheme clusters. This results in too many deletion keystrokes being generated.",
+        "observations": [
+          {
+            "scenario": "A multi-character grapheme cluster (like an emoji with ZWJ) is selected with the mouse to edit.",
+            "evidence": "Executed an isolated Node.js script using `createMouseSelectionEdit` with the text '👨‍👩‍👧‍👦' (an emoji with zero-width joiners).",
+            "result": "The returned `length` (which dictates the number of deletions) was 7, whereas `Intl.Segmenter` counts it correctly as 1 grapheme cluster."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if terminal shortcut keys map gracefully on non-Latin layouts where event.code doesn't match event.key natively."
+        ],
+        "proposed_task_ids": [
+          "discovery-b09a36ea7ba4534e"
+        ],
+        "completed_at": "2026-10-25T07:30:43.223210Z",
+        "source": {
+          "activity_id": "sessions/15686771330889389636/activities/200dfa466acb4c67bcab2abfdb461d82",
+          "report_sha256": "1f38e4b9f64dc21e4f0b93fa5eb9aa1b55c1a19e58f6edbbf4328d3cf5dd0053",
+          "activity_created_at": "2026-10-25T07:23:13.479732Z",
+          "session_id": "15686771330889389636",
+          "dispatch_key": "694cd35df2d5ebe124b6fb51"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/15686771330889389636/activities/200dfa466acb4c67bcab2abfdb461d82",
+          "report_sha256": "1f38e4b9f64dc21e4f0b93fa5eb9aa1b55c1a19e58f6edbbf4328d3cf5dd0053",
+          "activity_created_at": "2026-10-25T07:23:13.479732Z",
+          "session_id": "15686771330889389636",
+          "dispatch_key": "694cd35df2d5ebe124b6fb51"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-b09a36ea7ba4534e"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-b09a36ea7ba4534e",
+      "title": "Use Intl.Segmenter to accurately count grapheme clusters for terminal mouse selection edits",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 30,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-10-25T07:30:43.223210Z",
+      "acceptance": [
+        "createMouseSelectionEdit counts grapheme clusters instead of Unicode code points, returning a length of 1 for complex emojis like '👨‍👩‍👧‍👦'."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Isolated script testing showed `createMouseSelectionEdit` iterating over string characters using a `for...of` loop, which incorrectly counts complex Unicode sequences (such as ZWJ emojis) as multiple items, leading to excessive deletion characters. Using `Intl.Segmenter` accurately counts actual grapheme clusters.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a synthetic MouseSelectionEdit context with text '👨‍👩‍👧‍👦'.",
+            "Call createMouseSelectionEdit.",
+            "Observe the `length` property of the returned object."
+          ],
+          "expected": "The returned length is 1.",
+          "actual": "The returned length is 7."
+        }
+      },
+      "target_paths": [
+        "src/terminalInput.ts"
+      ],
+      "origin": {
+        "task_id": "research-terminal-input-behavior-23",
+        "activity_id": "sessions/15686771330889389636/activities/200dfa466acb4c67bcab2abfdb461d82",
+        "report_sha256": "1f38e4b9f64dc21e4f0b93fa5eb9aa1b55c1a19e58f6edbbf4328d3cf5dd0053",
+        "activity_created_at": "2026-10-25T07:23:13.479732Z",
+        "session_id": "15686771330889389636",
+        "dispatch_key": "694cd35df2d5ebe124b6fb51"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-25T07:23:01.187066Z",
+    "last_poll_at": "2026-10-25T07:31:11.105978Z",
     "last_tick_at": "2026-10-25T07:23:13.655767Z",
     "run_id": "40172480078",
     "owner_recovery_requests": [
