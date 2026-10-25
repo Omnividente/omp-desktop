@@ -150,6 +150,9 @@ part of this CI proof. Never alter existing workflows to manufacture eligibility
 
 ### Ordinary versus critical automatic review
 
+The following provider-receipt contract remains effective for policy v2. Only a
+new owner-issued grant bound to policy v3 may use the alternative below.
+
 Classify exact full diff and independently assessed behavior. Any production
 Python change defaults **critical**; modified/deleted tests and operational docs
 are critical. Pure additive tests may be ordinary. Admission, provenance,
@@ -577,3 +580,95 @@ heartbeat/backlog и сводное completion evidence. Не спрашивай
 или разрешений по каждой in-scope задаче, не сообщай о каждом тихом обходе.
 Не объявляй невыполненные проверки успешными. Оставь Jules работающим.
 ```
+
+
+## Policy v3 native procedural review (proposed, not activated)
+
+`docs/dot/r2-j-policy-v3.json` retains schema 2 and every scope, budget, CAS,
+single-send, CI, protected squash and live-Jules prohibition. Its policy version
+is 3. Publishing or accepting source alone does not reinterpret an existing
+grant. The old v2 policy remains immutable. Product R1 remains inactive.
+
+The owner-directed amendment allows **two separate actual native executions**
+for every change: code review and independent safety/tests. Each is a fresh
+`collaboration.spawn_agent` call with `fork_turns="none"`, not the author or any
+other task that authored the patch. Record all writer identities. The caller
+retains actual invocation arguments and returned canonical task identity, then
+the completed agent result. Both receive the identical complete exact
+base/head/tested-merge/tree/path/blob manifest. Read-only review and isolated
+testing are explicitly instructed; shared filesystem permissions do **not**
+technically enforce that scope. Recheck candidate bytes after both executions.
+
+This is `procedural-not-provider-attested` independence. Do not require or
+fabricate provider model/context/trace/permission/hash attestations. Local
+manifest/report/log hashes detect changed bytes, not provenance. The caller
+must compare records with actual primary tool observations and keep a retrievable
+transcript reference; author-written JSON, a fixture, a pasted approval, or a
+second prompt in the author task is not evidence of independent execution.
+
+For a machine-checkable retained call, its `message` is JSON containing `role`,
+`scope="read-only-review-and-isolated-tests"`, the complete `manifest` and
+`instructions`. Preserve the exact call, `result.task_name`, and final agent
+report JSON as `completion`; do not rewrite the report to make it pass. Reports
+retain the existing approved verdict, sufficiency/risk analysis, complete path
+coverage, test IDs and absence of unresolved findings. Receipts identify
+`origin="native-agent-tool-result"`, `permissions="read-only-task-scope"`
+(an instructed boundary only), and the actual execution ID. The validator
+checks bindings and exact result content; it cannot authenticate supplied JSON.
+
+Critical safety review must really execute isolated boundary tests and retain
+command, exit code, original output and its locally computed SHA-256, exact
+head/manifest, and covered test IDs. All existing fail-closed/no-replay/identity/
+non-escalation scenarios still require results or justified applicability; at
+least one must actually pass. Missing or failed logs cannot become success by
+author attestation. Reproduction still requires real failing-before and
+passing-after evidence. The two native reviews supplement, never replace,
+ordinary GitHub CI and live protection/thread checks. Changed refs, manifest,
+bytes or findings invalidate reviews. Unverifiable primary execution, missing
+logs or inadequate tests remain a consolidated safety exception.
+
+### Policy v3 owner acceptance and regrant
+
+One formal owner acceptance may authorize the following bounded bootstrap
+sequence; Dot must not accept/merge this governance PR or issue itself a grant.
+Owner acceptance must bind the exact PR head/base, successful normal CI
+identities/attempts, policy v3 canonical hash and the read-back installed main.
+This is separate one-time owner work, not standing R2-J authority.
+
+1. Review the exact amendment and its real two-agent/test evidence. Integrate
+   through protected owner-directed review/merge; verify installed blobs and
+   ordinary push CI. No workflow or protection changes are required.
+2. Stage only the Dot authority index so no new Dot effects occur. Leave Jules
+   ON. Read the actual Dot blob SHA and full state; require no lease, pending
+   operation, unresolved task operation or incomplete Ready/merge/postmerge.
+   Reconcile unknown results first; never steal a lease or discard history.
+3. Explicitly supersede/revoke the current v2 grant. Prepare a **new** immutable
+   grant with `schema=2`, `version=3`, policy path
+   `docs/dot/r2-j-policy-v3.json` and its canonical SHA-256. The `r2-j-v2-` ID
+   prefix denotes the unchanged schema-2 identity format, not policy version.
+   Owner acceptance records the old grant, exact state blob/full canonical hash,
+   adopted task ID/PR/head, policy hash and source acceptance. No grant is issued
+   by this PR; unknown or mixed bindings remain read-only.
+4. Use pure `regrant_state` to prepare schema-2 → schema-2 bytes. It preserves
+   the existing task, branch, PR, original base, history, counters, old evidence,
+   backlog and retired IDs; changes only the grant binding and phase to
+   `review_required`, and appends a migration record. Owner CAS-writes against
+   the freshly accepted blob SHA and GET-verifies exact resulting bytes. Old
+   evidence is historical, not valid under the new policy. Never rerun a write
+   after unknown ACK; GET-reconcile only.
+5. Activate the owner index with schema 2, policy_version/grant_version 3, exact
+   policy path/hash, new immutable export/hash, explicit old-grant revocation
+   and verified migration receipt. Update the **same** hourly task's policy
+   selection instructions (no duplicate scheduler). The acceptance may cover
+   these owner-executed bootstrap steps as one decision; it is not permission
+   for Dot to issue its own authority.
+6. Continue PR #148 on the same task and branch, preserving its 4-file/79-line/
+   zero-CI-revision historical counters (read live values again). A main refresh
+   still reserves one CI revision once before the expected-head/non-force
+   effect. Obtain fresh independent reviews and real CI for its new exact refs.
+   Existing Ready, protected exact-head squash and full postmerge requirements
+   are unchanged; no task retirement or next task before completion proof.
+
+If any bootstrap observation changes, pause dependent activation and preserve
+all prior state. Acceptance does not waive safe CAS, unknown-outcome handling,
+checks or merge protection, and does not permit live recovery.

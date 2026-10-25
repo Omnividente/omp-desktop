@@ -425,7 +425,7 @@ def complete_task(state, post_merge, *, now):
     return result
 
 
-def migrate_state(state, new_grant, acceptance, *, expected_blob_sha, now):
+def _migrate_state(state, new_grant, acceptance, *, expected_blob_sha, now, source_schema, policy_version):
     """Prepare owner-only exact-snapshot migration; never perform the CAS.
 
     acceptance requires decision=accept, decision_ref, supersedes_grant_id,
@@ -435,23 +435,26 @@ def migrate_state(state, new_grant, acceptance, *, expected_blob_sha, now):
     authentication. CAS MUST use expected_blob_sha, never a remembered constant.
     """
     stamp = _time(now)
-    _state(state, 1)
+    _state(state, source_schema)
     task = _task(state)
     if state["lease"] is not None or state["pending_operation"] is not None:
         raise ValueError("migration requires quiet state; no lease stealing or pending effect")
+    if task.get("phase") in ("ready_pending", "merge_pending", "post_merge"):
+        raise ValueError("migration cannot discard an unfinished integration")
     _hex(expected_blob_sha, 40, "expected_blob_sha")
     _object(new_grant, "new_grant")
     _object(acceptance, "acceptance")
     _json(new_grant)
     _json(acceptance)
     if (type(new_grant.get("schema")) is not int or new_grant["schema"] != 2
-            or type(new_grant.get("version")) is not int or new_grant["version"] != 2
+            or type(new_grant.get("version")) is not int or new_grant["version"] != policy_version
             or new_grant.get("kind") != "dot-r2-j-grant"
             or new_grant.get("repository") != REPOSITORY
             or not isinstance(new_grant.get("id"), str)
             or not re.fullmatch(r"r2-j-v2-[0-9a-f]{32}", new_grant["id"])
+            or new_grant.get("id") == state["grant_id"]
             or new_grant.get("supersedes_grant_id") != state["grant_id"]
-            or new_grant.get("policy_path") != "docs/dot/r2-j-policy-v2.json"
+            or new_grant.get("policy_path") != "docs/dot/r2-j-policy-v%d.json" % policy_version
             or new_grant.get("acceptance") != acceptance):
         raise ValueError("migration requires a distinct v2 grant explicitly superseding the old grant")
     _hex(new_grant.get("policy_sha256"), 64, "policy_sha256")
@@ -469,8 +472,26 @@ def migrate_state(state, new_grant, acceptance, *, expected_blob_sha, now):
     result["grant_id"] = new_grant["id"]
     result["active_task"]["phase"] = "review_required"
     result.setdefault("migrations", []).append(
-        {"from_schema": 1, "to_schema": 2, "old_grant_id": state["grant_id"],
+        {"from_schema": source_schema, "to_schema": 2, "old_grant_id": state["grant_id"],
          "new_grant_id": new_grant["id"], "expected_state_blob_sha": expected_blob_sha,
          "state_sha256": digest(state), "grant_sha256": digest(new_grant),
          "acceptance": deepcopy(acceptance), "prepared_at": stamp})
     return result
+
+
+def migrate_state(state, new_grant, acceptance, *, expected_blob_sha, now):
+    """Owner-only schema-1 to schema-2 migration; no network effects."""
+    return _migrate_state(state, new_grant, acceptance, expected_blob_sha=expected_blob_sha,
+                          now=now, source_schema=1, policy_version=2)
+
+
+def regrant_state(state, new_grant, acceptance, *, expected_blob_sha, now):
+    """Owner-only schema-2 regrant for policy v3; preserve all task history.
+
+    Caller verifies accepted policy/grant provenance and explicit old-grant
+    revocation, freezes only the Dot writer, then uses the current content.sha
+    CAS. This pure preparation is not authority, a CAS, or a lease acquisition.
+    Prior review evidence remains historical; a new full preflight is required.
+    """
+    return _migrate_state(state, new_grant, acceptance, expected_blob_sha=expected_blob_sha,
+                          now=now, source_schema=2, policy_version=3)

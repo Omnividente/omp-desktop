@@ -56,10 +56,13 @@ approval: Dot develops/tests/publishes, obtains independent automatic review,
 marks its PR Ready and performs only the protected exact-head squash allowed by
 the grant. Ordinary source work needs one independent code review; critical
 source work additionally needs a distinct independent safety/test execution,
-not owner approval per task. Existing native review execution must provide
-primary tool identity/provenance, separate context, read-only scope and exact
-revision coverage; unverifiable independence or sufficiency is a safety exception,
-not a self-review or invented provider/API. CodeQL alone is not peer review.
+not owner approval per task. Review evidence follows the effective grant-bound policy, not the newest file.
+Legacy policy v2 retains provider-provenance requirements. Proposed policy v3
+(schema 2) permits two distinct fresh native tasks with retained actual calls,
+results and safety logs: procedural independence, never provider-attested
+isolation. It requires separate owner acceptance, a new grant and quiet-state
+CAS regrant before use. Unverifiable actual execution or insufficient evidence
+remains a safety exception. CodeQL alone is not peer review.
 
 Follow [the common Dot workflow](docs/dot/WORKFLOW.md) for complete overlap,
 exact-SHA, expected-head, postmerge proof and unknown-ACK checks. R2-J allows one
@@ -146,3 +149,4 @@ Operational contracts and recovery procedures: `docs/autonomous/RUNBOOK.md`.
 Implementation contract: `docs/autonomous/JULES_TASK_PROMPT.md`. Their saved
 per-task request carries the exact base, scope and identity; do not substitute
 current branch contents or historical instructions for that immutable request.
+

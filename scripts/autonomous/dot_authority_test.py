@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from dot_authority import digest, evaluate, prepare_grant
+from dot_authority import authority, digest, evaluate, policy_check, prepare_grant
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT / "docs/dot/r2-j-policy.json").read_text(encoding="utf-8"))
@@ -183,5 +183,53 @@ class AuthorityTest(unittest.TestCase):
             data = packet(); data[key] = False; self.assert_denied(data)
 
 
+
+class PolicyV3AuthorityTest(unittest.TestCase):
+    def setUp(self):
+        self.policy = json.loads((ROOT / "docs/dot/r2-j-policy-v3.json").read_text())
+        self.data = packet()
+        accepted = acceptance()
+        accepted["supersedes_grant_id"] = "r2-j-v2-" + "1" * 32
+        grant = prepare_grant(self.policy, accepted, NOW - timedelta(hours=1))
+        self.data.update(grant=grant, index={
+            "schema": 2, "policy_version": 3, "policy_path": grant["policy_path"],
+            "policy_sha256": digest(self.policy), "status": "active",
+            "repository": self.policy["repository"],
+            "grant": {"id": grant["id"], "sha256": digest(grant), "comment_id": 23},
+            "revoked_grants": [accepted["supersedes_grant_id"]]})
+
+    def test_new_policy_requires_new_bound_grant_and_explicit_old_revocation(self):
+        self.assertEqual(authority(self.policy, self.data, NOW), self.data["grant"]["id"])
+        for key, value in (("policy_version", 2), ("policy_path", "docs/dot/r2-j-policy-v2.json"),
+                           ("policy_sha256", "0" * 64), ("revoked_grants", [])):
+            data = copy.deepcopy(self.data); data["index"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                authority(self.policy, data, NOW)
+
+    def test_old_policy_and_grant_cannot_select_new_review_semantics(self):
+        old = json.loads((ROOT / "docs/dot/r2-j-policy-v2.json").read_text())
+        with self.assertRaises(ValueError): authority(old, self.data, NOW)
+        grant = prepare_grant(old, self.data["grant"]["acceptance"], NOW - timedelta(hours=1))
+        self.data["grant"] = grant
+        self.data["index"]["grant"].update(id=grant["id"], sha256=digest(grant))
+        with self.assertRaises(ValueError): authority(self.policy, self.data, NOW)
+
+    def test_v3_cannot_claim_provider_attestation_or_weaken_review_roles(self):
+        for key, value in (("origin", "provider-tool-result"), ("permissions", "read-only"),
+                           ("independence", "provider-attested"), ("ordinary_executions", ["code-review"]),
+                           ("critical_executions", ["safety-review"])):
+            changed = copy.deepcopy(self.policy); changed["review"][key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError): policy_check(changed)
+        self.assertEqual(self.policy["review"]["ordinary_executions"], ["code-review", "safety-review"])
+        self.assertEqual(self.policy["review"]["critical_executions"], ["code-review", "safety-review"])
+
+    def test_v3_unknown_version_or_reopened_revocation_stays_closed(self):
+        policy = copy.deepcopy(self.policy); policy["version"] = 4
+        with self.assertRaises(ValueError): policy_check(policy)
+        self.data["issue_events"] = [{"id": 2, "event": "closed", "created_at": NOW.isoformat()},
+                                     {"id": 3, "event": "reopened", "created_at": NOW.isoformat()}]
+        with self.assertRaises(ValueError): authority(self.policy, self.data, NOW)
+
 if __name__ == "__main__":
     unittest.main()
+

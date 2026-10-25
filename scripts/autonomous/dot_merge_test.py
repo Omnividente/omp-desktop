@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import sys
 import unittest
@@ -314,5 +315,101 @@ class IntegrationGateTest(unittest.TestCase):
         data["open_prs"].append({**data["open_prs"][0], "branch": "dot/jules-another"}); self.denied(data)
 
 
+
+def native_reviews(data):
+    """Synthetic transport fixtures; these are NOT claims of actual executions."""
+    policy = json.loads((ROOT / "docs/dot/r2-j-policy-v3.json").read_text(encoding="utf-8"))
+    manifest = review_manifest(policy, data)
+    fingerprint = digest(manifest)
+    reviews(data)
+    evidence = data["independent_review"]
+    evidence.update(independence="procedural-not-provider-attested", writers_complete=True,
+                    author={"execution_id": "/author"}, writer_execution_ids=["/author"])
+    for report, receipt in zip(evidence["reports"], evidence["receipts"]):
+        role = report["role"]
+        execution = "/author/" + role
+        report.update(execution_id=execution, input_sha256=fingerprint)
+        request = {"role": role, "scope": "read-only-review-and-isolated-tests", "manifest": manifest,
+                   "instructions": "Review exact inputs; do not edit source or perform external effects."}
+        output = "Synthetic fixture: 4 boundary cases passed\n"
+        receipt.clear()
+        receipt.update(id=role, execution_id=execution, role=role, origin="native-agent-tool-result",
+                       permissions="read-only-task-scope", status="completed", completed_at=NOW.isoformat(),
+                       input_sha256=fingerprint, result_sha256=digest(report), evidence_uri="urn:synthetic:" + role,
+                       invocation={"tool": "collaboration.spawn_agent", "arguments": {"fork_turns": "none",
+                       "task_name": role, "message": json.dumps(request)}, "result": {"task_name": execution}},
+                       completion=json.dumps(report), test_logs=[{"command": "synthetic fixture command",
+                       "exit_code": 0, "head_sha": HEAD, "input_sha256": fingerprint, "output": output,
+                       "sha256": hashlib.sha256(output.encode()).hexdigest(), "test_ids": report["test_ids"]}])
+    data["test_evidence"]["input_sha256"] = fingerprint
+    for row in data["test_evidence"]["safety"]:
+        row.update(executor_id="/author/safety-review", input_sha256=fingerprint)
+    return policy, manifest
+
+
+class NativeReviewGateTest(unittest.TestCase):
+    def setUp(self):
+        self.data = integration_packet()
+        self.policy, self.manifest = native_reviews(self.data)
+
+    def check(self):
+        from dot_merge import _review_check
+        return _review_check(self.policy, self.data, self.manifest, NOW)
+
+    def denied(self, mutate):
+        mutate(self.data["independent_review"])
+        before = copy.deepcopy(self.data)
+        with self.assertRaises((ValueError, KeyError, TypeError)):
+            self.check()
+        self.assertEqual(before, self.data)
+
+    def test_two_native_results_need_no_provider_attested_fields(self):
+        critical, rows = self.check()
+        self.assertTrue(critical)
+        self.assertEqual({r["role"] for r in rows}, {"code-review", "safety-review"})
+        self.assertTrue(all(r["independence"] == "procedural-not-provider-attested" for r in rows))
+        self.assertTrue(all("provider" not in r for r in self.data["independent_review"]["receipts"]))
+
+    def test_legacy_policy_does_not_accept_native_mode(self):
+        from dot_merge import _review_check
+        with self.assertRaises((ValueError, KeyError)):
+            _review_check(POLICY, self.data, self.manifest, NOW)
+
+    def test_self_review_and_any_previous_writer_are_rejected(self):
+        self.denied(lambda e: e["writer_execution_ids"].append("/author/code-review"))
+
+    def test_forked_author_history_is_not_fresh_context(self):
+        self.denied(lambda e: e["receipts"][0]["invocation"]["arguments"].update(fork_turns="all"))
+
+    def test_changed_tool_identity_or_spawn_result_is_rejected(self):
+        self.denied(lambda e: e["receipts"][0]["invocation"].update(tool="invented-review-provider"))
+
+    def test_changed_result_cannot_be_replaced_by_author_summary(self):
+        self.denied(lambda e: e["reports"][0].update(rationale="Author replacement"))
+
+    def test_missing_safety_execution_is_rejected(self):
+        self.denied(lambda e: (e["reports"].pop(), e["receipts"].pop()))
+
+    def test_exact_head_change_invalidates_both_reviews(self):
+        self.manifest["head_sha"] = "1" * 40
+        with self.assertRaises(ValueError): self.check()
+
+    def test_safety_output_bytes_must_match_local_hash(self):
+        self.denied(lambda e: e["receipts"][1]["test_logs"][0].update(output="changed"))
+
+    def test_safety_failed_command_is_not_passed(self):
+        self.denied(lambda e: e["receipts"][1]["test_logs"][0].update(exit_code=1))
+
+    def test_safety_report_without_execution_logs_is_insufficient(self):
+        self.denied(lambda e: e["receipts"][1].update(test_logs=[]))
+
+    def test_safety_case_without_logged_execution_is_insufficient(self):
+        self.denied(lambda e: e["receipts"][1]["test_logs"][0].update(test_ids=["unrelated"]))
+
+    def test_honest_independence_classification_is_required(self):
+        self.denied(lambda e: e.update(independence="provider-attested"))
+
+
 if __name__ == "__main__":
     unittest.main()
+
