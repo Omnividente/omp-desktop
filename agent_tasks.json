@@ -651977,6 +651977,16 @@
           "actor": "Omnividente"
         },
         "event_id": "3dbd198e98b9c5f5ff58c3fe3f5496d77324fb0e664e50b06132641c170a630e"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-25T08:49:59.767466Z",
+        "decision_id": "efe482d1ff1b7f4a4e52680033d05f1445410f94132703db8b365a222f418bfc",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-25T08:49:57.841209Z"
+        },
+        "event_id": "481661c4d76e9bcbc4305625614963841ee2ae70670cf7b63eb05bdfaee2f573"
       }
     ]
   }
