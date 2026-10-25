@@ -16,7 +16,7 @@
     "ci_revisions": 1,
     "initial_published": true,
     "unresolved_operation": null,
-    "phase": "review_required",
+    "phase": "ready_pending",
     "critical": true,
     "pr": {
       "number": 148,
@@ -609,7 +609,47 @@
     "task_id": "terminal-worker-observation-20261025",
     "acquired_at": "2026-10-25T21:13:43.731Z"
   },
-  "pending_operation": null,
+  "pending_operation": {
+    "id": "terminal-worker-observation-20261025-v3-ready",
+    "kind": "ready_for_review",
+    "task_id": "terminal-worker-observation-20261025",
+    "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+    "status": "pending",
+    "intent": {
+      "operation_id": "terminal-worker-observation-20261025-v3-ready",
+      "kind": "ready_for_review",
+      "grant_id": "r2-j-v2-cd18d9f291614822a73fd59dc276f47a",
+      "task_id": "terminal-worker-observation-20261025",
+      "lease_id": "r2j-20261025T211300Z-pr148-ready",
+      "prepared_at": "2026-10-25T21:14:09.412806+00:00",
+      "expected": {
+        "repository": "Omnividente/omp-desktop",
+        "number": 148,
+        "node_id": "PR_kwDOTdB0ps8AAAABKkvdyQ",
+        "branch": "dot/jules-terminal-worker-observation-20261025",
+        "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+        "tested_merge_sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+        "tested_tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb"
+      },
+      "request": {
+        "tool": "mark_pull_request_ready_for_review",
+        "arguments": {
+          "repository_full_name": "Omnividente/omp-desktop",
+          "pr_number": 148
+        }
+      },
+      "expected_state_blob_sha": "1bf7793ad2e7b15d851d752a2b6722ea747b1466",
+      "policy_sha256": "8bf3cdfc83a5a4e2a56ed20144af02d86d195b0397afcd4a7dd283effb7fdaf9",
+      "preflight_sha256": "c8abd9eaaf8bc77a729c76a6f55e1176fbb29dbf7d8e9545ec52194861c78ad0"
+    },
+    "intent_sha256": "50616daa44dd21c1144c25d01d845bb74659576d147b46e68a208bfc4855935e",
+    "request_sha256": "c84e248b5afb628d1320037d2d884a8a3b47624395bc41a71c99ea1610465233",
+    "send_claim": {
+      "consumed": true,
+      "lease_id": "r2j-20261025T211300Z-pr148-ready"
+    }
+  },
   "retired_task_ids": [],
   "operations": [
     {
@@ -1160,6 +1200,47 @@
       "send_claim": "consumed",
       "ack": "pending-readback",
       "prepared_at": "2026-10-25T21:13:43.731Z"
+    },
+    {
+      "id": "terminal-worker-observation-20261025-v3-ready",
+      "kind": "ready_for_review",
+      "task_id": "terminal-worker-observation-20261025",
+      "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "status": "pending",
+      "intent": {
+        "operation_id": "terminal-worker-observation-20261025-v3-ready",
+        "kind": "ready_for_review",
+        "grant_id": "r2-j-v2-cd18d9f291614822a73fd59dc276f47a",
+        "task_id": "terminal-worker-observation-20261025",
+        "lease_id": "r2j-20261025T211300Z-pr148-ready",
+        "prepared_at": "2026-10-25T21:14:09.412806+00:00",
+        "expected": {
+          "repository": "Omnividente/omp-desktop",
+          "number": 148,
+          "node_id": "PR_kwDOTdB0ps8AAAABKkvdyQ",
+          "branch": "dot/jules-terminal-worker-observation-20261025",
+          "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+          "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+          "tested_merge_sha": "1e57460859263e160f30de4bb8bf9e14c6a74c6c",
+          "tested_tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb"
+        },
+        "request": {
+          "tool": "mark_pull_request_ready_for_review",
+          "arguments": {
+            "repository_full_name": "Omnividente/omp-desktop",
+            "pr_number": 148
+          }
+        },
+        "expected_state_blob_sha": "1bf7793ad2e7b15d851d752a2b6722ea747b1466",
+        "policy_sha256": "8bf3cdfc83a5a4e2a56ed20144af02d86d195b0397afcd4a7dd283effb7fdaf9",
+        "preflight_sha256": "c8abd9eaaf8bc77a729c76a6f55e1176fbb29dbf7d8e9545ec52194861c78ad0"
+      },
+      "intent_sha256": "50616daa44dd21c1144c25d01d845bb74659576d147b46e68a208bfc4855935e",
+      "request_sha256": "c84e248b5afb628d1320037d2d884a8a3b47624395bc41a71c99ea1610465233",
+      "send_claim": {
+        "consumed": true,
+        "lease_id": "r2j-20261025T211300Z-pr148-ready"
+      }
     }
   ],
   "backlog": [
