@@ -1382,6 +1382,14 @@ branch is unique to the run; cleanup only deletes that owned ref if its SHA stil
 matches. A conflict, failed gate or moved head leaves live lab unchanged. Disabling
 the loop during verification also prevents publication.
 
+The full-history checkouts in Sync, NEXT and CONTINUE use `filter: blob:none`
+with `fetch-depth: 0`. Commit/tree ancestry and exact frozen controller revisions
+remain available; historical file bodies are fetched only when needed. This is
+neither a shallow nor a sparse checkout, and credentials remain nonpersistent.
+Checkout must still fit the existing preparation and handoff job deadlines.
+A checkout error alone does not prove an unused execution right: inspect native
+step outcomes and the authoritative journal before classifying its effects.
+
 Fix the reported conflict or failing check, then review the durable frontier before
 explicit admission of another sync on `main`. A spent unknown/prepared/finalize
 claim is not a retry capability; reconcile actual effects under a separately
