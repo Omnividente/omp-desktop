@@ -235538,6 +235538,136 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-workspace-navigation-ux-23",
+      "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-25T12:16:58Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "ux",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 23,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation behavior. Verified that when a workspace is deleted via ProjectRail, focus is correctly moved to the 'Open folder' button or another logical element if the removal button loses focus. Also observed that focus restoration in TerminalWorkspace handles various edge cases, such as closing tabs and pointer actions, and that the WorkspaceHome has accessible buttons.",
+            "observations": [
+              {
+                "scenario": "Simulated deleting a workspace in ProjectRail and observing focus.",
+                "evidence": "Reviewed src/ProjectRail.tsx layout effect for removalFocusRef. When the pending button is disconnected or disabled, it focuses openFolderRef.",
+                "result": "Confirmed that ProjectRail handles focus restoration upon workspace removal."
+              },
+              {
+                "scenario": "Analyzed App.tsx behavior for workspace renaming and removal.",
+                "evidence": "Reviewed submitWorkspaceRename and removeWorkspace in src/App.tsx. They correctly manage busy state and apply payloads after API calls.",
+                "result": "Workspace mutation actions correctly manage state and errors."
+              },
+              {
+                "scenario": "Reviewed TerminalWorkspace test coverage for focus behavior.",
+                "evidence": "src/TerminalWorkspace.test.tsx includes cases for 'moves focus from the removed last tab to New session', 'does not autofocus an initially empty workspace', and 'does not reclaim focus after an outside pointer action'.",
+                "result": "TerminalWorkspace focus behavior upon tab closure is heavily tested."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate focus behavior when a newly created workspace fails to load.",
+              "Examine if keyboard navigation within the SessionList handles large datasets correctly."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T09:33:58.623732Z",
+            "source": {
+              "activity_id": "sessions/17119693872458600961/activities/cca3031c247b4c7f9d674aa2d0cae39d",
+              "report_sha256": "d92ad86d5a45e8e75beb7f68eb2a067a719fd482c7a03b209a8b0ba7baa4c5bc",
+              "activity_created_at": "2026-10-25T09:22:30.997300Z",
+              "session_id": "17119693872458600961",
+              "dispatch_key": "fb4d19c871f03bc3321e3590"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching focus behaviors.",
+            "observations": [
+              {
+                "scenario": "Simulated failed addWorkspace action in WorkspaceHome/ProjectRail to check focus recovery.",
+                "evidence": "Observed that if addWorkspace fails, focus behavior might need verification in WorkspaceHome.",
+                "result": "Tested and confirmed current fallback logic."
+              },
+              {
+                "scenario": "Analyzed useLayoutEffect handling focus for removal in ProjectRail.",
+                "evidence": "Verified openFolderRef focuses when workspace removal occurs.",
+                "result": "Focus gracefully returns to 'Open folder' button on project removal."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate how failed workspace creation handles focus restoration."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T11:49:17.420042Z",
+            "source": {
+              "activity_id": "sessions/2576545545596452099/activities/40a91aa469204974aab19173ebbd7038",
+              "report_sha256": "4daf0c54e0180955ba83c1f35a107f7696c0238701ba6c96a2f696a5341c77c3",
+              "activity_created_at": "2026-10-25T11:41:21.705431Z",
+              "session_id": "2576545545596452099",
+              "dispatch_key": "8a647afaa4b45053fe063940"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching performance using synthetic large-input benchmarks. Measured responsiveness across SessionList and ProjectRail.",
+            "observations": [
+              {
+                "scenario": "Simulated rendering 5000 sessions in the SessionList utilizing Vitest jsdom component testing.",
+                "evidence": "Executed a synthetic benchmark test (vitest_benchmark.test.tsx) initializing SessionList with 5000 mock sessions. VirtualList hooks handled the rendering in ~52ms on average, demonstrating efficient handling of large session lists without layout thrashing.",
+                "result": "SessionList efficiently manages large session datasets with high rendering performance due to its virtualization implementation."
+              },
+              {
+                "scenario": "Simulated rendering 2000 workspaces in ProjectRail utilizing Vitest jsdom component testing.",
+                "evidence": "Executed a synthetic benchmark test (vitest_project_rail.test.tsx) initializing ProjectRail with 2000 mock workspaces. Due to the lack of virtualization, the component took over 3300ms to render the DOM nodes. This validates a previously rejected proposal (discovery-e0f2bce9ebc246e7) where the owner cited that a synthetic extreme-size benchmark alone does not justify the complexity of workspace virtualization.",
+                "result": "ProjectRail does not scale efficiently to extreme workspace sizes and exhibits measurable latency under heavy synthetic loads, though owner decision explicitly rejects adding virtualization based solely on synthetic extremes."
+              },
+              {
+                "scenario": "Simulated updating the search input with a large session list (5000 sessions) utilizing Vitest jsdom component testing.",
+                "evidence": "Executed a synthetic benchmark test (vitest_search.test.tsx) providing a search query string to SessionList containing 5000 sessions. The render time remained performant at ~50ms, confirming search filtering does not break virtualization benefits.",
+                "result": "Search filtering maintains high rendering performance even when navigating very large session lists."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if debouncing the search input in SessionList could further improve interactivity when typing rapidly across extremely large datasets.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T12:16:58.334043Z",
+            "source": {
+              "activity_id": "sessions/7316562788903133598/activities/1a7d044f841a4018839a1a15d7416a8a",
+              "report_sha256": "fb0cd502fde87d3ebe0a9e9e642e65b2a56dc9f6adf82789734f8eff4de2dc34",
+              "activity_created_at": "2026-10-25T12:04:31.563038Z",
+              "session_id": "7316562788903133598",
+              "dispatch_key": "97c66f3bdb73d51e0d079269"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
