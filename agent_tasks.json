@@ -228740,7 +228740,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-25T05:49:50.411585Z"
+        "observed_at": "2026-10-25T05:49:50.411585Z",
+        "released_attempt_ref": "autonomous/attempt-8945a5837f4e2a00b61330e6"
       },
       "research_result": {
         "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, and enforceIncidentBound dropping unresolved primary errors under fallback saturation. Also profiled the redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log and tested a fast path avoiding line splitting when no sensitive markers are present.",
