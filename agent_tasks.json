@@ -238771,7 +238771,7 @@
       "id": "research-sessions-persistence-performance-24",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -238907,16 +238907,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "8424995992576594124",
         "dispatch_key": "5f8144bc0047932d87656b33",
         "base_sha": "d773ad9f10139cbd418148b3d4269b8559160fcc",
         "starting_branch": "autonomous/attempt-5f8144bc0047932d87656b33",
         "started_at": "2026-10-26T05:18:07.165434Z",
-        "finished_at": "",
+        "finished_at": "2026-10-26T05:46:47.554185Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "398c6310e7938d51f713bbf1eeea75fb8e2066eb",
@@ -239089,13 +239089,100 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-26T05:30:17.146809Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-26T05:46:47.554185Z"
+      },
+      "research_result": {
+        "summary": "Investigated how the frontend handles the immediate `[session_lease_active]` error from `import_sessions`. Discovered that `parseBackendError` correctly extracts the `code` if the error is a raw string. However, `import_sessions` returns a list of items where each failed item has `status: \"failed\"` and `message: \"[session_lease_active] ...\"`. The frontend (`App.tsx` and `CodexImportModal`) simply grabs the `message` string (e.g. `failures.map((item) => item.message ?? item.sourcePath).join(\"\\n\")`) and displays it. It does not parse it through `parseBackendError`, which causes the user to see the raw `[session_lease_active] ...` string instead of a properly localized error message.",
+        "observations": [
+          {
+            "scenario": "Handling of session_lease_active from import_sessions results",
+            "evidence": "Observed in `src/App.tsx` around line 1511 and 1570 that for failed import items, the UI directly shows `item.message`. When `import_sessions` in the backend returns `[session_lease_active] ...` inside `ImportItemResult.message`, it gets surfaced directly to the user because `errorMessage` in `src/api.ts` checks `normalizeBackendError` first. Since the input to `errorMessage` in `showError` will be the string `[session_lease_active] ...`, `errorMessage` *would* parse it correctly. Wait, actually, let's look at `showError` call: `showError(failures.map((item) => item.message ?? item.sourcePath).join(\"\\n\"))`. `showError` just renders the string directly, it doesn't call `errorMessage`! `errorMessage` is only called in the `catch` block for thrown errors, not for returned `failed` items.",
+            "result": "The UI displays raw unlocalized `[session_lease_active] ...` errors to the user during import because the failed item messages are passed directly to `showError`, bypassing `errorMessage` localization."
+          }
+        ],
+        "next_hypotheses": [
+          "Verify if passing `item.message` through `errorMessage` or parsing the code in `App.tsx` correctly resolves and localizes the `[session_lease_active]` error for failed import items."
+        ],
+        "proposed_task_ids": [
+          "discovery-049f8791f814ce6b"
+        ],
+        "completed_at": "2026-10-26T05:46:47.554185Z",
+        "source": {
+          "activity_id": "sessions/8424995992576594124/activities/efd3352c3471485fbc9e0b2b6feb619f",
+          "report_sha256": "582acb3ef660b10f3aa2c7927deaa5ba047cdbce5eeb8ade3f8217e9e95b27cd",
+          "activity_created_at": "2026-10-26T05:33:25.750667Z",
+          "session_id": "8424995992576594124",
+          "dispatch_key": "5f8144bc0047932d87656b33"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/8424995992576594124/activities/efd3352c3471485fbc9e0b2b6feb619f",
+          "report_sha256": "582acb3ef660b10f3aa2c7927deaa5ba047cdbce5eeb8ade3f8217e9e95b27cd",
+          "activity_created_at": "2026-10-26T05:33:25.750667Z",
+          "session_id": "8424995992576594124",
+          "dispatch_key": "5f8144bc0047932d87656b33"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-049f8791f814ce6b"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-049f8791f814ce6b",
+      "title": "Localize backend error codes in import failure messages",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 20,
+      "risk": "low",
+      "focus": [
+        "quality"
+      ],
+      "created_at": "2026-10-26T05:46:47.554185Z",
+      "acceptance": [
+        "When an import item fails with a message containing a backend error code like `[session_lease_active]`, the frontend localizes the message using `errorMessage` before displaying it.",
+        "Users see the localized text (e.g., 'This session is already open...') instead of the raw backend string."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed that `importSessions` returns an array of `ImportItemResult` which may contain a `message` string like `[session_lease_active]...`. The frontend directly joins and passes these messages to `showError`, bypassing `errorMessage` which usually translates these strings. This causes the raw error code to be displayed.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Mock `importSessions` to return an item with status `failed` and message `[session_lease_active] The session is locked`.",
+            "Trigger an import.",
+            "Observe the error notification."
+          ],
+          "expected": "The error notification displays the localized message (e.g., 'This session is already open...').",
+          "actual": "The error notification displays the raw string '[session_lease_active] The session is locked'."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-sessions-persistence-performance-24",
+        "activity_id": "sessions/8424995992576594124/activities/efd3352c3471485fbc9e0b2b6feb619f",
+        "report_sha256": "582acb3ef660b10f3aa2c7927deaa5ba047cdbce5eeb8ade3f8217e9e95b27cd",
+        "activity_created_at": "2026-10-26T05:33:25.750667Z",
+        "session_id": "8424995992576594124",
+        "dispatch_key": "5f8144bc0047932d87656b33"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-26T05:39:06.033869Z",
+    "last_poll_at": "2026-10-26T05:47:14.977429Z",
     "last_tick_at": "2026-10-26T05:39:19.550996Z",
     "run_id": "40275268746",
     "owner_recovery_requests": [
