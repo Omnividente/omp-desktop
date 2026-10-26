@@ -239090,7 +239090,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-26T05:46:47.554185Z"
+        "observed_at": "2026-10-26T05:46:47.554185Z",
+        "released_attempt_ref": "autonomous/attempt-5f8144bc0047932d87656b33"
       },
       "research_result": {
         "summary": "Investigated how the frontend handles the immediate `[session_lease_active]` error from `import_sessions`. Discovered that `parseBackendError` correctly extracts the `code` if the error is a raw string. However, `import_sessions` returns a list of items where each failed item has `status: \"failed\"` and `message: \"[session_lease_active] ...\"`. The frontend (`App.tsx` and `CodexImportModal`) simply grabs the `message` string (e.g. `failures.map((item) => item.message ?? item.sourcePath).join(\"\\n\")`) and displays it. It does not parse it through `parseBackendError`, which causes the user to see the raw `[session_lease_active] ...` string instead of a properly localized error message.",
