@@ -237486,7 +237486,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-26T03:41:40.627976Z"
+        "observed_at": "2026-10-26T03:41:40.627976Z",
+        "released_attempt_ref": "autonomous/attempt-e7e8ced1de6f4cefac51b346"
       },
       "research_result": {
         "summary": "Investigated the bug where a generic error during startWithDefaults traps the user in SettingsRecoveryScreen.",
