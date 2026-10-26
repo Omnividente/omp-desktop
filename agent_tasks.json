@@ -771150,6 +771150,16 @@
           "actor": "Omnividente"
         },
         "event_id": "fa6f40e90a721c54fab33e3d72e991e6af6160072c50d87ecc9e542159eeab50"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T08:16:56.808612Z",
+        "decision_id": "a7e6d77e7f5956de4de237a39eceeb25bd1860b6fec6d2b14f5a6a99ba18a16c",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T08:16:54.699093Z"
+        },
+        "event_id": "ffe7156583435d6132d1ce96e2d11c34a04c78887fe3731349aabf78e3435a81"
       }
     ]
   }
