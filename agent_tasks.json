@@ -748580,6 +748580,16 @@
           "actor": "Omnividente"
         },
         "event_id": "1977f98934127741ace2818f9233f31a915ed4ae2e7d49e5432e34baa388c287"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T05:38:05.012263Z",
+        "decision_id": "fe1a714dc5a1127ccd740843ab6aa4bb9990a8830280790c43f46decc8621659",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T05:38:02.934464Z"
+        },
+        "event_id": "466c500fb3b4589357086d5eb43826edee0267ea314056976b3435dd7e7b2195"
       }
     ]
   }
