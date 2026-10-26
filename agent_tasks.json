@@ -241294,7 +241294,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-26T06:56:54.083614Z"
+        "observed_at": "2026-10-26T06:56:54.083614Z",
+        "released_attempt_ref": "autonomous/attempt-6240bf445727e21b3364e624"
       },
       "research_result": {
         "summary": "Investigated resource health measurement, particularly `sample_resource_health`, and related logic. Verified that passing 1000 processes to `sample_resource_health` takes ~50ms in Rust, which is very fast, whereas testing 0 processes took ~0.45ms.  This confirms `sample_resource_health` is performant even with a large number of processes. Therefore, I will log these observations without generating new product tasks.",
