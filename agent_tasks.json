@@ -235949,7 +235949,7 @@
       "id": "research-settings-models-behavior-23",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "blocked",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -236275,16 +236275,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "awaiting_report",
+        "state": "completed",
         "session_id": "7573627253711103568",
         "dispatch_key": "4d77a01143efca887da6c241",
         "base_sha": "bb730756eb06966af8fee24df2afbb17f3898f1d",
         "starting_branch": "autonomous/attempt-4d77a01143efca887da6c241",
         "started_at": "2026-10-26T01:57:21.340645Z",
-        "finished_at": "",
+        "finished_at": "2026-10-26T02:34:38.768659Z",
         "pull_request": 0,
-        "outcome": "report_invalid",
-        "note": "completed worker report requires inspection: research_invalid",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
@@ -236458,22 +236458,10 @@
         },
         "session_state": "COMPLETED",
         "observed_at": "2026-10-26T02:25:26.800838Z",
-        "report_error": {
-          "code": "research_invalid",
-          "detail": "expected exactly one ordered research report block",
-          "reported_at": "2026-10-26T02:25:26.800838Z",
-          "source": {
-            "activity_id": "sessions/7573627253711103568/activities/7bff8ddc95394a3f9f4b121b7304e5bd",
-            "report_sha256": "b8261740b2c8206d2d51746a29fb3b500ed24051475b216914617a1543843543",
-            "activity_created_at": "2026-10-26T02:13:08.352176Z",
-            "session_id": "7573627253711103568",
-            "dispatch_key": "4d77a01143efca887da6c241"
-          }
-        },
         "report_repair": {
           "at": "2026-10-26T02:26:06.647339Z",
           "result": "sent",
-          "status": "pending",
+          "status": "resolved",
           "source": {
             "activity_id": "sessions/7573627253711103568/activities/7bff8ddc95394a3f9f4b121b7304e5bd",
             "report_sha256": "b8261740b2c8206d2d51746a29fb3b500ed24051475b216914617a1543843543",
@@ -236482,11 +236470,117 @@
             "dispatch_key": "4d77a01143efca887da6c241"
           }
         }
+      },
+      "research_result": {
+        "summary": "Investigated the SettingsRecoveryScreen bug where the application traps the user if a non-settings error occurs during the startWithDefaults fallback process. Verified the issue by analyzing src/App.tsx and running tests. The settingsRecovery state should be cleared on non-settings errors to allow the user to escape the recovery screen.",
+        "observations": [
+          {
+            "scenario": "Triggering startWithDefaults in recoverSettingsWithDefaults with a simulated non-settings error",
+            "evidence": "Source code review of src/App.tsx (recoverSettingsWithDefaults) shows that when startWithDefaults throws an error not related to settings (i.e. settingsUnavailableDetails(error) returns null), it sets startupError using showError but does not clear the settingsRecovery state (setSettingsRecovery(null)). This leaves the user stuck in the SettingsRecoveryScreen.",
+            "result": "The UI fails to dismiss the SettingsRecoveryScreen because settingsRecovery is not cleared, incorrectly persisting the recovery state when a general network/runtime error occurs during fallback."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if similar state reset bugs occur in loadBootstrap when it is triggered multiple times during network disruptions."
+        ],
+        "proposed_task_ids": [
+          "discovery-cc13c452f9838bbe"
+        ],
+        "completed_at": "2026-10-26T02:34:38.768659Z",
+        "source": {
+          "activity_id": "sessions/7573627253711103568/activities/47cf3b53e86342119b773a69f545ed59",
+          "report_sha256": "716d47252700d9b592c018fa99618ef37f3ca2694af669ce6cc7bc77f0b6d603",
+          "activity_created_at": "2026-10-26T02:28:11.367261Z",
+          "session_id": "7573627253711103568",
+          "dispatch_key": "4d77a01143efca887da6c241"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/7573627253711103568/activities/47cf3b53e86342119b773a69f545ed59",
+          "report_sha256": "716d47252700d9b592c018fa99618ef37f3ca2694af669ce6cc7bc77f0b6d603",
+          "activity_created_at": "2026-10-26T02:28:11.367261Z",
+          "session_id": "7573627253711103568",
+          "dispatch_key": "4d77a01143efca887da6c241"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-cc13c452f9838bbe"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-cc13c452f9838bbe",
+      "title": "Clear SettingsRecoveryScreen state on generic error during defaults fallback",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 70,
+      "risk": "low",
+      "focus": [
+        "bugfix",
+        "quality",
+        "tests"
+      ],
+      "created_at": "2026-10-26T02:34:38.768659Z",
+      "acceptance": [
+        "When recoverSettingsWithDefaults calls startWithDefaults() and it throws an error that is not related to settings, setSettingsRecovery(null) is called.",
+        "The user is no longer trapped in the SettingsRecoveryScreen if a generic error occurs during the fallback process."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed in src/App.tsx that recoverSettingsWithDefaults handles a caught error by displaying it using showError, but omits setting settingsRecovery to null when the error isn't from settings, keeping the modal open.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Trigger a settings parse error to enter the SettingsRecoveryScreen.",
+            "Click the Start with defaults button.",
+            "Simulate a generic network or runtime error thrown from startWithDefaults()."
+          ],
+          "expected": "The SettingsRecoveryScreen is dismissed and a generic error toast/message is shown.",
+          "actual": "A generic error toast is shown, but the SettingsRecoveryScreen remains open and traps the user."
+        },
+        "revisit": {
+          "contract_version": "post-revisit-v1",
+          "change_kind": "new_evidence",
+          "difference": "This proposal targets a specific omission in App.tsx (recoverSettingsWithDefaults), trapping users in a broken UI state on non-settings errors during startWithDefaults(). It does not modify backend payloads like discovery-31392473c06b5573 which targeted proxy provider lists in save logic.",
+          "evidence_mode": "static_analysis",
+          "primary_decision_task_id": "discovery-31392473c06b5573",
+          "observation_refs": [
+            0
+          ],
+          "responses": [
+            {
+              "decision_task_id": "discovery-31392473c06b5573",
+              "decision_context_id": "808f50139ca926d42d16de47f67ca13d3a36c228596e239aeaa806fae74e0487",
+              "why_previous_reason_no_longer_explains": "The previous rejection regarding 'discovery-31392473c06b5573' pertained to backend logic or proxy provider list filtering, completely distinct from this frontend UI state management bug inside `recoverSettingsWithDefaults` in `App.tsx`."
+            }
+          ]
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-settings-models-behavior-23",
+        "activity_id": "sessions/7573627253711103568/activities/47cf3b53e86342119b773a69f545ed59",
+        "report_sha256": "716d47252700d9b592c018fa99618ef37f3ca2694af669ce6cc7bc77f0b6d603",
+        "activity_created_at": "2026-10-26T02:28:11.367261Z",
+        "session_id": "7573627253711103568",
+        "dispatch_key": "4d77a01143efca887da6c241"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-26T02:26:01.266371Z",
+    "last_poll_at": "2026-10-26T02:35:11.548556Z",
     "last_tick_at": "2026-10-26T02:26:48.238953Z",
     "run_id": "40258964947",
     "owner_recovery_requests": [
