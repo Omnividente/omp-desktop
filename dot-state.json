@@ -13,7 +13,7 @@
       "scripts/autonomous/loop_health_test.py"
     ],
     "spent_lines": 79,
-    "ci_revisions": 1,
+    "ci_revisions": 2,
     "initial_published": true,
     "unresolved_operation": null,
     "phase": "review_required",
@@ -40,6 +40,13 @@
         "ci_revision": true,
         "paths": [],
         "reason": "inherit accepted main, preserve four authored blobs unchanged"
+      },
+      {
+        "id": "accepted-153-main-refresh",
+        "reserved_lines": 0,
+        "ci_revision": true,
+        "paths": [],
+        "reason": "strict base refresh from9683 to installed accepted governance main bced, preserving four authored blobs"
       }
     ],
     "prepared_tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
@@ -1542,6 +1549,51 @@
       "send_claim": "consumed",
       "prepared_at": "2026-10-25T21:16:25.212Z",
       "scope": "Preserve original pending Ready intent/counters and record actual platform rejection; release known lease only"
+    },
+    {
+      "id": "terminal-worker-observation-20261025-refresh153-tree",
+      "kind": "create_tree",
+      "task_id": "terminal-worker-observation-20261025",
+      "request": {
+        "repository_full_name": "Omnividente/omp-desktop",
+        "base_tree_sha": "150d952aff458aa08a4e636ef30f6ce7df2eb144",
+        "tree_elements": [
+          {
+            "path": "scripts/autonomous/lab_controller.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "3132dcff43ac467075897fb36bd80c8deb31e5a5"
+          },
+          {
+            "path": "scripts/autonomous/lab_controller_test.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "b51c8a711010a0314e754ee1f0a6a4f6154b22fe"
+          },
+          {
+            "path": "scripts/autonomous/loop_health.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "bbaaeeef48540b29856d1e21140f35d877b06b9e"
+          },
+          {
+            "path": "scripts/autonomous/loop_health_test.py",
+            "mode": "100644",
+            "type": "blob",
+            "sha": "ceeea0ce8ba410ba1823930d8bcaac1dd3389b99"
+          }
+        ]
+      },
+      "request_sha256": "b09b9563bac24639dd915f2d25456013c313aff9cc0206f93d0083b17c9d3ddd",
+      "expected_main_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
+      "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "expected_state_blob_sha": "b270664c76810fe7c8c05ec0b5210a604e1de5e7",
+      "send_claim": {
+        "consumed": true,
+        "lease_id": "r2j-20261026T085500Z-pr148-refusal-settlement"
+      },
+      "prepared_at": "2026-10-26T08:58:16.640860+00:00",
+      "status": "prepared"
     }
   ],
   "backlog": [
