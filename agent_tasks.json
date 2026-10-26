@@ -237873,7 +237873,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-26T04:31:14.463975Z"
+        "observed_at": "2026-10-26T04:31:14.463975Z",
+        "released_attempt_ref": "autonomous/attempt-f416e4daf090d2a29edb79ca"
       },
       "research_result": {
         "summary": "Investigated the SettingsRecoveryScreen bug where generic network errors trap the user, and measured ModelPicker filtering performance.",
