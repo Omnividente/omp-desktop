@@ -763338,6 +763338,15 @@
         },
         "receipt_id": "d756fb417654a19c379899f221e7d0d53d763d50fb39d16f39bbd0d149f1f797",
         "event_id": "2c287e1f2357fd3f3f89dbfa305b153c53db97c6f8542c78b35f5f4a22d3f30e"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-26T07:25:07.735484Z",
+        "decision_id": "7b55931eedc6bfef78ca4569dbdfe0fbf8b8d187d6d9b837c0fe3841c2f42012",
+        "executor_claim_id": "249040d5efc8d5ec9f0d5a3b0a3834b06564e6a0d39c3604124f7d5937436361",
+        "receipt_id": "d756fb417654a19c379899f221e7d0d53d763d50fb39d16f39bbd0d149f1f797",
+        "frontier_seq": 994,
+        "event_id": "539f009f0ad3e196e85055ac76114cfa47c359c17dc93f4165e085fbe04963da"
       }
     ]
   }
