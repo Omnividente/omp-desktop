@@ -240848,6 +240848,269 @@
           "detail": "3 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-performance-23",
+      "title": "Investigate Runtime incidents and resource health: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-10-26T06:27:26Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "performance",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 23,
+        "previous_reports": [
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas `controlAvailable` correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs.",
+            "observations": [
+              {
+                "scenario": "Keyboard focus trap logic inside IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Ran a local test using `jsdom` (test_focus.js) that verified the inline `!element.hidden` check incorrectly identifies children of collapsed `<details>` tags as visible, whereas `controlAvailable` correctly excludes them.",
+                "result": "The inline focus trap logic incorrectly includes elements hidden inside closed `<details>` tags. They should use `controlAvailable` or a similar robust visibility check."
+              },
+              {
+                "scenario": "enforceIncidentBound function dropping sole unresolved error incident under fallback saturation in src/runtimeIncidents.ts.",
+                "evidence": "Ran a local TypeScript execution (test_enforce.ts) with 100 fallback incidents and 1 model error on the same terminal. After enforcing the bounds, the result length was 100 and the model error incident was the missing ID because it was the oldest incident and candidate pruning grouped everything on  [excerpt]",
+                "result": "enforceIncidentBound erroneously drops a sole unresolved error incident under fallback saturation when the terminal exceeds the bounds."
+              },
+              {
+                "scenario": "Performance test of redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log.",
+                "evidence": "Ran a Rust performance test (test_redact.rs). The original implementation without early exits took ~1.1s. A fast-path that checks for string matches on the lowercased log before processing line-by-line took ~0.3s.",
+                "result": "Adding a fast-path to redact_text can significantly improve performance on large log payloads by avoiding string allocations when no redaction is necessary."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T06:43:57.860774Z",
+            "source": {
+              "activity_id": "sessions/7021725509331393716/activities/d10ae7bf59b34f29817b7d145a47c9ea",
+              "report_sha256": "5bed3a29c7d5148ec3a4322a3bf466c0b1f57a356a5104ef7c4d4696b7ad2186",
+              "activity_created_at": "2026-10-25T06:30:20.199123Z",
+              "session_id": "7021725509331393716",
+              "dispatch_key": "fc2c97584713c74e5c24a32a"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1c22442ac9749b60de1406ee27a3f5abf2c6d1092f418859598f3abda74025b8; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter  [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expec [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ]
+              },
+              {
+                "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-3cd65338b22c8a00c41451816717ddc4af6cfed28a621cfd8550684971c89eed; not established as a duplicate. {\"detail\": \"Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces exe [excerpt]",
+                "target_paths": [
+                  "src-tauri/src/diagnostics.rs"
+                ],
+                "acceptance": [
+                  "redact_text returns immediately without splitting or iterating lines if the input string contains no sensitive markers or secret prefixes."
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-ux-22",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 3,
+                "next_hypotheses": 0,
+                "proposed_task_ids": 0,
+                "deferred_findings": 3
+              }
+            }
+          },
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas `controlAvailable` correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs.",
+            "observations": [
+              {
+                "scenario": "Keyboard focus trap logic inside IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Ran a local test using `jsdom` (test_focus.cjs) that verified the inline `!element.hidden` check incorrectly identifies children of collapsed `<details>` tags as visible, whereas `controlAvailable` correctly excludes them.",
+                "result": "The inline focus trap logic incorrectly includes elements hidden inside closed `<details>` tags. They should use `controlAvailable` or a similar robust visibility check."
+              },
+              {
+                "scenario": "enforceIncidentBound function dropping sole unresolved error incident under fallback saturation in src/runtimeIncidents.ts.",
+                "evidence": "Ran a local JavaScript execution (test_enforce.mjs) with 100 fallback incidents and 1 model error on the same terminal. After enforcing the bounds, the result length was 100 and the model error incident was the missing ID because it was the oldest incident and candidate pruning grouped everything on [excerpt]",
+                "result": "enforceIncidentBound erroneously drops a sole unresolved error incident under fallback saturation when the terminal exceeds the bounds."
+              },
+              {
+                "scenario": "Performance test of redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log.",
+                "evidence": "Ran a Rust performance test (test_redact.rs). The original implementation without early exits took ~3.6s. A fast-path that checks for string matches on the lowercased log before processing line-by-line took ~0.56s.",
+                "result": "Adding a fast-path to redact_text can significantly improve performance on large log payloads by avoiding string allocations when no redaction is necessary."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-26T06:06:38.412850Z",
+            "source": {
+              "activity_id": "sessions/15442463579676845849/activities/1ed516a287914feda81e416dd9a727f1",
+              "report_sha256": "9f0b4e266cb041c54e4c06ea7af9dfbcf78489ee11bccf6f2e3d8cfe7049cfe1",
+              "activity_created_at": "2026-10-26T05:57:22.352398Z",
+              "session_id": "15442463579676845849",
+              "dispatch_key": "72be8ad4467e6945f774fcdf"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1c22442ac9749b60de1406ee27a3f5abf2c6d1092f418859598f3abda74025b8; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter  [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expec [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ]
+              },
+              {
+                "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-3cd65338b22c8a00c41451816717ddc4af6cfed28a621cfd8550684971c89eed; not established as a duplicate. {\"detail\": \"Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces exe [excerpt]",
+                "target_paths": [
+                  "src-tauri/src/diagnostics.rs"
+                ],
+                "acceptance": [
+                  "redact_text returns immediately without splitting or iterating lines if the input string contains no sensitive markers or secret prefixes."
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-reliability-23",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 3,
+                "next_hypotheses": 0,
+                "proposed_task_ids": 0,
+                "deferred_findings": 3
+              }
+            }
+          },
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas `controlAvailable` correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs.",
+            "observations": [
+              {
+                "scenario": "Keyboard focus trap logic inside IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Ran a local test using `jsdom` (test_focus.cjs) that verified the inline `!element.hidden` check incorrectly identifies children of collapsed `<details>` tags as visible, whereas `controlAvailable` correctly excludes them.",
+                "result": "The inline focus trap logic incorrectly includes elements hidden inside closed `<details>` tags. They should use `controlAvailable` or a similar robust visibility check."
+              },
+              {
+                "scenario": "enforceIncidentBound function dropping sole unresolved error incident under fallback saturation in src/runtimeIncidents.ts.",
+                "evidence": "Ran a local TypeScript execution (test_enforce.ts) with 100 fallback incidents and 1 model error on the same terminal. After enforcing the bounds, the result length was 100 and the model error incident was dropped, outputting 'Error dropped'.",
+                "result": "enforceIncidentBound erroneously drops a sole unresolved error incident under fallback saturation when the terminal exceeds the bounds."
+              },
+              {
+                "scenario": "Performance test of redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log.",
+                "evidence": "Ran a Rust performance test (test_redact.rs). The original implementation without early exits took ~497ms. A fast-path that checks for string matches on the lowercased log before processing line-by-line took ~84ms.",
+                "result": "Adding a fast-path to redact_text can significantly improve performance on large log payloads by avoiding string allocations when no redaction is necessary."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-26T06:27:26.439032Z",
+            "source": {
+              "activity_id": "sessions/13824749592344221480/activities/10951b6fa22048d4bda85cc85589d132",
+              "report_sha256": "d937708cdd84bf98b5fc14fb788d0afcf4a7b4825ca426007d126388b4e202d4",
+              "activity_created_at": "2026-10-26T06:19:25.710831Z",
+              "session_id": "13824749592344221480",
+              "dispatch_key": "25bc4601d08b267ff7ab8137"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix focus trap bound calculation for elements hidden inside collapsed details tags",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-1c22442ac9749b60de1406ee27a3f5abf2c6d1092f418859598f3abda74025b8; not established as a duplicate. {\"detail\": \"Verified that inline focus traps using `!element.hidden` fail to exclude children of collapsed `<details>` elements. Both panels need to filter  [excerpt]",
+                "target_paths": [
+                  "src/IncidentCenter.tsx",
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "Pressing Tab or Shift+Tab loops focus correctly and ignores elements hidden within closed details tags in the IncidentCenter and ResourceHealthPanel modals."
+                ]
+              },
+              {
+                "title": "Fix enforceIncidentBound dropping sole unresolved error incidents under fallback saturation",
+                "reason": "historical_post_unexplained",
+                "evidence": "{\"detail\": \"Verified that when multiple active fallbacks on the same terminal exceed the limit, enforceIncidentBound groups all active incidents on the terminal (including a lone error) as drop candidates.\", \"reproduction\": {\"actual\": \"The modelError incident is dropped as it is the oldest.\", \"expec [excerpt]",
+                "target_paths": [
+                  "src/runtimeIncidents.ts"
+                ],
+                "acceptance": [
+                  "When the 100-incident bound is exceeded by active fallbacks on a terminal, an unresolved primary error incident on that same terminal is preserved rather than dropped as the oldest candidate."
+                ]
+              },
+              {
+                "title": "Add fast-path skip to diagnostics redact_text to prevent blocking the event loop on large clean logs",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-3cd65338b22c8a00c41451816717ddc4af6cfed28a621cfd8550684971c89eed; not established as a duplicate. {\"detail\": \"Verified via performance testing that avoiding line splitting when no sensitive markers or secret prefixes are present significantly reduces exe [excerpt]",
+                "target_paths": [
+                  "src-tauri/src/diagnostics.rs"
+                ],
+                "acceptance": [
+                  "redact_text returns immediately without splitting or iterating lines if the input string contains no sensitive markers or secret prefixes."
+                ]
+              }
+            ],
+            "context_excerpt": {
+              "source_task_id": "research-diagnostics-resources-behavior-23",
+              "notice": "Truncated controller context, not the complete immutable worker report",
+              "original_counts": {
+                "observations": 3,
+                "next_hypotheses": 0,
+                "proposed_task_ids": 0,
+                "deferred_findings": 3
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "controller": {
