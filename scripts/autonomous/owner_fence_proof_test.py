@@ -173,6 +173,24 @@ class ProofTests(unittest.TestCase):
         for raw in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":1e999}', b'[]', b'{"a":{"x":1,"x":1}}'):
             with self.subTest(raw=raw), self.assertRaises(ValueError): proof.strict_json(raw)
 
+    def test_lossy_json_numbers_are_rejected_before_native_CAS(self):
+        # Complete raw Git snapshots, not hand-built parsed attestations.
+        for token in (b"1e-999", b"9007199254740993.0", b"1.00000000000000001"):
+            raw = proof.canonical(self.before)[:-1] + b',"future_measurement":' + token + b'}'
+            sha = self.publish(self.before, raw=raw)
+            with self.subTest(token=token), self.assertRaisesRegex(ValueError, "lossy_json_number"):
+                proof.prepare(self.repo, sha, context(sha))
+            self.assertEqual(proof.live_sha(self.repo), sha)
+        for token in (b"0.1", b"1e-1", b"1.25", b"1.0", b"-0.0"):
+            raw = proof.canonical(self.before)[:-1] + b',"future_measurement":' + token + b'}'
+            self.sha = self.publish(self.before, raw=raw)
+            self.ctx = context(self.sha)
+            baseline = proof.prepare(self.repo, self.sha, self.ctx)
+            after, result = fence(proof.strict_json(raw), self.ctx)
+            result["state_sha"] = self.publish(after, self.sha)
+            with self.subTest(token=token):
+                self.assertTrue(proof.verify(self.repo, baseline, result, self.ctx)["allows_sync"])
+
     def test_extra_tree_entries_and_noncommit_rejected(self):
         extra = self.publish(self.before, self.sha, extra=True)
         with self.assertRaises(ValueError): proof.snapshot(self.repo, extra)
@@ -231,3 +249,4 @@ class NativeIntegrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

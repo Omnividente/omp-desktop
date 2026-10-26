@@ -8,6 +8,7 @@ are exposed to the caller. Native recovery admission/CAS remains authoritative.
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal
 import hashlib
 import json
 import math
@@ -51,6 +52,10 @@ def strict_json(raw):
     def finite(token):
         value = float(token)
         require(math.isfinite(value), "nonfinite_json")
+        # Native JSON rewrites floats using their shortest round-trip decimal.
+        # Reject precision loss BEFORE native CAS, rather than certify two
+        # distinct original decimal values as equal after float conversion.
+        require(Decimal(token) == Decimal(repr(value)), "lossy_json_number")
         return value
     value = json.loads(raw, object_pairs_hook=pairs, parse_constant=constant, parse_float=finite)
     require(type(value) is dict, "not_json_object")
@@ -263,3 +268,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
