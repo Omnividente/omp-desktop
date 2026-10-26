@@ -719378,6 +719378,16 @@
           "actor": "Omnividente"
         },
         "event_id": "481f84ef1eba810bde79b3c6055ab93b32715dc6eb074c7fcdf2bf8d2cd5b75d"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T01:25:15.170757Z",
+        "decision_id": "78e4aaf9bc1dbb12cabf9380adfe4868ee6b1c2c82fb62dee2023f73ec83b62d",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T01:25:13.083994Z"
+        },
+        "event_id": "ef1c005d6783bba0824101b131b877923f91b76dd906177bbb0f6f99513a986b"
       }
     ]
   }
