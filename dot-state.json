@@ -738,7 +738,21 @@
       "preflight": "accepted-policy-v3 evaluate and integration_check passed"
     }
   },
-  "lease": null,
+  "lease": {
+    "id": "r2j-20261026T085500Z-pr148-refusal-settlement",
+    "task_id": "terminal-worker-observation-20261025",
+    "acquired_at": "2026-10-26T08:55:55.160468+00:00",
+    "purpose": "accepted helper reconciliation of original known pre-dispatch Ready refusal only",
+    "expected_state_blob_sha": "effb42f7a5e09414222b3052ad5fce5c2f034406",
+    "expected_main_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
+    "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+    "owner_approval_sha256": "1f492a0b5122b2ead11c712ee3f4ea68e8210bc44e04449930d97616d20e8a9f",
+    "send_claim": {
+      "consumed": true,
+      "kind": "state_lease_claim"
+    },
+    "intent_sha256": "ad9b7b4172485688dd71a8a111af123d7b832ca82818caed62e13d0e09ed8e53"
+  },
   "pending_operation": {
     "id": "terminal-worker-observation-20261025-v3-ready",
     "kind": "ready_for_review",
