@@ -237029,7 +237029,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-26T03:20:24.657293Z"
+        "observed_at": "2026-10-26T03:20:24.657293Z",
+        "released_attempt_ref": "autonomous/attempt-857da18e995a77af303dd647"
       },
       "research_result": {
         "summary": "Investigated the Settings recovery fallback flow in App.tsx. Verified using a temporary unit test that when a non-settings error is caught during startWithDefaults(), the settingsRecovery state is incorrectly preserved, leaving the user trapped on the SettingsRecoveryScreen.",
