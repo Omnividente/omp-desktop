@@ -736580,6 +736580,16 @@
           "actor": "Omnividente"
         },
         "event_id": "1c6f017d4244d0d3281d2c6ea17f6f6152b5f56414a0846ca6c787d46d4d8ef1"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T03:52:59.268342Z",
+        "decision_id": "e25f982677d650ace20a3da214cce22bcb99c60d9dc53e4aba552eb50bab3076",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T03:52:57.101750Z"
+        },
+        "event_id": "d0783f43db7e3e1802cb13ef383665761e959af5bff0718ba1449fa9dd6c5dc4"
       }
     ]
   }
