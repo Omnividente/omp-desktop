@@ -1621,6 +1621,37 @@
         "lease_id": "r2j-20261026T085500Z-pr148-refusal-settlement"
       },
       "prepared_at": "2026-10-26T08:59:17.347Z",
+      "status": "confirmed",
+      "receipt": {
+        "commit_sha": "dc2cfa9e3d2bf895097c9faa21eb7300ceb9314f",
+        "parents": [
+          "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+          "bced6fa9b118d2be509a21e006132c9acbc8bf91"
+        ],
+        "tree_sha": "6d9fb9364b55d9bdf7aa5e43205d9395c237df79",
+        "GET_verified": true
+      }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-refresh153-update-ref",
+      "kind": "update_ref",
+      "task_id": "terminal-worker-observation-20261025",
+      "request": {
+        "repository_full_name": "Omnividente/omp-desktop",
+        "branch_name": "dot/jules-terminal-worker-observation-20261025",
+        "expected_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "sha": "dc2cfa9e3d2bf895097c9faa21eb7300ceb9314f",
+        "force": false
+      },
+      "request_sha256": "9fb26bff2ea0e65da253b30951b0cea3a13cae96a78f5c2decc188304ab58d12",
+      "expected_main_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
+      "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "expected_state_blob_sha": "e031f65b2f5909a16572693e51a9e19a8286c90e",
+      "send_claim": {
+        "consumed": true,
+        "lease_id": "r2j-20261026T085500Z-pr148-refusal-settlement"
+      },
+      "prepared_at": "2026-10-26T08:59:57.250Z",
       "status": "prepared"
     }
   ],
