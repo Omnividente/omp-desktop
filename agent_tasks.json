@@ -238281,7 +238281,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-26T04:58:01.806776Z"
+        "observed_at": "2026-10-26T04:58:01.806776Z",
+        "released_attempt_ref": "autonomous/attempt-bb3da5cabbf4aab9d9407d97"
       },
       "research_result": {
         "summary": "Investigated the transcript loading and refresh behavior in useTranscript. The hook indiscriminately sets transcript state to null upon triggering a load via loadTranscript or loadTranscriptPath. This immediately destroys the existing visible list items and clears out context used by TranscriptModal for scroll state preservation when reloading the currently active session path. Retaining the state while a same-path network request is pending prevents this data loss.",
