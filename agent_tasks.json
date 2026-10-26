@@ -763154,6 +763154,16 @@
           "actor": "Omnividente"
         },
         "event_id": "553a429d6abe8f833b4d34b8f7be365ce405aeaa47ec807ca263d0181b73b250"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T07:17:25.990499Z",
+        "decision_id": "c245bf9f414ae436ed55f0e07339f340ee8779399b1fca578ae65775f81b6f6e",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T07:17:24.279084Z"
+        },
+        "event_id": "fe3a50ff1ae7b81fd824be1648124fce2bb57e46418eb8e28a7027bc2596b2de"
       }
     ]
   }
