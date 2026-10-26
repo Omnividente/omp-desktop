@@ -763278,6 +763278,16 @@
           "actor": "Omnividente"
         },
         "event_id": "8118f76da357735cfa79c4c23ff8a2804ed7ced4aaaf55e4a6ae2ac5b9e4ea2f"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T07:20:26.435735Z",
+        "decision_id": "7b55931eedc6bfef78ca4569dbdfe0fbf8b8d187d6d9b837c0fe3841c2f42012",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T07:20:24.195179Z"
+        },
+        "event_id": "1a877213b7900a341de50628a5c831e7c7e68622ce4609176c640a9926db660b"
       }
     ]
   }
