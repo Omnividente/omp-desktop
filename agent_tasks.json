@@ -236583,7 +236583,7 @@
       "id": "research-settings-models-ux-23",
       "title": "Investigate Settings recovery and model selection: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -236847,16 +236847,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "324870684464795954",
         "dispatch_key": "857da18e995a77af303dd647",
         "base_sha": "bb730756eb06966af8fee24df2afbb17f3898f1d",
         "starting_branch": "autonomous/attempt-857da18e995a77af303dd647",
         "started_at": "2026-10-26T02:51:16.541872Z",
-        "finished_at": "",
+        "finished_at": "2026-10-26T03:20:24.657293Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
@@ -237028,13 +237028,85 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-26T03:03:43.915765Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-26T03:20:24.657293Z"
+      },
+      "research_result": {
+        "summary": "Investigated the Settings recovery fallback flow in App.tsx. Verified using a temporary unit test that when a non-settings error is caught during startWithDefaults(), the settingsRecovery state is incorrectly preserved, leaving the user trapped on the SettingsRecoveryScreen.",
+        "observations": [
+          {
+            "scenario": "Simulating a generic network error during startWithDefaults in the SettingsRecoveryScreen fallback process",
+            "evidence": "Source code review of src/App.tsx shows `recoverSettingsWithDefaults` calls `showError()` for non-settings errors but does not call `setSettingsRecovery(null)`. Using a temporary React test (`App_bug.test.tsx`), I triggered the recovery screen, mocked `startWithDefaults` to throw a generic error, and clicked the 'Start with defaults' button. The test confirmed the recovery screen persisted instead of being dismissed.",
+            "result": "The UI fails to dismiss the SettingsRecoveryScreen because settingsRecovery is not cleared, confirming the bug reported in previous attempts."
+          }
+        ],
+        "next_hypotheses": [
+          "Test if similar state-reset omissions exist in loadBootstrap during network disruptions or generic load errors."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-26T03:20:24.657293Z",
+        "source": {
+          "activity_id": "sessions/324870684464795954/activities/c6a8851fe90f4dd08f64e62b7ffe5b5c",
+          "report_sha256": "65e3d4333971fae95c5da2478bbaf47380dacc1b3e2aac4d42ee5575363eefea",
+          "activity_created_at": "2026-10-26T03:08:05.620115Z",
+          "session_id": "324870684464795954",
+          "dispatch_key": "857da18e995a77af303dd647"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-cc13c452f9838bbe; not established as a duplicate. {\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults by interacting with the recovery UI.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal targets a specific omission in App.tsx (recoverSettingsWithDefaults), trapping users in a broken UI state on non-settings errors during startWithDefaults(). It does not modify backend payloads like discovery-31392473c06b5573 which targeted proxy provider lists in save logic.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-31392473c06b5573\", \"responses\": [{\"decision_context_id\": \"808f50139ca926d42d16de47f67ca13d3a36c228596e239aeaa806fae74e0487\", \"decision_task_id\": \"discovery-31392473c06b5573\", \"why_previous_reason_no_longer_explains\": \"The previous rejection regarding 'discovery-31392473c06b5573' pertained to backend logic or proxy provider list filtering, completely distinct from this frontend UI state management bug inside `recoverSettingsWithDefaults` in `App.tsx`.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/324870684464795954/activities/c6a8851fe90f4dd08f64e62b7ffe5b5c",
+          "report_sha256": "65e3d4333971fae95c5da2478bbaf47380dacc1b3e2aac4d42ee5575363eefea",
+          "activity_created_at": "2026-10-26T03:08:05.620115Z",
+          "session_id": "324870684464795954",
+          "dispatch_key": "857da18e995a77af303dd647"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e982e435945a44d3",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-cc13c452f9838bbe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-cc13c452f9838bbe; not established as a duplicate. {\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults calls showError for non-settings errors but fails to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults by interacting with the recovery UI.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal targets a specific omission in App.tsx (recoverSettingsWithDefaults), trapping users in a broken UI state on non-settings errors during startWithDefaults(). It does not modify backend payloads like discovery-31392473c06b5573 which targeted proxy provider lists in save logic.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-31392473c06b5573\", \"responses\": [{\"decision_context_id\": \"808f50139ca926d42d16de47f67ca13d3a36c228596e239aeaa806fae74e0487\", \"decision_task_id\": \"discovery-31392473c06b5573\", \"why_previous_reason_no_longer_explains\": \"The previous rejection regarding 'discovery-31392473c06b5573' pertained to backend logic or proxy provider list filtering, completely distinct from this frontend UI state management bug inside `recoverSettingsWithDefaults` in `App.tsx`.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-26T03:12:37.684428Z",
+    "last_poll_at": "2026-10-26T03:20:55.748244Z",
     "last_tick_at": "2026-10-26T03:12:48.820362Z",
     "run_id": "40262847001",
     "owner_recovery_requests": [
