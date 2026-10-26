@@ -1593,6 +1593,34 @@
         "lease_id": "r2j-20261026T085500Z-pr148-refusal-settlement"
       },
       "prepared_at": "2026-10-26T08:58:16.640860+00:00",
+      "status": "confirmed",
+      "receipt": {
+        "tree_sha": "6d9fb9364b55d9bdf7aa5e43205d9395c237df79",
+        "GET_verified": true
+      }
+    },
+    {
+      "id": "terminal-worker-observation-20261025-refresh153-commit",
+      "kind": "create_commit",
+      "task_id": "terminal-worker-observation-20261025",
+      "request": {
+        "repository_full_name": "Omnividente/omp-desktop",
+        "parent_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "additional_parent_shas": [
+          "bced6fa9b118d2be509a21e006132c9acbc8bf91"
+        ],
+        "tree_sha": "6d9fb9364b55d9bdf7aa5e43205d9395c237df79",
+        "message": "Merge accepted R2-J governance main into existing Jules observation fix"
+      },
+      "request_sha256": "93b56e9c86f6316bf95711e7c4aa3fbbb015214d09088eacefa6d61dbaab4421",
+      "expected_main_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
+      "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+      "expected_state_blob_sha": "6e2eb8c8570f3b49626b979d77ccaf7d49d41927",
+      "send_claim": {
+        "consumed": true,
+        "lease_id": "r2j-20261026T085500Z-pr148-refusal-settlement"
+      },
+      "prepared_at": "2026-10-26T08:59:17.347Z",
       "status": "prepared"
     }
   ],
