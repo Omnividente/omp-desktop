@@ -746318,6 +746318,16 @@
           "actor": "Omnividente"
         },
         "event_id": "ea0d68b44e3c616bafaa848dd3f5cf02805f7e0151eddebb8e1e2783c27cb035"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T05:23:52.797858Z",
+        "decision_id": "6df48b697e523afdc5f45f66eaeda9c8579e963bd43f3279ea8f595ba671fafe",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T05:23:50.730680Z"
+        },
+        "event_id": "6dd64ceb50b0f7f5f592a53f002e6e16e04b26a165073de4969e1a36b3fe032d"
       }
     ]
   }
