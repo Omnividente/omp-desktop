@@ -208,7 +208,20 @@ def _prepare_operation(state, kind, evidence, *, operation_id, lease_id, now, su
     return result
 
 
-def _platform_ready_approval(state, task, operation, refusal, approval):
+def _recovery_snapshot(state, original=None):
+    """Bind owner-approved history/budgets while allowing fresh review evidence."""
+    result = deepcopy(state)
+    for key in ("lease", "pending_operation", "last_sweep_at", "last_attempt", "last_maintenance_check"):
+        result.pop(key, None)
+    for key in ("phase", "current_base_sha", "v3_review", "v3_ci", "independent_review", "ci", "tests", "handoff"):
+        result["active_task"].pop(key, None)
+    if original is not None:
+        result["operations"] = [deepcopy(original) if row.get("id") == original["id"] else row
+                                for row in result["operations"]]
+    return digest(result)
+
+
+def _platform_ready_approval(state, task, operation, refusal, approval, *, original=None):
     """Check bindings only; caller authenticates native output and owner decision.
 
     The native rejection has no GitHub HTTP response or provider-signed
@@ -240,9 +253,24 @@ def _platform_ready_approval(state, task, operation, refusal, approval):
     for key, value in (("grant_id", state["grant_id"]), ("task_id", task["id"]),
                        ("pr_number", task["pr"]["number"]), ("head_sha", task["head_sha"]),
                        ("operation_id", operation["id"]), ("intent_sha256", operation["intent_sha256"]),
-                       ("request_sha256", operation["request_sha256"]), ("refusal_sha256", digest(refusal))):
+                       ("request_sha256", operation["request_sha256"]), ("refusal_sha256", digest(refusal)),
+                       ("preserved_state_sha256", _recovery_snapshot(state, original))):
         if approval.get(key) != value or type(approval.get(key)) is not type(value):
             raise ValueError("owner successor approval binding mismatch: " + key)
+
+
+def _ready_refusal_get(observation, expected, approval, now):
+    _object(observation, "native refusal and fresh GET observation")
+    _json(observation)
+    if set(observation) != {"refusal", "pr", "observed_at", "expected_state_blob_sha"}:
+        raise ValueError("mixed or unknown outcomes cannot become a pre-dispatch refusal")
+    _timestamp(observation["observed_at"], now)
+    _hex(observation["expected_state_blob_sha"], 40, "fresh state blob")
+    current = {**expected, "base_sha": approval["accepted_amendment_main_sha"]}
+    pr = _object(observation["pr"], "fresh PR GET")
+    if (not _pr_matches(pr, current) or pr.get("draft") is not True
+            or pr.get("merged") is not False or pr.get("state") != "open"):
+        raise ValueError("owner exception requires the same unmerged Draft/head and accepted main")
 
 
 def reconcile_platform_ready_refusal(state, observation, approval, *, lease_id, now):
@@ -264,21 +292,9 @@ def reconcile_platform_ready_refusal(state, observation, approval, *, lease_id, 
             or pending.get("status") != "pending" or task.get("phase") != "ready_pending"
             or "owner_approved_pre_dispatch_successor" in pending["intent"]):
         raise ValueError("only the original pending Ready under its owned lease can be settled")
-    _object(observation, "native refusal and fresh GET observation")
-    _json(observation)
-    if set(observation) != {"refusal", "pr", "observed_at", "expected_state_blob_sha"}:
-        raise ValueError("mixed or unknown outcomes cannot become a pre-dispatch refusal")
-    refusal = observation["refusal"]
-    _platform_ready_approval(state, task, pending, refusal, approval)
-    _timestamp(observation["observed_at"], now)
-    _hex(observation["expected_state_blob_sha"], 40, "fresh state blob")
-    # Installing the accepted amendment legitimately changes main, not PR head.
-    # The original base/intent remains immutable; new review/CI must use this base.
-    current = {**expected, "base_sha": approval["accepted_amendment_main_sha"]}
-    pr = _object(observation["pr"], "fresh PR GET")
-    if (not _pr_matches(pr, current) or pr.get("draft") is not True
-            or pr.get("merged") is not False or pr.get("state") != "open"):
-        raise ValueError("owner exception requires the same unmerged Draft/head and accepted main")
+    _object(observation, "native refusal observation")
+    _platform_ready_approval(state, task, pending, observation.get("refusal"), approval)
+    _ready_refusal_get(observation, expected, approval, now)
     receipt = {"status": "platform_denied_before_dispatch", "recorded_at": stamp,
                "original_operation": deepcopy(pending), "observation": deepcopy(observation),
                "owner_approval": deepcopy(approval)}
@@ -309,7 +325,9 @@ def prepare_platform_ready_successor(state, evidence, *, predecessor_id, operati
     if original != receipt.get("original_operation"):
         raise ValueError("original consumed intent/history changed")
     observation, approval = receipt["observation"], receipt["owner_approval"]
-    _platform_ready_approval(state, task, prior, observation["refusal"], approval)
+    _platform_ready_approval(state, task, prior, observation["refusal"], approval, original=original)
+    _timestamp(receipt["recorded_at"], now)
+    _ready_refusal_get(observation, prior["intent"]["expected"], approval, now)
     if (evidence.get("base_sha") != approval["accepted_amendment_main_sha"]
             or evidence.get("expected_state_blob_sha") == observation["expected_state_blob_sha"]
             or evidence.get("preflight_sha256") == prior["intent"]["preflight_sha256"]):

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dot_authority import digest
 from dot_state import (REPOSITORY, WORKFLOWS, complete_task, migrate_state, regrant_state,
                        prepare_operation, reconcile_operation, reconcile_platform_ready_refusal,
-                       prepare_platform_ready_successor)
+                       prepare_platform_ready_successor, _recovery_snapshot)
 
 NOW = datetime(2026, 10, 25, 13, tzinfo=timezone.utc)
 TASK_ID = "terminal-worker-observation-20261025"
@@ -750,7 +750,8 @@ class PlatformReadyRefusalTest(unittest.TestCase):
                     "accepted_amendment_main_sha": BASE,
                     "grant_id": NEW_GRANT, "task_id": TASK_ID, "pr_number": 148, "head_sha": HEAD,
                     "operation_id": pending["id"], "intent_sha256": pending["intent_sha256"],
-                    "request_sha256": pending["request_sha256"], "refusal_sha256": digest(refusal)}
+                    "request_sha256": pending["request_sha256"], "refusal_sha256": digest(refusal),
+                    "preserved_state_sha256": _recovery_snapshot(source)}
         observation = ready_observation(); observation["pr"]["draft"] = True
         observation.update(refusal=refusal, observed_at=NOW.isoformat(), expected_state_blob_sha=BLOB)
         return source, observation, approval
@@ -851,7 +852,15 @@ class PlatformReadyRefusalTest(unittest.TestCase):
                        lambda s,e: e.update(preflight_sha256=preflight()["preflight_sha256"]),
                        lambda s,e: e.update(base_sha="0" * 40),
                        lambda s,e: s["operations"][-1]["receipt"]["original_operation"].update(status="reset"),
-                       lambda s,e: s["operations"][-1]["receipt"]["owner_approval"].update(refusal_sha256="0" * 64)):
+                       lambda s,e: s["operations"][-1]["receipt"]["owner_approval"].update(refusal_sha256="0" * 64),
+                       lambda s,e: s["operations"][-1]["receipt"]["observation"]["pr"].update(draft=False),
+                       lambda s,e: s["operations"][-1]["receipt"]["observation"]["pr"].update(head_sha="0" * 40),
+                       lambda s,e: s["active_task"].update(spent_lines=0),
+                       lambda s,e: s["active_task"].update(ci_revisions=99),
+                       lambda s,e: s["backlog"].clear(),
+                       lambda s,e: s["retired_task_ids"].clear(),
+                       lambda s,e: s["operations"][0].update(result="rewritten")):
+
             source, evidence = self.settled(), self.fresh(); mutate(source,evidence)
             with self.assertRaises(ValueError): self.successor(source,evidence)
 

@@ -701,7 +701,8 @@ actions, policy/grant scope, scheduler or live-Jules rights are introduced.
    request/intent digests, refusal, history and budgets.
 2. Obtain a distinct owner decision explicitly accepting one Ready successor,
    bound to grant/task/PR/head, original operation/intent/request, full refusal
-   digest and accepted amendment main. The owner confirmation must specifically
+   digest, preserved state/history/budget digest and accepted amendment main. The
+   owner confirmation must specifically
    cover the pre-dispatch classification, not merely permission to maintain a PR.
    Source acceptance alone is not this operation-specific decision; one formal
    decision may explicitly cover both after identifying their exact bindings.
@@ -716,7 +717,9 @@ actions, policy/grant scope, scheduler or live-Jules rights are introduced.
    blob. `prepare_platform_ready_successor` reserves one linked consumed intent
    with original receipt/owner-decision hashes. It cannot reuse the old preflight
    or blob, reset counters, change task/head, remove the predecessor or create a
-   second successor. Ordinary `prepare_operation` still rejects same-head repeats.
+   second successor. Revalidate the saved Draft GET and owner-bound history/
+   counters at successor preparation; fresh review evidence may change, but the
+   original budget/history snapshot cannot. Ordinary `prepare_operation` still rejects same-head repeats.
 5. CAS-persist the successor claim before its sole native Ready call. Use the
    existing tool and normal platform approval path only; this is not permission
    to bypass a platform refusal via another API/transport. The new trusted owner
