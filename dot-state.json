@@ -5,7 +5,7 @@
     "id": "terminal-worker-observation-20261025",
     "branch": "dot/jules-terminal-worker-observation-20261025",
     "base_sha": "0ea918ce7dfef1c26548772f7a3ec950f1449706",
-    "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+    "head_sha": "dc2cfa9e3d2bf895097c9faa21eb7300ceb9314f",
     "touched_paths": [
       "scripts/autonomous/lab_controller.py",
       "scripts/autonomous/lab_controller_test.py",
@@ -49,7 +49,7 @@
         "reason": "strict base refresh from9683 to installed accepted governance main bced, preserving four authored blobs"
       }
     ],
-    "prepared_tree_sha": "8bc51f4bacb14b3dd6925f347226b0cda52169cb",
+    "prepared_tree_sha": "6d9fb9364b55d9bdf7aa5e43205d9395c237df79",
     "candidate_files": [
       {
         "path": "scripts/autonomous/loop_health.py",
@@ -257,6 +257,36 @@
           "policy_version": 3,
           "grant_id": "r2-j-v2-cd18d9f291614822a73fd59dc276f47a"
         }
+      },
+      {
+        "fingerprint": "platform-approval-required-ready-v3-owner-acceptance",
+        "status": "blocked-platform-approval",
+        "observed_at": "2026-10-25T21:16:25.212Z",
+        "operation_id": "terminal-worker-observation-20261025-v3-ready",
+        "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+        "primary_tool_result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "This action was rejected due to unacceptable risk.\nReason: Перевод PR #148 из Draft в Ready — внешнее статусное обязательство; хотя сопровождение PR разрешено, явная формальная приёмка governance-поправки v3, являющаяся условием Ready, в доверенном тексте не подтверждена.\nDo not bypass this rejection through a workaround or indirect execution. Continue with a safer alternative, or carry out checks to prove that the action is authorized or low risk before trying again. Complete unaffected work without asking for confirmation. Report anything that remains blocked, clarify why it was blocked by auto-review, inform the user of the risk and ask for approval."
+            }
+          ],
+          "isError": true
+        },
+        "get_reconciliation": {
+          "at": "2026-10-25T21:16:25.212Z",
+          "pr": 148,
+          "state": "open",
+          "draft": true,
+          "merged": false,
+          "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+          "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46"
+        },
+        "outcome": "Platform refused tool execution; no confirmed GitHub Ready effect. Original send claim remains consumed; no retry or replacement intent.",
+        "safe_next_step": "Explicit owner/platform approval and bounded handling of this pre-dispatch rejection are required; ordinary standing authority does not permit repeating consumed Ready for this same task/head.",
+        "resolved_by": "owner-authorized exact helper settlement and accepted-main refresh",
+        "resolved_at": "2026-10-26T09:00:32.858Z"
       }
     ],
     "v2_review_capability": {
@@ -265,7 +295,7 @@
       "new_exact_revision_review": "not-run",
       "reason": "native-review-provenance-not-verifiable"
     },
-    "current_base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+    "current_base_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
     "v3_review": {
       "status": "approved-procedural-native",
       "manifest_sha256": "e5f0a536b35f10fa0d720c1d324b00bfd5f6c5c707f57d59a9987eadab55f28a",
@@ -610,34 +640,7 @@
       },
       "evidence_uri": "https://github.com/Omnividente/omp-desktop/pull/148#issuecomment-6403347641"
     },
-    "exception": {
-      "fingerprint": "platform-approval-required-ready-v3-owner-acceptance",
-      "status": "blocked-platform-approval",
-      "observed_at": "2026-10-25T21:16:25.212Z",
-      "operation_id": "terminal-worker-observation-20261025-v3-ready",
-      "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
-      "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
-      "primary_tool_result": {
-        "content": [
-          {
-            "type": "text",
-            "text": "This action was rejected due to unacceptable risk.\nReason: Перевод PR #148 из Draft в Ready — внешнее статусное обязательство; хотя сопровождение PR разрешено, явная формальная приёмка governance-поправки v3, являющаяся условием Ready, в доверенном тексте не подтверждена.\nDo not bypass this rejection through a workaround or indirect execution. Continue with a safer alternative, or carry out checks to prove that the action is authorized or low risk before trying again. Complete unaffected work without asking for confirmation. Report anything that remains blocked, clarify why it was blocked by auto-review, inform the user of the risk and ask for approval."
-          }
-        ],
-        "isError": true
-      },
-      "get_reconciliation": {
-        "at": "2026-10-25T21:16:25.212Z",
-        "pr": 148,
-        "state": "open",
-        "draft": true,
-        "merged": false,
-        "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
-        "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46"
-      },
-      "outcome": "Platform refused tool execution; no confirmed GitHub Ready effect. Original send claim remains consumed; no retry or replacement intent.",
-      "safe_next_step": "Explicit owner/platform approval and bounded handling of this pre-dispatch rejection are required; ordinary standing authority does not permit repeating consumed Ready for this same task/head."
-    },
+    "exception": null,
     "v3_ci": {
       "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
       "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
@@ -745,71 +748,7 @@
       "preflight": "accepted-policy-v3 evaluate and integration_check passed"
     }
   },
-  "lease": {
-    "id": "r2j-20261026T085500Z-pr148-refusal-settlement",
-    "task_id": "terminal-worker-observation-20261025",
-    "acquired_at": "2026-10-26T08:55:55.160468+00:00",
-    "purpose": "accepted helper reconciliation of original known pre-dispatch Ready refusal only",
-    "expected_state_blob_sha": "effb42f7a5e09414222b3052ad5fce5c2f034406",
-    "expected_main_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
-    "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
-    "owner_approval_sha256": "1f492a0b5122b2ead11c712ee3f4ea68e8210bc44e04449930d97616d20e8a9f",
-    "send_claim": {
-      "consumed": true,
-      "kind": "state_lease_claim"
-    },
-    "intent_sha256": "ad9b7b4172485688dd71a8a111af123d7b832ca82818caed62e13d0e09ed8e53",
-    "settlement_send_claim": {
-      "consumed": true,
-      "request": {
-        "transition": "reconcile_platform_ready_refusal",
-        "observation": {
-          "refusal": {
-            "classification": "procedural-native-pre-dispatch-refusal",
-            "tool": "mcp__codex_apps__github_mark_pull_request_ready_for_review",
-            "arguments": {
-              "repository_full_name": "Omnividente/omp-desktop",
-              "pr_number": 148
-            },
-            "operation_id": "terminal-worker-observation-20261025-v3-ready",
-            "request_sha256": "c84e248b5afb628d1320037d2d884a8a3b47624395bc41a71c99ea1610465233",
-            "result": {
-              "content": [
-                {
-                  "type": "text",
-                  "text": "This action was rejected due to unacceptable risk.\nReason: Перевод PR #148 из Draft в Ready — внешнее статусное обязательство; хотя сопровождение PR разрешено, явная формальная приёмка governance-поправки v3, являющаяся условием Ready, в доверенном тексте не подтверждена.\nDo not bypass this rejection through a workaround or indirect execution. Continue with a safer alternative, or carry out checks to prove that the action is authorized or low risk before trying again. Complete unaffected work without asking for confirmation. Report anything that remains blocked, clarify why it was blocked by auto-review, inform the user of the risk and ask for approval."
-                }
-              ],
-              "isError": true
-            },
-            "evidence_uri": "https://github.com/Omnividente/omp-desktop/blob/0de90c8840b9ed180bf54b2b2d99d4ac9641da4c/dot-state.json"
-          },
-          "observed_at": "2026-10-26T08:57:07.935254+00:00",
-          "expected_state_blob_sha": "bf855eb8e5bf2277fe5967ead811e10df6413f75",
-          "main": {
-            "repository": "Omnividente/omp-desktop",
-            "ref": "refs/heads/main",
-            "sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91"
-          },
-          "pr": {
-            "repository": "Omnividente/omp-desktop",
-            "number": 148,
-            "node_id": "PR_kwDOTdB0ps8AAAABKkvdyQ",
-            "branch": "dot/jules-terminal-worker-observation-20261025",
-            "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
-            "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
-            "state": "open",
-            "draft": true,
-            "merged": false
-          }
-        },
-        "owner_approval_sha256": "1f492a0b5122b2ead11c712ee3f4ea68e8210bc44e04449930d97616d20e8a9f",
-        "expected_content_sha": "bf855eb8e5bf2277fe5967ead811e10df6413f75"
-      },
-      "request_sha256": "9a9b728956da2f16d05859db3ad0e70e0d4c9f31bd2cc18c12aaf59a084b03f7",
-      "prepared_at": "2026-10-26T08:57:07.935254+00:00"
-    }
-  },
+  "lease": null,
   "pending_operation": null,
   "retired_task_ids": [],
   "operations": [
@@ -1652,7 +1591,83 @@
         "lease_id": "r2j-20261026T085500Z-pr148-refusal-settlement"
       },
       "prepared_at": "2026-10-26T08:59:57.250Z",
-      "status": "prepared"
+      "status": "confirmed",
+      "receipt": {
+        "head_sha": "dc2cfa9e3d2bf895097c9faa21eb7300ceb9314f",
+        "GET_verified": true
+      }
+    },
+    {
+      "id": "r2j-20261026T085500Z-pr148-refusal-settlement-checkpoint",
+      "kind": "state_reconciliation_checkpoint",
+      "lease": {
+        "id": "r2j-20261026T085500Z-pr148-refusal-settlement",
+        "task_id": "terminal-worker-observation-20261025",
+        "acquired_at": "2026-10-26T08:55:55.160468+00:00",
+        "purpose": "accepted helper reconciliation of original known pre-dispatch Ready refusal only",
+        "expected_state_blob_sha": "effb42f7a5e09414222b3052ad5fce5c2f034406",
+        "expected_main_sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91",
+        "expected_head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+        "owner_approval_sha256": "1f492a0b5122b2ead11c712ee3f4ea68e8210bc44e04449930d97616d20e8a9f",
+        "send_claim": {
+          "consumed": true,
+          "kind": "state_lease_claim"
+        },
+        "intent_sha256": "ad9b7b4172485688dd71a8a111af123d7b832ca82818caed62e13d0e09ed8e53",
+        "settlement_send_claim": {
+          "consumed": true,
+          "request": {
+            "transition": "reconcile_platform_ready_refusal",
+            "observation": {
+              "refusal": {
+                "classification": "procedural-native-pre-dispatch-refusal",
+                "tool": "mcp__codex_apps__github_mark_pull_request_ready_for_review",
+                "arguments": {
+                  "repository_full_name": "Omnividente/omp-desktop",
+                  "pr_number": 148
+                },
+                "operation_id": "terminal-worker-observation-20261025-v3-ready",
+                "request_sha256": "c84e248b5afb628d1320037d2d884a8a3b47624395bc41a71c99ea1610465233",
+                "result": {
+                  "content": [
+                    {
+                      "type": "text",
+                      "text": "This action was rejected due to unacceptable risk.\nReason: Перевод PR #148 из Draft в Ready — внешнее статусное обязательство; хотя сопровождение PR разрешено, явная формальная приёмка governance-поправки v3, являющаяся условием Ready, в доверенном тексте не подтверждена.\nDo not bypass this rejection through a workaround or indirect execution. Continue with a safer alternative, or carry out checks to prove that the action is authorized or low risk before trying again. Complete unaffected work without asking for confirmation. Report anything that remains blocked, clarify why it was blocked by auto-review, inform the user of the risk and ask for approval."
+                    }
+                  ],
+                  "isError": true
+                },
+                "evidence_uri": "https://github.com/Omnividente/omp-desktop/blob/0de90c8840b9ed180bf54b2b2d99d4ac9641da4c/dot-state.json"
+              },
+              "observed_at": "2026-10-26T08:57:07.935254+00:00",
+              "expected_state_blob_sha": "bf855eb8e5bf2277fe5967ead811e10df6413f75",
+              "main": {
+                "repository": "Omnividente/omp-desktop",
+                "ref": "refs/heads/main",
+                "sha": "bced6fa9b118d2be509a21e006132c9acbc8bf91"
+              },
+              "pr": {
+                "repository": "Omnividente/omp-desktop",
+                "number": 148,
+                "node_id": "PR_kwDOTdB0ps8AAAABKkvdyQ",
+                "branch": "dot/jules-terminal-worker-observation-20261025",
+                "head_sha": "49ba5e25b8a3295c0febfd9c7bc7f7ecc512cdff",
+                "base_sha": "9683ea0dff9094c33c0b4a8c82cc6a952003de46",
+                "state": "open",
+                "draft": true,
+                "merged": false
+              }
+            },
+            "owner_approval_sha256": "1f492a0b5122b2ead11c712ee3f4ea68e8210bc44e04449930d97616d20e8a9f",
+            "expected_content_sha": "bf855eb8e5bf2277fe5967ead811e10df6413f75"
+          },
+          "request_sha256": "9a9b728956da2f16d05859db3ad0e70e0d4c9f31bd2cc18c12aaf59a084b03f7",
+          "prepared_at": "2026-10-26T08:57:07.935254+00:00"
+        }
+      },
+      "owner_decision_sha256": "1f492a0b5122b2ead11c712ee3f4ea68e8210bc44e04449930d97616d20e8a9f",
+      "at": "2026-10-26T09:00:32.857Z",
+      "status": "confirmed"
     }
   ],
   "backlog": [
