@@ -236469,7 +236469,8 @@
             "session_id": "7573627253711103568",
             "dispatch_key": "4d77a01143efca887da6c241"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-4d77a01143efca887da6c241"
       },
       "research_result": {
         "summary": "Investigated the SettingsRecoveryScreen bug where the application traps the user if a non-settings error occurs during the startWithDefaults fallback process. Verified the issue by analyzing src/App.tsx and running tests. The settingsRecovery state should be cleared on non-settings errors to allow the user to escape the recovery screen.",
