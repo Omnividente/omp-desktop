@@ -746276,6 +746276,48 @@
         "receipt_id": "7b85e82a446205ec2d075a0c9013a0459e0a6be0bad2ab79d9a9cf22f8881b4d",
         "frontier_seq": 969,
         "event_id": "93de0abd880aa5ed8da94738518012f8aa8288d23ae4af627687afd8cca41768"
+      },
+      {
+        "type": "Intent",
+        "at": "2026-10-26T05:23:36.798089Z",
+        "decision_id": "6df48b697e523afdc5f45f66eaeda9c8579e963bd43f3279ea8f595ba671fafe",
+        "frontier_seq": 969,
+        "predecessor_decision_id": "b2b4f666aab85321828cdd4f63a316527083540f64fac24ee4d0780d704383fc",
+        "workflow": "autonomous_continue.yml",
+        "normalized_inputs": {},
+        "input_hash": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "basis": {
+          "health": null,
+          "receipt_id": "7b85e82a446205ec2d075a0c9013a0459e0a6be0bad2ab79d9a9cf22f8881b4d"
+        },
+        "first_source_trigger": {
+          "run_id": "40273429524",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "398c6310e7938d51f713bbf1eeea75fb8e2066eb",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "source_identity": "ef5fb2d62cde5812875b0345eef3d33dc0b05130851a0f5dc6c10d2dc152d496",
+        "control_sha": "398c6310e7938d51f713bbf1eeea75fb8e2066eb",
+        "correlation_key": "7aa41a04e081a045f0f63d1091cbe624",
+        "source_kind": "sender",
+        "event_id": "7b63083368be2ebb245c146517dd1bb4592be069f1abf4637e2d9ca43380cedb"
+      },
+      {
+        "type": "SendClaim",
+        "at": "2026-10-26T05:23:36.798141Z",
+        "decision_id": "6df48b697e523afdc5f45f66eaeda9c8579e963bd43f3279ea8f595ba671fafe",
+        "claim_id": "88cc0fe16819ac8cb916e15fac54422e1d9ed1a1578a32eae3d8a2d1f63c19e6",
+        "trigger": {
+          "run_id": "40273429524",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "398c6310e7938d51f713bbf1eeea75fb8e2066eb",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "event_id": "ea0d68b44e3c616bafaa848dd3f5cf02805f7e0151eddebb8e1e2783c27cb035"
       }
     ]
   }
