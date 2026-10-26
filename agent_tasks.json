@@ -728113,6 +728113,16 @@
           "actor": "Omnividente"
         },
         "event_id": "5ff50b07086df6c7c8997f2a7bbf7c8e226b3afdb68a8554e9c44115f092d13d"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T02:50:40.377818Z",
+        "decision_id": "9c7a7565aeced17574b961a287e2662f28fb20dc419748eea3e129c4e5643043",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T02:50:38.303905Z"
+        },
+        "event_id": "af50fa7035152f62becfda7439c72697d4a9fcceb5862ae7a55cb13bc2ff915d"
       }
     ]
   }
