@@ -241323,7 +241323,7 @@
       "id": "research-diagnostics-resources-ux-23",
       "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -241529,16 +241529,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17462165219282111865",
         "dispatch_key": "74e2ffba27b03774d06f709c",
         "base_sha": "d773ad9f10139cbd418148b3d4269b8559160fcc",
         "starting_branch": "autonomous/attempt-74e2ffba27b03774d06f709c",
         "started_at": "2026-10-26T06:56:54.083614Z",
-        "finished_at": "",
+        "finished_at": "2026-10-26T07:26:53.126399Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "398c6310e7938d51f713bbf1eeea75fb8e2066eb",
@@ -241709,13 +241709,44 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-26T07:09:44.819813Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-26T07:26:53.126399Z"
+      },
+      "research_result": {
+        "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas `controlAvailable` correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs. However, all of these issues have been previously rejected or resolved by the owner for valid reasons, and my tests confirmed these rejections. The synthetic benchmarks and states used were inaccurate reflections of real app behavior.",
+        "observations": [
+          {
+            "scenario": "Keyboard focus trap logic inside IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+            "evidence": "Ran a local test using `jsdom` (test_focus.cjs) that verified the inline `!element.hidden` check incorrectly identifies children of collapsed `<details>` tags as visible. However, inspecting IncidentCenter.tsx and ResourceHealthPanel.tsx showed that neither component renders focusable elements inside closed `<details>` tags in reality. ResourceHealthPanel has no `<details>` tags, and IncidentCenter's `<details>` tag only contains a non-focusable `<pre>` tag.",
+            "result": "The inline focus trap logic is technically flawed for `<details>` tags, but this does not manifest as a bug in the specific components because they do not contain hidden focusable targets."
+          },
+          {
+            "scenario": "enforceIncidentBound function dropping sole unresolved error incident under fallback saturation in src/runtimeIncidents.ts.",
+            "evidence": "Ran a local JavaScript execution (test_enforce.mjs) with 100 fallback incidents and 1 model error on the same terminal. After enforcing the bounds, the result length was 100 and the model error incident was the missing ID because it was the oldest incident and candidate pruning grouped everything on that terminal. However, per PR 95 and owner feedback, `applyRuntimeIncidentEvent` resolves the error when a fallback occurs, making this synthetic state impossible in reality.",
+            "result": "enforceIncidentBound does drop older error incidents under saturation in synthetic tests, but this state cannot happen in the actual app lifecycle due to earlier resolution logic."
+          },
+          {
+            "scenario": "Performance test of redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log.",
+            "evidence": "Ran a Rust performance test (test_redact.rs). The original implementation without early exits took ~813ms. While a fast-path would improve this, it risks missing sensitive information if not perfectly implemented to match all checks. The test confirms it takes time, but 813ms for a synthetic 100k line log does not prove an observed event-loop stall.",
+            "result": "Adding a fast-path to redact_text could improve performance on large log payloads, but the risk of leaking secrets and the synthetic nature of the benchmark do not justify the change."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-26T07:26:53.126399Z",
+        "source": {
+          "activity_id": "sessions/17462165219282111865/activities/b980e55dd9b84c8c900228cc11825fe7",
+          "report_sha256": "570502af11d68f0c15eab13c1ee3dc39e040d5c41ec4bea79496b40ec805758d",
+          "activity_created_at": "2026-10-26T07:19:23.850485Z",
+          "session_id": "17462165219282111865",
+          "dispatch_key": "74e2ffba27b03774d06f709c"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-26T07:18:49.047788Z",
+    "last_poll_at": "2026-10-26T07:27:23.521294Z",
     "last_tick_at": "2026-10-26T07:19:03.855640Z",
     "run_id": "40284885433",
     "owner_recovery_requests": [
