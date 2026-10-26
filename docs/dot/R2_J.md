@@ -701,14 +701,21 @@ actions, policy/grant scope, scheduler or live-Jules rights are introduced.
    request/intent digests, refusal, history and budgets.
 2. Obtain a distinct owner decision explicitly accepting one Ready successor,
    bound to grant/task/PR/head, original operation/intent/request, full refusal
-   digest, preserved state/history/budget digest and accepted amendment main. The
+   digest, preserved state/history/budget digest, accepted amendment main and
+   `settlement_pr_base_sha` from the actual PR GET. The
    owner confirmation must specifically
    cover the pre-dispatch classification, not merely permission to maintain a PR.
    Source acceptance alone is not this operation-specific decision; one formal
    decision may explicitly cover both after identifying their exact bindings.
 3. `reconcile_platform_ready_refusal` requires the caller's actual owned lease
    and fresh matching open/unmerged Draft GET. The original head is unchanged;
-   main may legitimately advance to the accepted amendment. The pure function
+   main may legitimately advance to the accepted amendment while GitHub retains
+   the PR's earlier base/merge preview. Bind those two primary observations
+   separately: `observation.pr.base_sha` must equal the owner-bound
+   `settlement_pr_base_sha` (only the original operation base or accepted main),
+   and `observation.main` must be the fresh exact repository/ref/SHA GET of
+   `refs/heads/main` at `accepted_amendment_main_sha`. Never rewrite the actual PR
+   GET to make its base equal main. The pure function
    retains the complete original operation in a terminal refusal receipt, leaves
    its consumed claim intact and restores only the review phase. Persist using
    the current blob SHA CAS and GET-confirm exact bytes. Unknown CAS stops here.
@@ -733,3 +740,27 @@ platform transcript, CAS success or the full preflight. The caller must retain
 those actual observations. Synthetic regression fixtures test refusal boundaries,
 not establish that a real tool invocation was blocked before dispatch. This
 amendment must not be used to erase or reinterpret a potentially executed call.
+
+### Base-bootstrap correction (separate owner acceptance required)
+
+PR #152's original reconciliation incorrectly required the retained PR GET base
+already to equal the new accepted main. The actual #148 GET retained its earlier
+base, so settlement was blocked before the legitimate branch refresh could run.
+The original failure/evidence is retained; previous passing fixtures did not
+cover this bootstrap lifecycle. This correction separates the owner-bound PR
+base from an independently observed accepted main. It does not weaken unknown
+outcome handling, original operation/history/budget binding or source authority.
+
+After settlement has actually CAS-persisted and been GET-confirmed, two routes
+remain distinct. If GitHub updates the tested PR base without changing its head,
+the one linked same-head successor still requires a new full exact-current-main
+review/CI preflight; its retained settlement GET is historical, not current CI.
+If strict checks require a legitimate source-branch refresh, reserve its one CI
+revision before the expected-head/non-forcing effect, verify actual parents/tree
+and CAS-checkpoint the real changed head. Preserve the original base, source
+budgets/history and refusal receipt. Then use ordinary new-head preparation,
+not `prepare_platform_ready_successor`, which intentionally rejects changed
+head/budget/history. Neither route can relabel old green checks, manufacture a
+head change, proceed from unknown CAS/ACK, or skip independent review/CI.
+The full lifecycle regression uses isolated fixtures and simulated CAS/refs/CI;
+it is not evidence that any production Ready/refresh/merge was performed.
