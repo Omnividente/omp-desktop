@@ -728690,6 +728690,16 @@
           "actor": "Omnividente"
         },
         "event_id": "4fbe3401c25be6821e1f158a5d699154e468afeb6d007e4fe29aaf890f477bd8"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-26T02:57:20.208718Z",
+        "decision_id": "f9247a42b62a4a963a8cf2344476fec4a3783e22a072dfe003e6e45d19079296",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-26T02:57:18.549214Z"
+        },
+        "event_id": "93ce84b0611f8082aae80d3200c5708043affc0e47aa261b8690b27a8f47bc6b"
       }
     ]
   }
