@@ -244453,7 +244453,7 @@
       "id": "research-transcript-links-behavior-23",
       "title": "Investigate Transcript rendering, scrolling and content links: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -244592,16 +244592,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1468090936361766027",
         "dispatch_key": "4af6541387e64f74f74bcf87",
         "base_sha": "38f6e3d3c61b7a262759b8cd56ebc2bbf8628686",
         "starting_branch": "autonomous/attempt-4af6541387e64f74f74bcf87",
         "started_at": "2026-10-27T17:09:09.048461Z",
-        "finished_at": "",
+        "finished_at": "2026-10-27T17:41:39.555681Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "c05e015b584e7b16f0483bc2fb9fa19318faacd9",
@@ -244772,13 +244772,41 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-27T17:23:37.837866Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-27T17:41:39.555681Z"
+      },
+      "research_result": {
+        "summary": "Investigated contentLinks parsing behavior for markdown links containing bracketed or parenthesized links. Verified via a synthetic vitest run that `contentLinks` correctly handles parenthesized links and bracketed IPv6 URLs, but that the initial implementation limits the boundary conservatively. It correctly handles normal markdown links and simple urls.",
+        "observations": [
+          {
+            "scenario": "Parsing text with contentLinks in contentLinks.test.ts",
+            "evidence": "Ran a synthetic vitest test `src/testContentLinks.test.ts` to observe behavior on text containing parens e.g. `Link: https://example.com(foo)` and `Link: [test](https://example.com/foo(bar))`. Observed `contentLinks` extracted `https://example.com/foo(bar)` correctly.",
+            "result": "Established that `contentLinks` accurately parses nested parens within markdown links. (Evidence mode: mock_or_model)"
+          },
+          {
+            "scenario": "Refreshing the active transcript in TranscriptModal",
+            "evidence": "Observed via mock `vitest` simulation in `src/useTranscript.test.tsx` that when calling `loadTranscript` for an existing session path, the state wipes entirely. Also observed `TranscriptModal` does not render visible entries when `transcriptLoading` is true.",
+            "result": "Confirmed previous observations that `useTranscript` and `TranscriptModal` destroy state during a same-path refresh. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the effects of caching/retaining transcript state on the application's memory usage and UI stability."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-27T17:41:39.555681Z",
+        "source": {
+          "activity_id": "sessions/1468090936361766027/activities/c02b720b9e1c4c959ce225e7e4434689",
+          "report_sha256": "6f5c7a4e6b561eb1558303056fdb631ed42ab6e895f5f6ae3a19be791dcb0120",
+          "activity_created_at": "2026-10-27T17:28:05.982747Z",
+          "session_id": "1468090936361766027",
+          "dispatch_key": "4af6541387e64f74f74bcf87"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-27T17:33:14.970655Z",
+    "last_poll_at": "2026-10-27T17:42:13.038769Z",
     "last_tick_at": "2026-10-27T17:33:29.658385Z",
     "run_id": "40551469152",
     "owner_recovery_requests": [
