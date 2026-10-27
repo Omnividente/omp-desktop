@@ -791426,6 +791426,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "ff1bf9ef86195d25a7dc7effc94636e6aa57f8f331e71933911ed8c69e722b20"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-27T17:33:50.311053Z",
+        "decision_id": "ca959143cccb74ce690511784edc8a859ebaf1b4a0258de5f00583938b3788f6",
+        "executor_claim_id": "9383e3ccb15ffeca78590c3f149783f9e1f95e465411ed96a9d69f29876cc732",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "5cc00387899c8dc68ad3091b2f4ca1abc43614d4",
+          "after_state_sha": "003c817579b8c8bd5541e7e2395bc3f289773d6c",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-behavior-23",
+              "session_id": "1468090936361766027",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-27T17:32:37Z"
+            }
+          ],
+          "before_digest": "b3e7b6aa771a65a41ec14edff7b514fcf8899b9c10f4591f6cd87e02235170dd",
+          "after_digest": "b3e7b6aa771a65a41ec14edff7b514fcf8899b9c10f4591f6cd87e02235170dd"
+        },
+        "receipt_id": "221c24773ddd00542e5b5d3ecf1b351d5da3776d5ae6662b1a223b4b53385467",
+        "event_id": "b30ccce53139fa7be80146e8b0947c617c78d023630890663310d405eaee583f"
       }
     ]
   }
