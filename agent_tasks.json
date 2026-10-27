@@ -801099,6 +801099,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "9c835cde708525c238c8a217f9a3c5afcbe040e60e3025155a3a4acd14ac2cf7"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-27T18:49:16.385563Z",
+        "decision_id": "2b9da8bf5934b416309b44e1561e896625fdd77246ec0e658d36b0a1b6100b15",
+        "executor_claim_id": "5d29320d4ebcccca6a57a8ec2be7cf484a6331104216a1899771d8a0ca06fedf",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "8fadf5f50ff21ecf69880f729703ef20a5257a0c",
+          "after_state_sha": "b44692d06c53844907b010237c5265be4646f8c4",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-performance-23",
+              "session_id": "16736456777419029438",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-27T18:48:00Z"
+            }
+          ],
+          "before_digest": "5a5e7aba5e95333ad8b51c088b6099f69c6d8dcc0395bcd8bb813b071c43a007",
+          "after_digest": "4aa37309bc72bbcfdf21b45f184cf7a54c21e3b1e60a9f7b8b907fb76ec200c0"
+        },
+        "receipt_id": "bcdb8abbd31c0edf2bdcd35f8ffd9c3279526fe54a7d37151f2bd0b8b0afbcfb",
+        "event_id": "8dceafd6224adb7ca8117f2979b9aaba144734fb5b6d21ad9a48ce6efeca6e20"
       }
     ]
   }
