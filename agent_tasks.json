@@ -243473,7 +243473,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T16:17:27.605448Z"
+        "observed_at": "2026-10-27T16:17:27.605448Z",
+        "released_attempt_ref": "autonomous/attempt-6f6e1f49b30d1dd51556e7ae"
       },
       "research_result": {
         "summary": "Investigated the terminal output batcher to verify if it correctly handles dropped or delayed outputs under heavy load. The batcher splits writes successfully but if an immediate write triggers MAX_TERMINAL_WRITE_BATCH, it might clear the timer and trigger writePending synchronously without dropping data. The data chunk will be preserved and written. No data loss on the batcher level. I also reviewed `terminalShortcutInput` for mapping physical keys on non-QWERTY layouts and `createMouseSelectionEdit` for length logic.",
