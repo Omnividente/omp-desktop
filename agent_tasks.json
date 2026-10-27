@@ -806220,6 +806220,16 @@
           "actor": "Omnividente"
         },
         "event_id": "0d20dc5239492502e446c657fef025c820d9885d892bf7e841eab5ddbd83d5c4"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-27T19:25:56.730870Z",
+        "decision_id": "21e2291b3e3aadf7d31e563e0859256c47555f19406272b1e6aa326765db915f",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-27T19:25:53.104605Z"
+        },
+        "event_id": "11ca89f478cbfcb335f4ee491c457f5ee7f7a2d30fdb47a781141483990b1599"
       }
     ]
   }
