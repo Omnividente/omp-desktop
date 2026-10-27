@@ -244372,7 +244372,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T17:09:09.048461Z"
+        "observed_at": "2026-10-27T17:09:09.048461Z",
+        "released_attempt_ref": "autonomous/attempt-286f17edd4af5af5c9b54c32"
       },
       "research_result": {
         "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
