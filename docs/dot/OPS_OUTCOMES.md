@@ -97,7 +97,10 @@ JSON allocation accommodates the reproduced 12,772-byte/100-proposal result
 without importing the proof-only limit. It is not a claimed producer maximum:
 the unchanged Sync/refresh producer has no count or byte cap, so some valid
 producer outputs can still exceed this consumer envelope or the ZIP envelope.
-Declared sizes are checked before decompression. ZIP local-header/name/overlap
+Untruncated ZIP directory names must exactly match the member allowlist; reject
+NUL-suffixed aliases rather than normalizing them. Local and directory names must
+also agree exactly. Declared sizes are checked before decompression. ZIP
+local-header/name/overlap
 validation remains, but decoded output is not taken from `ZipExtFile`, which can
 truncate at an untrusted declared size. Each complete declared compressed member
 is decoded separately with an output ceiling of its member limit plus one byte.

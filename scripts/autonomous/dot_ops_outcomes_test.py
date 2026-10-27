@@ -217,11 +217,12 @@ def controlled_zip(proof, members, overrides=None):
         compressor = zlib.compressobj(wbits=-15)
         encoded = compressor.compress(content)+compressor.flush() if method == zipfile.ZIP_DEFLATED else content
         encoded = change.get("encoded", encoded)
-        crc = change.get("crc", zlib.crc32(stated)); filename = name.encode(); offset = len(local)
+        crc = change.get("crc", zlib.crc32(stated)); filename = change.get("local_name", name).encode()
+        directory_name = change.get("directory_name", name).encode(); offset = len(local)
         local.extend(struct.pack("<IHHHHHIIIHH", 0x04034b50, 20, 0, method, 0, 0,
                                  crc, len(encoded), len(stated), len(filename), 0)+filename+encoded)
         directory.extend(struct.pack("<IHHHHHHIIIHHHHHII", 0x02014b50, 20, 20, 0, method, 0, 0,
-                                     crc, len(encoded), len(stated), len(filename), 0, 0, 0, 0, 0, offset)+filename)
+                                     crc, len(encoded), len(stated), len(directory_name), 0, 0, 0, 0, 0, offset)+directory_name)
     end = struct.pack("<IHHHHIIH", 0x06054b50, 0, 0, len(members), len(members), len(directory), len(local), 0)
     raw = bytes(local+directory+end)
     proof["artifact"]["digest"] = "sha256:"+hashlib.sha256(raw).hexdigest()
@@ -492,6 +493,30 @@ class OutcomesTest(unittest.TestCase):
                         done = complete_operation(state, proof, raw, now=NOW)
                         self.assertIsNone(done["lease"])
                         self.assertEqual(done["operations"][:-1], state["operations"])
+
+    def test_untruncated_names_must_match_allowlist_for_every_member(self):
+        for state, proof, members, target, _ in self.artifact_cases():
+            for suffix in ("\0", "\0suffix"):
+                for method in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                    with self.subTest(target=target, suffix=suffix, method=method):
+                        name = target+suffix
+                        renamed = [(name if old == target else old, content) for old, content in members]
+                        raw = controlled_zip(proof, renamed, {name: {"method": method}})
+                        with zipfile.ZipFile(io.BytesIO(raw)) as bundle:
+                            entry = next(e for e in bundle.infolist() if e.filename == target)
+                            self.assertEqual(entry.orig_filename, name)
+                            self.assertNotEqual(entry.orig_filename, entry.filename)
+                        self.deny(complete_operation, state, proof, raw, now=NOW)
+                        self.deny(prepare_operation, state, candidate(SYNC, "after-nul-proof"),
+                                  preflight(state), authority(), now=NOW)
+
+    def test_local_and_directory_names_must_match_without_normalization(self):
+        for state, proof, members, target, _ in self.artifact_cases():
+            for names in ({"local_name": target+"\0suffix"}, {"directory_name": target+"\0suffix"},
+                          {"local_name": target+"\0local", "directory_name": target+"\0central"}):
+                with self.subTest(target=target, names=names):
+                    raw = controlled_zip(proof, members, {target: names})
+                    self.deny(complete_operation, state, proof, raw, now=NOW)
 
     def test_dedicated_ops_entrypoint_handles_legacy_state_without_reinterpreting_source(self):
         original = pending(); before = deepcopy(original)

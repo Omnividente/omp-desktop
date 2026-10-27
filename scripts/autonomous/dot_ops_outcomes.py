@@ -462,7 +462,8 @@ def _bundle(operation, evidence, archive):
         with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
             entries = bundle.infolist()
             require(len(entries) == len(member_limits) and {e.filename for e in entries} == set(member_limits)
-                    and all(0 < e.file_size <= member_limits[e.filename] and not e.is_dir()
+                    and all(e.orig_filename == e.filename  # Never accept ZipInfo's NUL-truncated alias.
+                            and 0 < e.file_size <= member_limits[e.filename] and not e.is_dir()
                             and e.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
                             for e in entries), "unexpected artifact members")
             result = {}
