@@ -21,10 +21,16 @@ from owner_fence_proof import strict_json
 
 KIND = "owner-ops-external-resolution"
 SCOPE = "separate-owner-directed-administrative-external-resolution"
-CONTRACT = "cd51423d32ffa70408b37357d3483d9fa3a56dcfbd0ffea17d808af8934dbb3b"
+CONTRACT = "ce0f8036a0d17081941b6c35f075f9b5267eb19d4937b5dca146ae0b3530d0e9"
 ORIGINAL_MAIN = "21dbb4faf1717fc9e5cdc7f799d47bc50f8b8fc2"
-CURRENT_MAIN = "c05e015b584e7b16f0483bc2fb9fa19318faacd9"
+CURRENT_MAIN = "c05e015b584e7b16f0483bc2fb9fa19318faacd9"  # Historical producer/review baseline, never live main.
 FROZEN_RECEIVER = "398c6310e7938d51f713bbf1eeea75fb8e2066eb"
+IMPLEMENTATION_PATHS = {
+    "docs/dot/ADMIN_EXTERNAL_RESOLUTION.md",
+    "scripts/autonomous/dot_external_resolution.py",
+    "scripts/autonomous/dot_external_resolution_test.py",
+    "scripts/autonomous/dot_ops_outcomes.py",
+}
 MAX_DOT_BYTES = 16 * 1024 * 1024
 COMMON = {
     "scripts/autonomous/dispatch_journal.py": "51824d28aff7e75d5972aef5dcca336b56df193f",
@@ -43,13 +49,14 @@ CODE_MANIFEST = {
         ".github/workflows/autonomous_next_task.yml": "b5e975696984c51b0f7dafda723705ba93648792"}},
 }
 POLICY = {
-    "kind": "owner-administrative-external-resolution-policy", "version": 1,
+    "kind": "owner-administrative-external-resolution-policy", "version": 2,
     "repository": REPOSITORY, "scope": SCOPE, "contract_sha256": CONTRACT,
     "disposition": "administrative_closed_unknown", "historical_delivery": "unknown",
     "allowed_diff": ["append_one_separate_administrative_record", "clear_matching_pending", "clear_matching_ops_lease"],
     "new_effect_authority": [], "source_grant_changes": False, "unknown_rule_changes": False,
     "monotonic_native_guards_required": True, "current_full_journal_required": False,
     "code_manifest": CODE_MANIFEST,
+    "installed_revision_binding": "exact-owner-delegated-reviewed-implementation",
 }
 
 
@@ -62,15 +69,37 @@ def _reference(value):
     text(value["ref"]); hexadecimal(value["sha256"])
 
 
+def _implementation(value):
+    require(type(value) is dict and set(value) == {"main_sha", "tree_sha", "source_blobs", "reviews"},
+            "exact reviewed installed implementation required")
+    main = hexadecimal(value["main_sha"], SHA)
+    require(main not in {ORIGINAL_MAIN, CURRENT_MAIN, FROZEN_RECEIVER}, "administrative implementation is not installed")
+    hexadecimal(value["tree_sha"], SHA)
+    blobs = value["source_blobs"]
+    require(type(blobs) is dict and set(blobs) == IMPLEMENTATION_PATHS, "complete administrative source manifest required")
+    for sha in blobs.values():
+        hexadecimal(sha, SHA)
+    reviews = value["reviews"]
+    require(type(reviews) is dict and set(reviews) == {"code", "safety"}, "two reviewed implementation references required")
+    for ref in reviews.values():
+        _reference(ref)
+    require(reviews["code"]["ref"] != reviews["safety"]["ref"], "distinct review references required")
+    return value
+
+
 def _authority(envelope, original, before, lease, external_hash, now):
     require(type(envelope) is dict, "separate administrative owner decision required")
     record = envelope.get("record")
     require(type(record) is dict and record.get("kind") == "owner-administrative-external-resolution-decision"
             and record.get("scope") == SCOPE and record.get("status") == "active"
             and record.get("repository") == REPOSITORY and record.get("owner") == "Omnividente"
-            and type(record.get("version")) is int and record["version"] == 1,
+            and type(record.get("version")) is int and record["version"] == 2,
             "not an owner-directed administrative decision")
     text(record.get("id")); _reference(record.get("decision"))
+    require(record.get("recorded_by") == "dot-owner-delegate"
+            and record.get("owner_personally_reviewed_revision") is False,
+            "truthful delegated implementation provenance required")
+    _implementation(record.get("accepted_implementation"))
     require(digest(record) == hexadecimal(envelope.get("record_sha256")), "owner decision hash changed")
     require(same(envelope.get("accepted_policy"), POLICY)
             and record.get("accepted_policy_sha256") == digest(POLICY), "unaccepted administrative policy")
@@ -169,14 +198,26 @@ def _external(original, envelope, archive, now):
     return record, data
 
 
-def _current(current, proof, now):
+def _current(current, proof, now, implementation):
     require(type(current) is dict, "fresh native observation required")
     stamp(current.get("observed_at"), now, fresh=True)
     _reference(current.get("primary_evidence")); _reference(current.get("late_path_review"))
+    _reference(current.get("implementation_readback"))
+    installed = _implementation(implementation)
+    installed_main = installed["main_sha"]
+    require(same(current.get("installed_implementation"), installed), "installed revision differs from accepted implementation")
+    expected_manifest = {**CODE_MANIFEST,
+                         "installed_ops": {"control_sha": installed_main, "blobs": OPS_GUARDS}}
+    ancestry = current.get("main_lineage", {})
+    require(ancestry.get("base") == CURRENT_MAIN and ancestry.get("head") == installed_main
+            and ancestry.get("merge_base") == CURRENT_MAIN and ancestry.get("status") == "ahead"
+            and type(ancestry.get("ahead_by")) is int and ancestry["ahead_by"] == 1
+            and current.get("installed_main_parents") == [CURRENT_MAIN],
+            "accepted implementation is not a proved direct baseline child")
     require(current.get("native_ref") == "refs/heads/autonomous/state"
-            and current.get("main_sha") == CURRENT_MAIN and same(current.get("code_manifest"), CODE_MANIFEST)
+            and current.get("main_sha") == installed_main and same(current.get("code_manifest"), expected_manifest)
             and current.get("late_paths_complete") is True
-            and same(current.get("late_ops_revisions"), [ORIGINAL_MAIN, CURRENT_MAIN])
+            and same(current.get("late_ops_revisions"), [ORIGINAL_MAIN, CURRENT_MAIN, installed_main])
             and current.get("monotonic_native_policy") == "active-no-rewind-no-guard-weakening"
             and current.get("contradictions") == [] and current.get("ref_rewinds") == []
             and current.get("journal_preservation") == "historical-full-proof-plus-native-append-only-guards"
@@ -254,7 +295,7 @@ def prepare_external_resolution(state_bytes, *, expected_dot_blob_sha, owner_aut
                 "administrative replay identity/evidence mismatch")
         # Do not validate/clear a newer pending or lease. No new write is needed.
         return state_bytes
-    _current(external_resolution.get("current"), records["owner-fence-proof.json"], now)
+    _current(external_resolution.get("current"), records["owner-fence-proof.json"], now, decision["accepted_implementation"])
     require(not any(row["id"] == identifier for row in state["operations"]), "administrative id collision")
     row = {"id": identifier, "kind": KIND, "operation_id": operation_id, "logical_key": key,
            "disposition": "administrative_closed_unknown", "historical_delivery": "unknown",

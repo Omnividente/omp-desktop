@@ -66,9 +66,29 @@ missing guards, unknown late code or stale observations fail closed. Current
 ancestry is **not** labeled a full current journal read. No 67 MB current prefix
 download is claimed or required for this metadata-only model.
 
-Version 1 pins the reviewed original OPS `21dbb4f…`, current OPS `c05e015b…` and
-actual original frozen receiver `398c6310…` with exact relevant path/blob maps.
-An unreviewed future main requires new review, not automatic inheritance. Late
+Version 2 retains original OPS `21dbb4f…`, historical producer/review baseline
+`c05e015b…` and original frozen receiver `398c6310…` with exact relevant guard
+maps. It separates those historical pins from the newly installed administrative
+revision: hardcoding c05 as live main would reject the implementation's own merge.
+
+The separately authenticated one-off record binds `accepted_implementation`:
+exact installed `main_sha`, `tree_sha`, all four administrative `source_blobs`,
+and distinct primary code/safety review references. Its `recorded_by` is
+`dot-owner-delegate`; `owner_personally_reviewed_revision` is false. This truthfully
+records execution under the owner's instruction, not personal owner inspection
+of later hashes. The caller authenticates that instruction, review provenance,
+immutable record and actual installed source readback; supplied hashes alone
+prove neither authorship nor successful review.
+
+Fresh main must equal that accepted revision, be the single direct child of c05
+with exactly that sole parent, and retain every pinned native guard blob. The
+current observation binds the exact installed source/review manifest, its readback
+reference, ancestry and full late-path review including the installed revision.
+An intermediate or later main, changed blob/tree, missing review or conflicting
+record fails closed. No arbitrary future descendant is accepted; a different
+bootstrap topology requires a separately reviewed policy correction. Historical
+proofs must still come from the original c05 producer, never from a rewritten run.
+Exact replay remains bound to the same accepted implementation and owner record. Late
 old recovery is constrained by its immutable expected-state input and native
 single exact-parent CAS. The late frozen NEXT receiver is closed by OwnerFence
 and `bound != active_intent`, not by a false claim that an ancestor controller is
@@ -100,3 +120,5 @@ is touched. Whole product CI is not replaced by these focused control-plane test
 Publication, independent exact-revision integration review, actual one-off owner
 acceptance, fresh authenticated observations, and a separately authorized CAS
 remain distinct gates. Source delivery alone opens none of them.
+
+The version 2 bootstrap contract SHA-256 is `ce0f8036a0d17081941b6c35f075f9b5267eb19d4937b5dca146ae0b3530d0e9`. This candidate has not activated either version.

@@ -26,6 +26,16 @@ except ImportError:
 
 NOW = old.NOW + timedelta(days=1)
 REF = {"ref": "urn:synthetic:primary-observation-not-authority", "sha256": "1" * 64}
+INSTALLED = "a" * 40
+IMPLEMENTATION_PATHS = {"docs/dot/ADMIN_EXTERNAL_RESOLUTION.md", "scripts/autonomous/dot_external_resolution.py",
+                        "scripts/autonomous/dot_external_resolution_test.py", "scripts/autonomous/dot_ops_outcomes.py"}
+
+
+def implementation():
+    return {"main_sha": INSTALLED, "tree_sha": "b" * 40,
+            "source_blobs": {path: "c" * 40 for path in IMPLEMENTATION_PATHS},
+            "reviews": {"code": {**REF, "ref": "urn:synthetic:code-review"},
+                        "safety": {**REF, "ref": "urn:synthetic:safety-review"}}}
 
 
 def encoded(state):
@@ -119,10 +129,14 @@ def fixtures():
                                     "correlation_key": intent["correlation_key"], "run_id": 98, "artifact_id": 97,
                                     "retained_handoff": deepcopy(REF)}}
     current = {"observed_at": NOW.isoformat(), "primary_evidence": deepcopy(REF), "late_path_review": deepcopy(REF),
-               "native_ref": "refs/heads/autonomous/state", "main_sha": admin.CURRENT_MAIN,
+               "native_ref": "refs/heads/autonomous/state", "main_sha": INSTALLED,
+               "installed_implementation": implementation(), "implementation_readback": deepcopy(REF),
+               "installed_main_parents": [admin.CURRENT_MAIN],
+               "main_lineage": {"base": admin.CURRENT_MAIN, "head": INSTALLED, "merge_base": admin.CURRENT_MAIN,
+                                "status": "ahead", "ahead_by": 1},
                "state_sha": "f" * 40, "queue_blob_sha": "e" * 40,
-               "code_manifest": deepcopy(admin.CODE_MANIFEST), "late_paths_complete": True,
-               "late_ops_revisions": [admin.ORIGINAL_MAIN, admin.CURRENT_MAIN],
+               "code_manifest": {**deepcopy(admin.CODE_MANIFEST), "installed_ops": {"control_sha": INSTALLED, "blobs": deepcopy(admin.OPS_GUARDS)}}, "late_paths_complete": True,
+               "late_ops_revisions": [admin.ORIGINAL_MAIN, admin.CURRENT_MAIN, INSTALLED],
                "monotonic_native_policy": "active-no-rewind-no-guard-weakening", "contradictions": [], "ref_rewinds": [],
                "journal_preservation": "historical-full-proof-plus-native-append-only-guards",
                "full_current_journal_read": False,
@@ -135,7 +149,9 @@ def fixtures():
                "released_lease_sha256": ops.digest(state["lease"]), "dot_blob_sha": admin.blob_sha(raw),
                "state_sha256": ops.digest(state), "raw_sha256": hashlib.sha256(raw).hexdigest()}
     decision = {"kind": "owner-administrative-external-resolution-decision", "scope": admin.SCOPE,
-                "status": "active", "repository": ops.REPOSITORY, "owner": "Omnividente", "version": 1,
+                "status": "active", "repository": ops.REPOSITORY, "owner": "Omnividente", "version": admin.POLICY["version"],
+                "recorded_by": "dot-owner-delegate", "owner_personally_reviewed_revision": False,
+                "accepted_implementation": implementation(),
                 "id": "synthetic-owner-decision-not-live-authority", "decision": deepcopy(REF),
                 "accepted_policy_sha256": ops.digest(admin.POLICY), "binding": binding,
                 "external_record_sha256": evidence["record_sha256"], "issued_at": NOW.isoformat()}
@@ -190,6 +206,60 @@ class ExternalResolutionTest(unittest.TestCase):
         self.assertIsNone(after["pending_operation"]); self.assertIsNone(after["lease"])
         self.assertEqual(row["original_pending"]["send_claim"]["consumed"], True)
         self.assertFalse(row["external_resolution"]["current"]["full_current_journal_read"])
+
+    def test_realistic_post_integration_main_uses_exact_delegated_revision(self):
+        # Future squash SHA is supplied by authenticated acceptance, not guessed
+        # inside its own source. The retained producer remains historical c05.
+        self.assertNotEqual(self.f["external_resolution"]["current"]["main_sha"], admin.CURRENT_MAIN)
+        self.assertEqual(self.f["external_resolution"]["record"]["run"]["head_sha"], admin.CURRENT_MAIN)
+        after = json.loads(admin.prepare_external_resolution(**self.f))
+        row = after["operations"][-1]
+        self.assertEqual(row["owner_authority"]["record"]["accepted_implementation"]["main_sha"], INSTALLED)
+        self.assertFalse(row["owner_authority"]["record"]["owner_personally_reviewed_revision"])
+        self.assertEqual(row["historical_delivery"], "unknown")
+
+    def test_unaccepted_later_or_historical_main_is_rejected(self):
+        for sha in ("d" * 40, admin.CURRENT_MAIN, admin.ORIGINAL_MAIN):
+            f = deepcopy(self.f)
+            f["external_resolution"]["current"]["main_sha"] = sha
+            self.deny(f)
+
+    def test_installation_readback_tree_blobs_reviews_and_ancestry_are_bound(self):
+        changes = [lambda c: c["installed_implementation"].update(tree_sha="d" * 40),
+                   lambda c: c["installed_implementation"]["source_blobs"].update({"scripts/autonomous/dot_ops_outcomes.py": "d" * 40}),
+                   lambda c: c["installed_implementation"]["reviews"]["code"].update(sha256="d" * 64),
+                   lambda c: c.update(implementation_readback={}),
+                   lambda c: c["main_lineage"].update(merge_base="d" * 40),
+                   lambda c: c["main_lineage"].update(ahead_by=True),
+                   lambda c: c["main_lineage"].update(ahead_by=2),
+                   lambda c: c.update(installed_main_parents=[admin.CURRENT_MAIN, "d" * 40]),
+                   lambda c: c.update(installed_main_parents=["d" * 40]),
+                   lambda c: c["code_manifest"]["installed_ops"]["blobs"].update({"scripts/autonomous/dispatch_journal.py": "d" * 40}),
+                   lambda c: c.update(late_ops_revisions=[admin.ORIGINAL_MAIN, admin.CURRENT_MAIN])]
+        for change in changes:
+            with self.subTest(change=change):
+                f = deepcopy(self.f); change(f["external_resolution"]["current"]); self.deny(f)
+
+    def test_delegated_record_cannot_fabricate_personal_review_or_incomplete_revision(self):
+        changes = [lambda a: a.update(owner_personally_reviewed_revision=True),
+                   lambda a: a.update(recorded_by="owner"),
+                   lambda a: a.update(version=1),
+                   lambda a: a.pop("accepted_implementation"),
+                   lambda a: a["accepted_implementation"].update(main_sha=admin.CURRENT_MAIN),
+                   lambda a: a["accepted_implementation"]["source_blobs"].pop("docs/dot/ADMIN_EXTERNAL_RESOLUTION.md"),
+                   lambda a: a["accepted_implementation"]["reviews"].update(safety=deepcopy(a["accepted_implementation"]["reviews"]["code"]))]
+        for change in changes:
+            with self.subTest(change=change):
+                f = deepcopy(self.f); change(f["owner_authority"]["record"]); rebind(f); self.deny(f)
+
+    def test_replay_different_installed_acceptance_is_not_same_retirement(self):
+        f = deepcopy(self.f)
+        f["state_bytes"] = admin.prepare_external_resolution(**f)
+        f["expected_dot_blob_sha"] = admin.blob_sha(f["state_bytes"])
+        self.assertEqual(admin.prepare_external_resolution(**f), f["state_bytes"])
+        f["owner_authority"]["record"]["accepted_implementation"]["main_sha"] = "d" * 40
+        rebind(f)
+        self.deny(f)
 
     def test_pure_function_does_not_open_network_process_file_or_clock(self):
         with patch("builtins.open", side_effect=AssertionError("file I/O")), \
