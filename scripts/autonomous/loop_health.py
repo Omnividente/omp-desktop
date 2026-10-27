@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from dispatch_journal import CONTINUE, NEXT, SYNC, materialize
+from jules_dispatch import COMPLETED_STATES, FAILED_STATES
 from owner_report_recovery import pending_recovery, validate_requests
 from research_cycle import _iso, _time, plan_research, scope_fingerprints
 from research_disposition import acknowledged_disposition, disposition_state
@@ -40,11 +41,13 @@ def worker_observation(task: Mapping[str, Any], now: datetime) -> dict:
     identifier = str(execution.get("session_id") or "").removeprefix("sessions/")
     safe_id = identifier if re.fullmatch(r"[A-Za-z0-9_-]+", identifier) else None
     state = execution.get("session_state") or "UNKNOWN"
+    reason = ("worker_completed" if state in COMPLETED_STATES else
+              "worker_failed" if state in FAILED_STATES else WAITING_REASONS.get(state, "worker_running"))
     return {"task_id": task["id"], "session_id": safe_id,
             "session_url": "https://jules.google.com/session/" + safe_id if safe_id else None,
             "session_state": state, "observed_at": _iso(now),
             "state_changed_at": execution.get("observed_at"),
-            "reason": WAITING_REASONS.get(state, "worker_running")}
+            "reason": reason}
 
 
 def waiting_attention(task: Mapping[str, Any], now: datetime) -> dict | None:

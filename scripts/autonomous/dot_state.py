@@ -262,11 +262,20 @@ def _platform_ready_approval(state, task, operation, refusal, approval, *, origi
 def _ready_refusal_get(observation, expected, approval, now):
     _object(observation, "native refusal and fresh GET observation")
     _json(observation)
-    if set(observation) != {"refusal", "pr", "observed_at", "expected_state_blob_sha"}:
+    if set(observation) != {"refusal", "pr", "main", "observed_at", "expected_state_blob_sha"}:
         raise ValueError("mixed or unknown outcomes cannot become a pre-dispatch refusal")
     _timestamp(observation["observed_at"], now)
     _hex(observation["expected_state_blob_sha"], 40, "fresh state blob")
-    current = {**expected, "base_sha": approval["accepted_amendment_main_sha"]}
+    # GitHub may retain the PR's pre-bootstrap base until its branch refresh.
+    # Bind that observed PR base separately; never relabel it as current main.
+    pr_base = _hex(approval.get("settlement_pr_base_sha"), 40, "owner-bound settlement PR base")
+    if pr_base not in (expected["base_sha"], approval["accepted_amendment_main_sha"]):
+        raise ValueError("settlement PR base must be the original base or accepted main")
+    main = _object(observation.get("main"), "fresh main ref GET")
+    if main != {"repository": REPOSITORY, "ref": "refs/heads/main",
+                "sha": approval["accepted_amendment_main_sha"]}:
+        raise ValueError("fresh main ref must match the separately accepted amendment")
+    current = {**expected, "base_sha": pr_base}
     pr = _object(observation["pr"], "fresh PR GET")
     if (not _pr_matches(pr, current) or pr.get("draft") is not True
             or pr.get("merged") is not False or pr.get("state") != "open"):

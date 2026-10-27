@@ -747,13 +747,14 @@ class PlatformReadyRefusalTest(unittest.TestCase):
                     "Do not bypass this rejection through a workaround or indirect execution."}]}}
         approval = {"decision": "accept-one-ready-successor-after-confirmed-pre-dispatch-refusal",
                     "decision_ref": "urn:synthetic:separate-owner-acceptance",
-                    "accepted_amendment_main_sha": BASE,
+                    "accepted_amendment_main_sha": BASE, "settlement_pr_base_sha": BASE,
                     "grant_id": NEW_GRANT, "task_id": TASK_ID, "pr_number": 148, "head_sha": HEAD,
                     "operation_id": pending["id"], "intent_sha256": pending["intent_sha256"],
                     "request_sha256": pending["request_sha256"], "refusal_sha256": digest(refusal),
                     "preserved_state_sha256": _recovery_snapshot(source)}
         observation = ready_observation(); observation["pr"]["draft"] = True
-        observation.update(refusal=refusal, observed_at=NOW.isoformat(), expected_state_blob_sha=BLOB)
+        observation.update(refusal=refusal, observed_at=NOW.isoformat(), expected_state_blob_sha=BLOB,
+                           main={"repository": REPOSITORY, "ref": "refs/heads/main", "sha": BASE})
         return source, observation, approval
 
     def settled(self):
@@ -789,6 +790,96 @@ class PlatformReadyRefusalTest(unittest.TestCase):
         self.assertEqual(after["operations"][:-2], source["operations"][:-1])
         for key in ("backlog", "retired_task_ids", "grant_id"):
             self.assertEqual(after[key], source[key])
+
+    def test_bootstrap_retained_pr_base_and_same_head_successor(self):
+        source, observation, approval = self.fixture()
+        accepted_main = "7" * 40
+        approval["accepted_amendment_main_sha"] = accepted_main
+        observation["main"]["sha"] = accepted_main
+        before = copy.deepcopy(source)
+        settled = reconcile_platform_ready_refusal(source, observation, approval, lease_id="lease-1", now=NOW)
+        fresh = self.fresh(); fresh["base_sha"] = accepted_main
+        successor = self.successor(settled, fresh)
+        self.assertEqual(source, before)
+        receipt = successor["operations"][-2]["receipt"]
+        self.assertEqual(receipt["observation"]["pr"]["base_sha"], BASE)
+        self.assertEqual(receipt["observation"]["main"]["sha"], accepted_main)
+        self.assertEqual(successor["pending_operation"]["intent"]["expected"]["base_sha"], accepted_main)
+        self.assertEqual(successor["active_task"]["base_sha"], source["active_task"]["base_sha"])
+        observed = ready_observation(); observed["pr"]["base_sha"] = accepted_main
+        ready = reconcile_operation(successor, observed, now=NOW)
+        self.assertIsNone(ready["pending_operation"])
+        merge = prepare_operation(ready, "squash_merge", fresh, operation_id="merge-after-bootstrap",
+                                  lease_id="lease-1", now=NOW)
+        self.assertEqual(merge["pending_operation"]["intent"]["request"]["body"],
+                         {"sha": HEAD, "merge_method": "squash"})
+
+    def test_bootstrap_accepts_pr_base_already_advanced_but_never_unbound_base(self):
+        source, obs, approval = self.fixture(); accepted_main = "7" * 40
+        approval.update(accepted_amendment_main_sha=accepted_main, settlement_pr_base_sha=accepted_main)
+        obs["main"]["sha"] = accepted_main; obs["pr"]["base_sha"] = accepted_main
+        settled = reconcile_platform_ready_refusal(source, obs, approval, lease_id="lease-1", now=NOW)
+        fresh = self.fresh(); fresh["base_sha"] = accepted_main
+        self.successor(settled, fresh)
+        for mutate in (lambda o,a: a.pop("settlement_pr_base_sha"),
+                       lambda o,a: a.update(settlement_pr_base_sha="0" * 40),
+                       lambda o,a: o["pr"].update(base_sha=BASE),
+                       lambda o,a: o.pop("main"),
+                       lambda o,a: o["main"].update(sha=BASE),
+                       lambda o,a: o["main"].update(ref="refs/heads/other"),
+                       lambda o,a: o["main"].update(repository="other/repo")):
+            o,a = copy.deepcopy(obs),copy.deepcopy(approval); mutate(o,a)
+            with self.assertRaises(ValueError):
+                reconcile_platform_ready_refusal(source,o,a,lease_id="lease-1",now=NOW)
+        for mutate in (lambda s,e: s["operations"][-1]["receipt"]["observation"]["main"].update(sha=BASE),
+                       lambda s,e: s["operations"][-1]["receipt"]["owner_approval"].update(settlement_pr_base_sha=BASE),
+                       lambda s,e: e.update(base_sha=BASE)):
+            s,e = copy.deepcopy(settled),copy.deepcopy(fresh); mutate(s,e)
+            with self.assertRaises(ValueError): self.successor(s,e)
+
+    def test_settlement_then_legitimate_refresh_uses_ordinary_new_head_not_successor(self):
+        # Simulated caller CAS/expected-head branch refresh, never a live effect.
+        source, obs, approval = self.fixture(); accepted_main = "7" * 40
+        approval["accepted_amendment_main_sha"] = accepted_main
+        obs["main"]["sha"] = accepted_main
+        settled = reconcile_platform_ready_refusal(source, obs, approval, lease_id="lease-1", now=NOW)
+        history = copy.deepcopy(settled["operations"])
+        stored = copy.deepcopy(settled); blob = digest(stored)
+        def cas(expected_blob, replacement):
+            nonlocal stored, blob
+            if expected_blob != blob: raise ValueError("synthetic CAS conflict")
+            stored = copy.deepcopy(replacement); blob = digest(stored)
+        reserved = copy.deepcopy(stored)
+        reserved["active_task"]["ci_revisions"] += 1
+        reserved["active_task"]["batches"].append({"id": "accepted-main-refresh", "ci_revisions": 1})
+        cas(blob, reserved)  # Reserve once BEFORE expected-head refresh.
+        reservation_blob = blob
+        with self.assertRaises(ValueError): cas("stale", settled)
+        self.assertEqual(blob, reservation_blob)
+        actual_head = HEAD; expected_head = HEAD; refreshed_head = "6" * 40
+        self.assertEqual(actual_head, expected_head)
+        # Simulated verified two-parent merge inherits accepted governance only.
+        refreshed = copy.deepcopy(stored)
+        refreshed["active_task"].update(head_sha=refreshed_head, current_base_sha=accepted_main)
+        cas(reservation_blob, refreshed)
+        fresh = self.fresh(); fresh.update(head_sha=refreshed_head, base_sha=accepted_main)
+        with self.assertRaises(ValueError): self.successor(stored, fresh)
+        ready = prepare_operation(stored, "ready_for_review", fresh, operation_id="new-head-ready",
+                                  lease_id="lease-1", now=NOW)
+        self.assertEqual(ready["operations"][:-1], history)
+        self.assertEqual(ready["active_task"]["spent_lines"], source["active_task"]["spent_lines"])
+        self.assertEqual(ready["active_task"]["touched_paths"], source["active_task"]["touched_paths"])
+        self.assertEqual(ready["active_task"]["base_sha"], source["active_task"]["base_sha"])
+        self.assertEqual(ready["active_task"]["ci_revisions"], source["active_task"]["ci_revisions"]+1)
+        unknown = reconcile_operation(ready, {"result": "unknown"}, now=NOW)
+        with self.assertRaises(ValueError):
+            prepare_operation(unknown,"ready_for_review",fresh,operation_id="retry",lease_id="lease-1",now=NOW)
+        observed = ready_observation(); observed["pr"].update(head_sha=refreshed_head,base_sha=accepted_main)
+        confirmed = reconcile_operation(ready,observed,now=NOW)
+        merge = prepare_operation(confirmed,"squash_merge",fresh,operation_id="refreshed-merge",
+                                  lease_id="lease-1",now=NOW)
+        self.assertEqual(merge["pending_operation"]["intent"]["request"]["body"],
+                         {"sha":refreshed_head,"merge_method":"squash"})
 
     def test_ordinary_prepare_still_cannot_repeat_same_head(self):
         with self.assertRaises(ValueError):

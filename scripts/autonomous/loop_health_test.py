@@ -15,7 +15,8 @@ from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from loop_health import assess_health, main, workflow_runs
+from loop_health import assess_health, main, workflow_runs, worker_observation
+from jules_dispatch import COMPLETED_STATES, FAILED_STATES
 from dispatch_journal import (CONTINUE, NEXT, SYNC, OWNER_RECOVERY, OWNER_CONTINUE_CUTOVER,
                               digest, normalize_inputs, substantive_digest,
                               _owner_fence_receipt_id, _owner_cutover_receipt_id)
@@ -1350,6 +1351,28 @@ class GitReadinessTest(unittest.TestCase):
             git("update-ref", "-d", "refs/remotes/origin/main")
             with self.assertRaises(subprocess.CalledProcessError):
                 inspect_health(data, config, repo=repo, enabled=True, now=NOW, get=get)
+
+
+
+class WorkerObservationTests(unittest.TestCase):
+    def test_other_worker_classifications_remain_unchanged(self):
+        expected = {"QUEUED": "worker_running", "IN_PROGRESS": "worker_running",
+                    "UNKNOWN": "worker_running", "AWAITING_USER_FEEDBACK": "worker_awaiting_feedback",
+                    "AWAITING_PLAN_APPROVAL": "worker_awaiting_approval", "PAUSED": "worker_paused"}
+        for state, reason in expected.items():
+            with self.subTest(state=state):
+                self.assertEqual(worker_observation(task(execution={"session_state": state}), NOW)["reason"], reason)
+
+    def test_terminal_workers_are_not_reported_running(self):
+        for state, reason in ([(state, "worker_completed") for state in COMPLETED_STATES]
+                              + [(state, "worker_failed") for state in FAILED_STATES]):
+            with self.subTest(state=state):
+                item = task(execution={"session_id": "123", "session_state": state})
+                before = copy.deepcopy(item)
+                observed = worker_observation(item, NOW)
+                self.assertEqual(observed["reason"], reason)
+                self.assertEqual(observed["session_state"], state)
+                self.assertEqual(item, before)
 
 
 if __name__ == "__main__":

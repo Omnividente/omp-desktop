@@ -50,17 +50,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Full baseline stays in the runner's Git objects, never in the chat.
+          python3 control/scripts/autonomous/owner_fence_proof.py before \
+            --repo control --expected-state-sha "${EXPECTED_STATE_SHA}" \
+            --decision-id "${DECISION_ID}" \
+            --baseline "${RUNNER_TEMP}/owner-fence-baseline.json"
           python3 control/scripts/autonomous/recover_delivery.py \
             --repo control --config control/autonomous-project.json \
             --manifest queue.json --revision-file queue-revision.json \
             --expected-state-sha "${EXPECTED_STATE_SHA}" --decision-id "${DECISION_ID}" \
             --out owner-fence-result.json
+          # No proof after failed/unknown ACK. A proof failure does not undo a
+          # committed fence and MUST NOT cause a replay or an automatic Sync.
+          python3 control/scripts/autonomous/owner_fence_proof.py after \
+            --repo control --expected-state-sha "${EXPECTED_STATE_SHA}" \
+            --decision-id "${DECISION_ID}" \
+            --baseline "${RUNNER_TEMP}/owner-fence-baseline.json" \
+            --result owner-fence-result.json --out owner-fence-proof.json
 
       - name: Retain acknowledged fence or safe blocked outcome
         if: ${{ always() && hashFiles('owner-fence-result.json') != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: owner-fence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: owner-fence-result.json
+          path: |
+            owner-fence-result.json
+            owner-fence-proof.json
           retention-days: 30
           if-no-files-found: error
