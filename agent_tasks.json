@@ -243945,7 +243945,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T16:38:45.398728Z"
+        "observed_at": "2026-10-27T16:38:45.398728Z",
+        "released_attempt_ref": "autonomous/attempt-2b3e192968b307693c144c0e"
       },
       "research_result": {
         "summary": "Investigated session import error localization and the empty state in the session list. Verified that `showError` in `App.tsx` renders failure messages directly without passing them through `errorMessage`, leading to raw bracket codes being displayed. Additionally, even if an object containing a `message` with a bracket code were passed to `errorMessage`, `parseBackendError` currently fails to detect and strip the bracket code. Verified that `SessionList.tsx` `.sidebar-empty` does not possess a `role=\"status\"` or `aria-live` attribute.",
