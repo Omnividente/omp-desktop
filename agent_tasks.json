@@ -246161,7 +246161,7 @@
       "id": "research-workspace-navigation-reliability-24",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -246288,16 +246288,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "11324067306791790629",
         "dispatch_key": "3b09b56f894095abd16e0af6",
         "base_sha": "38f6e3d3c61b7a262759b8cd56ebc2bbf8628686",
         "starting_branch": "autonomous/attempt-3b09b56f894095abd16e0af6",
         "started_at": "2026-10-27T19:06:13.202054Z",
-        "finished_at": "",
+        "finished_at": "2026-10-27T20:02:27.057823Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "c05e015b584e7b16f0483bc2fb9fa19318faacd9",
@@ -246469,13 +246469,102 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-27T19:17:53.677472Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-27T20:02:27.057823Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace navigation and project switching failure recovery. Found that if saving a workspace selection to the backend fails (e.g., transient IO error), the frontend state is updated but the persistence failure prevents retrying the save without first switching to another workspace and back.",
+        "observations": [
+          {
+            "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+            "evidence": "Observed in src/App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. throws a transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry the operation, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+            "result": "A failed workspace selection persistence cannot be easily retried; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+          "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+        ],
+        "proposed_task_ids": [
+          "discovery-da432379453e9196"
+        ],
+        "completed_at": "2026-10-27T20:02:27.057823Z",
+        "source": {
+          "activity_id": "sessions/11324067306791790629/activities/ec55ea09bc454237827b1ef4b94960e3",
+          "report_sha256": "9e54195b7bfd26651dca6f8b792b1babba1a91a154c5371f8db4406e7c0c8cc0",
+          "activity_created_at": "2026-10-27T19:30:43.522399Z",
+          "session_id": "11324067306791790629",
+          "dispatch_key": "3b09b56f894095abd16e0af6"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/11324067306791790629/activities/ec55ea09bc454237827b1ef4b94960e3",
+          "report_sha256": "9e54195b7bfd26651dca6f8b792b1babba1a91a154c5371f8db4406e7c0c8cc0",
+          "activity_created_at": "2026-10-27T19:30:43.522399Z",
+          "session_id": "11324067306791790629",
+          "dispatch_key": "3b09b56f894095abd16e0af6"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-da432379453e9196"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-da432379453e9196",
+      "title": "Enable retry of failed workspace selection persistence",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 40,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "bugfix",
+        "reliability"
+      ],
+      "created_at": "2026-10-27T20:02:27.057823Z",
+      "acceptance": [
+        "When saveWorkspaceSelection fails, the user can click the same workspace again to retry saving the selection, OR the application automatically rolls back the selection state on failure."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed that the useEffect in src/App.tsx handling saveWorkspaceSelection triggers only on selectedWorkspacePath changes. A failed save leaves the frontend thinking the workspace is selected, so clicking it again does not trigger a state change or a retry.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Select a workspace in the UI.",
+            "Simulate a transient failure in api.saveWorkspaceSelection.",
+            "Attempt to click the same workspace again to retry."
+          ],
+          "expected": "The application should re-attempt to save the workspace selection.",
+          "actual": "The click is ignored because the selectedWorkspaceKey React state matches the clicked workspace, so the useEffect dependency does not change."
+        }
+      },
+      "target_paths": [
+        "src/App.tsx"
+      ],
+      "origin": {
+        "task_id": "research-workspace-navigation-reliability-24",
+        "activity_id": "sessions/11324067306791790629/activities/ec55ea09bc454237827b1ef4b94960e3",
+        "report_sha256": "9e54195b7bfd26651dca6f8b792b1babba1a91a154c5371f8db4406e7c0c8cc0",
+        "activity_created_at": "2026-10-27T19:30:43.522399Z",
+        "session_id": "11324067306791790629",
+        "dispatch_key": "3b09b56f894095abd16e0af6"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-27T19:36:06.271904Z",
+    "last_poll_at": "2026-10-27T20:02:58.161400Z",
     "last_tick_at": "2026-10-27T19:36:22.679230Z",
     "run_id": "40570385873",
     "owner_recovery_requests": [
