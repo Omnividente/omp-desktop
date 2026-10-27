@@ -801173,6 +801173,16 @@
           "actor": "Omnividente"
         },
         "event_id": "7f0e178c4e292a68d207e2bd1bdf1d7e742aff0927ef21bc86ce92cc67edef34"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-27T18:50:24.227216Z",
+        "decision_id": "feb8a9f602cf0312997a1d475034bec0c74e807e38afd1199192c624d43c797c",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-27T18:50:21.832216Z"
+        },
+        "event_id": "b98f23c1a087a28cf3ce5fc991e623faf059926ec95a5fe8905f0faebe83e313"
       }
     ]
   }
