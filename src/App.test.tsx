@@ -1352,4 +1352,194 @@ describe("App lifecycle serialization", () => {
     expect(element<HTMLSelectElement>(".session-model-select").value).toBe("provider/Saved")
     expect(container.textContent).not.toContain("Stale App load failed")
   })
+
+  it("keeps later config drafts through the App Save acknowledgement and saves only their delta", async () => {
+    const actual = await vi.importActual<typeof api>("./api")
+    vi.mocked(api.saveSettingsBundle).mockImplementation(actual.saveSettingsBundle)
+    const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+    const savedBootstrap = { ...bootstrap, settings: { ...bootstrap.settings, appFontSize: 18 } }
+    let saves = 0
+    invokeMock.mockImplementation((command) => {
+      if (command === "save_settings_bundle") {
+        return ++saves === 1
+          ? pending.promise
+          : Promise.resolve({
+              bootstrap: savedBootstrap,
+              ompConfig: { ...config("Initial"), autoResume: true },
+            })
+      }
+      return Promise.resolve()
+    })
+    await act(async () => root.render(<App />))
+    await openAndChangeSettings()
+    act(() => element("#settings-tab-behavior").click())
+    act(() => element<HTMLInputElement>(".settings-options input").click())
+    const save = element<HTMLButtonElement>(".settings-actions .primary")
+    act(() => save.click())
+    expect(save.disabled).toBe(true)
+    expect(element<HTMLInputElement>(".settings-options input").matches(":disabled")).toBe(false)
+    act(() => element<HTMLInputElement>(".settings-options input").click())
+    act(() => element<HTMLInputElement>(".settings-options label:nth-child(2) input").click())
+    await act(async () =>
+      pending.resolve({
+        bootstrap: savedBootstrap,
+        ompConfig: { ...config("Initial"), advisorEnabled: true },
+      }),
+    )
+    expect(document.documentElement.style.fontSize).toBe("18px")
+    expect(element<HTMLInputElement>(".settings-options input").checked).toBe(false)
+    expect(element<HTMLInputElement>(".settings-options label:nth-child(2) input").checked).toBe(
+      true,
+    )
+    expect(save.disabled).toBe(false)
+    expect(saves).toBe(1)
+    await act(async () => save.click())
+    const requests = invokeMock.mock.calls
+      .filter(([command]) => command === "save_settings_bundle")
+      .map(([, args]) => args.request)
+    expect(requests).toHaveLength(2)
+    expect(requests[0].ompConfig).toMatchObject({ advisorEnabled: true, autoResume: undefined })
+    expect(requests[1].ompConfig).toMatchObject({
+      advisorEnabled: false,
+      autoResume: true,
+      roles: {},
+      customProviderUpserts: [],
+    })
+    expect(save.disabled).toBe(true)
+    expect(container.querySelector(".settings-save-error")).toBeNull()
+    act(() => element(".settings-header button").click())
+    await act(async () => element(".runtime-pill").click())
+    act(() => element("#settings-tab-behavior").click())
+    expect(element<HTMLInputElement>(".settings-options input").checked).toBe(false)
+    expect(element<HTMLInputElement>(".settings-options label:nth-child(2) input").checked).toBe(
+      true,
+    )
+    expect(element<HTMLButtonElement>(".settings-actions .primary").disabled).toBe(true)
+  })
+
+  it.each(["disable", "reenable", "restore-proxy", "revert-proxy"] as const)(
+    "reconciles %s intent with proxy settings committed after this panel opened",
+    async (edit) => {
+      const actual = await vi.importActual<typeof api>("./api")
+      vi.mocked(api.saveSettingsBundle).mockImplementation(actual.saveSettingsBundle)
+      const first = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+      const second = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+      const initial: OmpConfigSnapshot = {
+        ...config("Initial"),
+        models: [
+          ...config("Initial").models,
+          {
+            ...config("Initial").models[0],
+            provider: "other-provider",
+            selector: "other-provider/Initial",
+          },
+        ],
+        credentials: ["provider", "other-provider"].map((provider) => ({
+          provider,
+          keyName: "SYNTHETIC_KEY",
+          source: "environment",
+          status: "ready",
+          available: true,
+          modelCount: 1,
+          custom: false,
+          baseUrl: null,
+          api: null,
+        })),
+      }
+      vi.mocked(api.loadOmpConfig).mockResolvedValue(initial)
+      const proxyConfig = { ...initial, proxyProviders: ["other-provider", "provider"] }
+      const proxyBootstrap = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: proxyConfig.proxyProviders },
+      }
+      const finalConfig = {
+        ...initial,
+        advisorEnabled: true,
+        disabledProviders: edit === "disable" ? ["provider"] : [],
+        proxyProviders: ["other-provider"],
+      }
+      let saves = 0
+      invokeMock.mockImplementation((command) => {
+        if (command === "save_settings_bundle") {
+          return ++saves === 1
+            ? first.promise
+            : saves === 2
+              ? second.promise
+              : Promise.resolve({
+                  bootstrap: {
+                    ...bootstrap,
+                    settings: { ...bootstrap.settings, proxyProviders: finalConfig.proxyProviders },
+                  },
+                  ompConfig: finalConfig,
+                })
+        }
+        return Promise.resolve()
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".runtime-pill").click())
+      act(() => element("#settings-tab-providers").click())
+      for (const input of container.querySelectorAll<HTMLInputElement>(
+        ".provider-proxy-toggle input",
+      ))
+        act(() => input.click())
+      await act(async () => element(".settings-actions .primary").click())
+      act(() => element(".settings-header button").click())
+      await act(async () => element(".runtime-pill").click())
+      act(() => element("#settings-tab-providers").click())
+      await act(async () => first.resolve({ bootstrap: proxyBootstrap, ompConfig: proxyConfig }))
+      // A reopened panel keeps its drafts when another panel's Save completes.
+      expect(element<HTMLInputElement>(".provider-proxy-toggle input").checked).toBe(false)
+      act(() => element("#settings-tab-behavior").click())
+      act(() => element<HTMLInputElement>(".settings-options input").click())
+      const save = element<HTMLButtonElement>(".settings-actions .primary")
+      await act(async () => save.click())
+      const requests = () =>
+        invokeMock.mock.calls
+          .filter(([command]) => command === "save_settings_bundle")
+          .map(([, args]) => args.request)
+      expect(requests()[0].ompConfig.proxyProviders).toEqual(["other-provider", "provider"])
+      expect(requests()[1].ompConfig).toMatchObject({
+        advisorEnabled: true,
+        proxyProviders: undefined,
+      })
+      act(() => element("#settings-tab-providers").click())
+      const enabled = element<HTMLInputElement>(".provider-enabled-toggle input")
+      const proxy = element<HTMLInputElement>(".provider-proxy-toggle input")
+      if (edit === "revert-proxy") {
+        act(() => proxy.click())
+        act(() => proxy.click())
+      } else {
+        act(() => enabled.click())
+        expect(proxy.checked).toBe(false)
+        if (edit !== "disable") act(() => enabled.click())
+        if (edit === "restore-proxy") act(() => proxy.click())
+      }
+      await act(async () =>
+        second.resolve({
+          bootstrap: proxyBootstrap,
+          ompConfig: { ...proxyConfig, advisorEnabled: true },
+        }),
+      )
+      const pendingClear = edit === "disable" || edit === "reenable"
+      expect(enabled.checked).toBe(edit !== "disable")
+      expect(proxy.checked).toBe(!pendingClear)
+      expect(proxy.matches(":disabled")).toBe(edit === "disable")
+      expect(
+        container.querySelectorAll<HTMLInputElement>(".provider-proxy-toggle input")[1].checked,
+      ).toBe(true)
+      expect(save.disabled).toBe(!pendingClear)
+      expect(saves).toBe(2)
+      if (pendingClear) {
+        await act(async () => save.click())
+        expect(requests()[2].ompConfig).toMatchObject({
+          advisorEnabled: undefined,
+          disabledProviders: edit === "disable" ? ["provider"] : undefined,
+          proxyProviders: ["other-provider"],
+        })
+        expect(proxy.checked).toBe(false)
+        expect(save.disabled).toBe(true)
+        expect(saves).toBe(3)
+      }
+    },
+  )
 })
