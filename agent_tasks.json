@@ -797223,6 +797223,15 @@
         },
         "receipt_id": "52b1d0aa9c0bb73ea2fa2a7351d29594058dd28dfbaef68e28337b0099538412",
         "event_id": "f6c69549e1dac78bfbdcdc328ed3c47053ec282c0a316d97d6fcf3ed148a47c7"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-27T18:25:30.385140Z",
+        "decision_id": "a94f65856c3193ac958c1e47b71fa27005c8fa7078f0692c0766310e0aa579ca",
+        "executor_claim_id": "22f5c8ed12e726bc34a861a2b0c9ff87fae087aa1b44b29b19257432a3ad2437",
+        "receipt_id": "52b1d0aa9c0bb73ea2fa2a7351d29594058dd28dfbaef68e28337b0099538412",
+        "frontier_seq": 1045,
+        "event_id": "71929403cf2ba9b77afbb9697888eb289ea98faaf3000ebb99744c0dbd194c37"
       }
     ]
   }
