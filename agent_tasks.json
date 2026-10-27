@@ -803878,6 +803878,35 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "904788d541860f78f3805c09f3d2534ac6fd1f58ead57b987bf04c3be86df41d"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-27T19:10:28.191833Z",
+        "decision_id": "61579bd8390ba8e2580a3be38059c0f8623ba2ba2d0d07a0a180b1528ac788a9",
+        "executor_claim_id": "21b7d3f29d6288844dcff5d93df86eeee0c62106708df17e21d6faae33b7236c",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "941a83844af543315a79ea83d4f3853b07a3885b",
+          "after_state_sha": "adb8479cc41d312998d8b67eae113d0e6124946c",
+          "poll_observations": [
+            {
+              "task_id": "research-transcript-links-performance-23",
+              "session_id": "16736456777419029438",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-27T19:06:13Z"
+            },
+            {
+              "task_id": "research-workspace-navigation-reliability-24",
+              "session_id": "11324067306791790629",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-27T19:06:13Z"
+            }
+          ],
+          "before_digest": "4aa37309bc72bbcfdf21b45f184cf7a54c21e3b1e60a9f7b8b907fb76ec200c0",
+          "after_digest": "a5a4c8d1ec79a37d35e19eeec884958dab59f2c72f11ec94f882a5c3fb87d2de"
+        },
+        "receipt_id": "20bfe4a9d7122ce68da47ab0cae1164d0c5e20dded998bff73ee028edf710b8e",
+        "event_id": "a2887598e7616f8fb138607dfef01579d0f6c14626dbecbdfb20172769de4b62"
       }
     ]
   }
