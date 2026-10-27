@@ -191,7 +191,7 @@ mod tests {
         fs::create_dir(&parent).unwrap();
         let path = parent.join("project");
         fs::create_dir(&path).unwrap();
-        fs::set_permissions(&parent, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o0)).unwrap();
         let metadata = fs::metadata(&path);
         let result = if metadata.is_err() {
             let mut intent = StartupWorkspaceIntent::new(Some(path.to_string_lossy().into_owned()));
