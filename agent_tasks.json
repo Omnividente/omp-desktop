@@ -797163,6 +797163,16 @@
           "actor": "Omnividente"
         },
         "event_id": "23311e944edfcab2e720a6868d69a0b45331bb338acb4c5e078b8e3b765b2d10"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-27T18:20:44.690111Z",
+        "decision_id": "a94f65856c3193ac958c1e47b71fa27005c8fa7078f0692c0766310e0aa579ca",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-27T18:20:42.340328Z"
+        },
+        "event_id": "8c0b7394a72b65cc99db30273b8c286a78af61a182f9c6d5c2dab7fdb4eba0ec"
       }
     ]
   }
