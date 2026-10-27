@@ -79,6 +79,33 @@ original published result, durable native publication event and checked lab/queu
 readback. Caller still authenticates event provenance/full journal validation and
 observes actual NEXT/CONTINUE; successful publication is not proof of loop health.
 
+Run time is compared at the precision actually supplied: a GitHub whole-second
+`created_at` covers `[created_at, created_at + 1 second)`, so preparation within
+that same second is not proof that the run is historical. An earlier second or
+an explicitly subsecond timestamp earlier than preparation is still rejected.
+This interval check is not run identification: repository, workflow, event,
+original inputs, actor, SHA, attempt and any already recorded run ID must still
+match. The caller must authenticate the original event; ambiguous candidate runs
+remain unresolved, not permission to select an unrelated older run.
+
+Retained ZIPs remain bounded to **65,536 bytes**, with exact member names/counts
+and stored/deflated members only. Each OwnerFence metadata member retains its
+producer's **8,192-byte** bound. `sync-result.json` instead has a separate
+**1,048,576-byte (1 MiB)** decompressed consumer envelope: Sync retains a variable
+`refresh.proposals` list, not the compact OwnerFence report. This modest bounded
+JSON allocation accommodates the reproduced 12,772-byte/100-proposal result
+without importing the proof-only limit. It is not a claimed producer maximum:
+the unchanged Sync/refresh producer has no count or byte cap, so some valid
+producer outputs can still exceed this consumer envelope or the ZIP envelope.
+Declared sizes are checked before decompression, reads are bounded, and all bytes
+returned by Python's ZIP reader must parse as one JSON object without duplicate
+keys or nonfinite values. ZIP member-size/CRC interpretation uses the standard
+library; this is not an independent validation of the complete compressed stream.
+Rejected archives leave pending/lease unchanged and
+permit GET reconciliation only; never truncate a result, infer success or send
+again. Supporting larger results would need a separately reviewed bounded
+producer/consumer contract, not removal of all limits.
+
 ## API and persistence
 
 - `reconcile_operation(state, observation, now=...)`: unknown/not_sent/delivered.

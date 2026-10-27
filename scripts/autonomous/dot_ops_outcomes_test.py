@@ -12,6 +12,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
+import warnings
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -162,12 +164,220 @@ def execution(state, payload=None):
     return evidence, raw
 
 
+def sync_execution_fixture():
+    """Synthetic published result with the unchanged producer's refresh shape."""
+    original = pending(); proof, raw = execution(original)
+    quiet = complete_operation(original, proof, raw, now=NOW)
+    item = candidate(SYNC, "sync-regression")
+    state = prepare_operation(quiet, item, preflight(quiet, item), authority(), now=NOW)
+    detail = {"main_sha": SHA, "lab_sha": BASE, "candidate_sha": AFTER, "queue_blob": QUEUE,
+              "quality_gate": "success", "published_lab_sha": AFTER, "candidate_branch": "autonomous/sync-123-1"}
+    event = {"type": "EffectObservation", "kind": "sync_publication", "decision_id": DECISION,
+             "executor_claim_id": digest([DECISION, "execute"]),
+             "phase_claim_id": digest([DECISION, "sync_finalize"]), "evidence": detail}
+    event["receipt_id"] = digest([DECISION, event["executor_claim_id"], "sync_publication", detail])
+    event["event_id"] = digest(event)
+    native = {"status": "prepared", "publication": "published", "reason": "verified_fast_forward",
+              "main_sha": SHA, "lab_sha": BASE, "candidate_sha": AFTER, "queue_blob": QUEUE,
+              "decision_id": DECISION, "effect_receipt_id": event["receipt_id"]}
+    proof, _ = execution(state, {"sync-result.json": native})
+    proof["artifact"]["name"] = "autonomous-sync-result-1"
+    proof["publication_event"] = event
+    executor = {"type": "ExecutorClaim", "decision_id": DECISION, "claim_id": event["executor_claim_id"],
+                "trigger": {"run_id": "123", "run_attempt": "1", "control_sha": SHA,
+                            "repository": REPOSITORY, "event_name": "workflow_dispatch", "actor": "Omnividente"}}
+    executor["event_id"] = digest(executor)
+    proof["executor_claim"] = executor
+    proof["git_readback"] = {"current_lab_sha": AFTER, "candidate_parents": [BASE, SHA],
+                             "before_queue_blob": QUEUE, "after_queue_blob": QUEUE}
+    proof["jobs"][0]["steps"] = [{"name": name, "status": "completed", "conclusion": "success"} for name in
+        ("Retain a terminal preparation or publish one checked finalization", "Preserve final outcome")]
+    return state, proof, native
+
+
+def raw_archive(proof, members, *, compression=zipfile.ZIP_DEFLATED, comment=b""):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression) as bundle:
+        for name, raw in members:
+            bundle.writestr(name, raw)
+        bundle.comment = comment
+    raw = buffer.getvalue()
+    proof["artifact"]["digest"] = "sha256:" + hashlib.sha256(raw).hexdigest()
+    return raw
+
+
 class OutcomesTest(unittest.TestCase):
     def deny(self, function, *args, **kwargs):
         snapshot = deepcopy((args, kwargs))
         with self.assertRaises(ValueError):
             function(*args, **kwargs)
         self.assertEqual((args, kwargs), snapshot)
+
+    def subsecond_pending(self):
+        state = pending(); operation = state["pending_operation"]
+        operation["prepared_at"] = (NOW + timedelta(microseconds=500000)).isoformat()
+        operation["intent_sha256"] = digest({k: v for k, v in operation.items()
+                                              if k not in {"intent_sha256", "request_sha256"}})
+        state["operations"][-1] = deepcopy(operation)
+        return state
+
+    def test_same_second_original_run_reconciles_and_completes(self):
+        for created_at in (NOW.isoformat(), NOW.strftime("%Y-%m-%dT%H:%M:%SZ")):
+            with self.subTest(created_at=created_at):
+                state = self.subsecond_pending(); original = deepcopy(state)
+                now = NOW + timedelta(microseconds=900000)
+                obs = observation(state, "delivered"); obs["run"] = run(state)
+                obs["run"]["created_at"] = created_at
+                delivered = reconcile_operation(state, obs, now=now)
+                self.assertEqual(delivered["pending_operation"], original["pending_operation"])
+                self.assertEqual(delivered["lease"], original["lease"])
+                proof, raw = execution(delivered); proof["run"]["created_at"] = created_at
+                completed = complete_operation(delivered, proof, raw, now=now)
+                self.assertIsNone(completed["pending_operation"])
+                self.assertEqual(completed["operations"][:-1], delivered["operations"])
+                self.assertEqual(state, original)
+                self.deny(prepare_operation, completed, candidate(identifier="replay"),
+                          preflight(completed), authority(), now=now)
+
+    def test_timestamp_precision_rejects_older_or_precisely_earlier_runs(self):
+        for created_at in ((NOW-timedelta(seconds=1)).isoformat(),
+                           NOW.isoformat(timespec="microseconds"),
+                           (NOW+timedelta(microseconds=499999)).isoformat()):
+            with self.subTest(created_at=created_at):
+                state = self.subsecond_pending(); proof, raw = execution(state)
+                proof["run"]["created_at"] = created_at
+                self.deny(complete_operation, state, proof, raw, now=NOW+timedelta(seconds=1))
+                obs = observation(state, "delivered"); obs["run"] = proof["run"]
+                self.deny(reconcile_operation, state, obs, now=NOW+timedelta(seconds=1))
+        # Known subsecond observations retain their actual precision.
+        state = self.subsecond_pending(); proof, raw = execution(state)
+        proof["run"]["created_at"] = (NOW+timedelta(microseconds=500000)).isoformat()
+        self.assertIsNone(complete_operation(state, proof, raw, now=NOW+timedelta(seconds=1))["lease"])
+
+    def test_same_second_timestamp_does_not_relax_exact_run_bindings(self):
+        changes = (lambda r: r.update(head_sha=BASE), lambda r: r.update(head_branch="other"),
+                   lambda r: r.update(event="push"), lambda r: r.update(path="other.yml"),
+                   lambda r: r["repository"].update(full_name="foreign/repo"),
+                   lambda r: r.update(run_attempt=2), lambda r: r["actor"].update(login="other"),
+                   lambda r: r["triggering_actor"].update(login="other"),
+                   lambda r: r["inputs"].update(decision_id="9"*64))
+        for change in changes:
+            state = self.subsecond_pending(); obs = observation(state, "delivered")
+            obs["run"] = run(state); change(obs["run"])
+            self.deny(reconcile_operation, state, obs, now=NOW+timedelta(seconds=1))
+        state = self.subsecond_pending(); obs = observation(state, "delivered"); obs["run"] = run(state)
+        delivered = reconcile_operation(state, obs, now=NOW+timedelta(seconds=1))
+        obs = observation(delivered, "delivered"); obs["run"] = run(delivered); obs["run"]["id"] = 999
+        self.deny(reconcile_operation, delivered, obs, now=NOW+timedelta(seconds=1))
+        proof, raw = execution(delivered); proof["run"]["id"] = 999
+        self.deny(complete_operation, delivered, proof, raw, now=NOW+timedelta(seconds=1))
+
+    def test_sync_refresh_larger_than_compact_proof_can_complete(self):
+        state, proof, native = sync_execution_fixture()
+        native["refresh"] = {"code_sha": AFTER, "outcome": "ok", "proposals": [
+            {"pull_request": index, "task_id": "task-" + str(index), "head_sha": SHA, "outcome": "current"}
+            for index in range(1, 101)]}
+        encoded = json.dumps(native).encode()
+        self.assertEqual(len(encoded), 12772)
+        raw = raw_archive(proof, [("sync-result.json", encoded)])
+        self.assertEqual(len(raw), 955)
+        before = deepcopy(state)
+        done = complete_operation(state, proof, raw, now=NOW)
+        self.assertIsNone(done["pending_operation"])
+        self.assertEqual(done["operations"][:-1], state["operations"])
+        self.assertEqual(state, before)
+
+    def test_sync_member_envelope_exact_limit_and_oversize_stays_get_only(self):
+        state, proof, native = sync_execution_fixture(); encoded = json.dumps(native).encode()
+        for size in (1048576, 1048577):
+            with self.subTest(size=size):
+                raw = raw_archive(proof, [("sync-result.json", encoded + b" "*(size-len(encoded)))])
+                self.assertLess(len(raw), 65536)
+                if size == 1048576:
+                    self.assertIsNone(complete_operation(state, proof, raw, now=NOW)["pending_operation"])
+                else:
+                    self.deny(complete_operation, state, proof, raw, now=NOW)
+                    unknown = reconcile_operation(state, observation(state, "unknown"), now=NOW)
+                    proof.update(state_sha256=digest(unknown))
+                    self.deny(complete_operation, unknown, proof, raw, now=NOW)
+                    self.assertEqual(unknown["pending_operation"], state["pending_operation"])
+                    self.assertEqual(unknown["lease"], state["lease"])
+                    self.deny(prepare_operation, unknown, candidate(SYNC, "retry"),
+                              preflight(unknown), authority(), now=NOW)
+
+    def test_fence_member_envelope_stays_8192_for_both_members(self):
+        state = pending(); proof, _ = execution(state)
+        payload = {name: json.dumps(data).encode() for name, data in archive_payload(state).items()}
+        for target in payload:
+            for size in (8192, 8193):
+                with self.subTest(target=target, size=size):
+                    members = [(name, raw + b" "*(size-len(raw)) if name == target else raw)
+                               for name, raw in payload.items()]
+                    raw = raw_archive(proof, members)
+                    if size == 8192:
+                        self.assertIsNone(complete_operation(state, proof, raw, now=NOW)["lease"])
+                    else:
+                        self.deny(complete_operation, state, proof, raw, now=NOW)
+
+    def test_archive_envelope_stays_65536_for_recovery_and_sync(self):
+        recovery = pending(); proof, _ = execution(recovery)
+        sync, sync_proof, native = sync_execution_fixture()
+        for state, evidence, payload in ((recovery, proof, archive_payload(recovery)),
+                                         (sync, sync_proof, {"sync-result.json": native})):
+            members = [(name, json.dumps(data).encode()) for name, data in payload.items()]
+            small = raw_archive(evidence, members)
+            for size in (65536, 65537):
+                raw = raw_archive(evidence, members, comment=b"x"*(size-len(small)))
+                self.assertEqual(len(raw), size)
+                if size == 65536:
+                    self.assertIsNone(complete_operation(state, evidence, raw, now=NOW)["lease"])
+                else:
+                    self.deny(complete_operation, state, evidence, raw, now=NOW)
+
+    def test_sync_archive_shape_and_strict_json_are_not_relaxed(self):
+        state, proof, native = sync_execution_fixture(); encoded = json.dumps(native).encode()
+        invalid = ([('foreign.json', encoded)], [('sync-result.json/', encoded)],
+                   [('sync-result.json', encoded), ('extra.json', b'{}')],
+                   [('sync-result.json', b'{"x":1,"x":1}')], [('sync-result.json', b'{"x":NaN}')],
+                   [('sync-result.json', encoded[:-1]+b', "refresh": {"value": 1e999}}')],
+                   [('sync-result.json', encoded+b'{}')], [('sync-result.json', b'\xff')],
+                   [('sync-result.json', b'[]')],
+                   [('sync-result.json', b'['*2000+b']'*2000)])
+        for members in invalid:
+            raw = raw_archive(proof, members)
+            self.deny(complete_operation, state, proof, raw, now=NOW)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            raw = raw_archive(proof, [("sync-result.json", encoded), ("sync-result.json", encoded)])
+        self.deny(complete_operation, state, proof, raw, now=NOW)
+        raw = raw_archive(proof, [("sync-result.json", encoded)], compression=zipfile.ZIP_BZIP2)
+        self.deny(complete_operation, state, proof, raw, now=NOW)
+        raw = bytearray(raw_archive(proof, [("sync-result.json", encoded)], compression=zipfile.ZIP_STORED))
+        raw[30+len("sync-result.json")] ^= 1  # Corrupt data, while matching the supplied archive digest.
+        raw = bytes(raw); proof["artifact"]["digest"] = "sha256:"+hashlib.sha256(raw).hexdigest()
+        self.deny(complete_operation, state, proof, raw, now=NOW)
+
+    def test_oversize_member_is_rejected_before_decompression(self):
+        state, proof, native = sync_execution_fixture()
+        raw = raw_archive(proof, [("sync-result.json", b" "*1048577)])
+        with mock.patch.object(zipfile.ZipFile, "open", side_effect=AssertionError("must not decompress")):
+            self.deny(complete_operation, state, proof, raw, now=NOW)
+
+    def test_artifact_decompression_uses_bounded_reads(self):
+        state, proof, native = sync_execution_fixture()
+        raw = raw_archive(proof, [("sync-result.json", json.dumps(native).encode())])
+        original_read = zipfile.ZipExtFile.read; requests = []
+        def bounded_read(stream, size=-1):
+            requests.append(size)
+            self.assertGreater(size, 0)
+            self.assertLessEqual(size, 1048577)
+            return original_read(stream, size)
+        with mock.patch.object(zipfile.ZipExtFile, "read", bounded_read):
+            self.assertIsNone(complete_operation(state, proof, raw, now=NOW)["lease"])
+        self.assertTrue(requests)
+        for data in (b"{}", b" "*1048577):
+            with mock.patch.object(zipfile.ZipExtFile, "read", return_value=data):
+                self.deny(complete_operation, state, proof, raw, now=NOW)
 
     def test_dedicated_ops_entrypoint_handles_legacy_state_without_reinterpreting_source(self):
         original = pending(); before = deepcopy(original)

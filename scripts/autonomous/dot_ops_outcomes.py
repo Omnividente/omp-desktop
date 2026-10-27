@@ -14,6 +14,7 @@ import re
 import hashlib
 import io
 import json
+import math
 import zipfile
 
 from dot_authority import digest, instant
@@ -30,6 +31,9 @@ SCOPE = "separate-owner-delegated-operations"
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 HASH = re.compile(r"[0-9a-f]{64}\Z")
 FRESHNESS = timedelta(minutes=5)
+MAX_ARTIFACT_BYTES = 65536
+MAX_FENCE_MEMBER_BYTES = 8192  # owner_fence_proof.MAX_METADATA
+MAX_SYNC_RESULT_BYTES = 1024 * 1024  # Consumer envelope, not a producer maximum.
 CONTRACT_PATHS = {".github/workflows/" + name for name in WORKFLOWS.values()} | {
     "scripts/autonomous/owner_fence_proof.py", "scripts/autonomous/recover_delivery.py",
     "scripts/autonomous/dispatch_journal.py", "docs/autonomous/OWNER_FENCE_PROOF.md"}
@@ -236,7 +240,14 @@ def _run(operation, run):
             and run.get("head_sha") == operation["expected"]["main_sha"]
             and run.get("repository", {}).get("full_name") == REPOSITORY, "wrong original workflow run")
     text(run.get("html_url"))
-    require(instant(text(run.get("created_at"))) >= instant(operation["prepared_at"]), "historical run predates this attempt")
+    created_text = text(run.get("created_at"))
+    created, prepared = instant(created_text), instant(operation["prepared_at"])
+    # GitHub's whole-second value represents [created, created + 1 second).
+    # Only that interval may overlap preparation; no previous second or precise
+    # earlier timestamp is accepted. All original event/run bindings still apply.
+    whole_second = re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)", created_text)
+    require(created >= prepared or (whole_second and prepared - created < timedelta(seconds=1)),
+            "historical run predates this attempt")
     actor = run.get("actor", {}).get("login")
     require(type(actor) is str and actor.casefold() == "omnividente"
             and run.get("triggering_actor", {}).get("login") == actor,
@@ -424,14 +435,15 @@ def _bundle(operation, evidence, archive):
                 and matches[0].get("conclusion") == "success", "native/proof retention not successful")
     expected_name = ("owner-fence-" + str(run["id"]) + "-1" if operation["kind"] == RECOVERY
                      else "autonomous-sync-result-1")
-    require(type(archive) is bytes and 0 < len(archive) <= 65536
+    require(type(archive) is bytes and 0 < len(archive) <= MAX_ARTIFACT_BYTES
             and artifact.get("name") == expected_name and artifact.get("expired") is False
             and type(artifact.get("id")) is int and artifact["id"] > 0
             and artifact.get("digest") == "sha256:" + hashlib.sha256(archive).hexdigest()
             and artifact.get("workflow_run", {}).get("id") == run["id"]
             and artifact["workflow_run"].get("head_sha") == run["head_sha"], "retained artifact mismatch")
-    expected_files = ({"owner-fence-result.json", "owner-fence-proof.json"} if operation["kind"] == RECOVERY
-                      else {"sync-result.json"})
+    member_limits = ({"owner-fence-result.json": MAX_FENCE_MEMBER_BYTES,
+                      "owner-fence-proof.json": MAX_FENCE_MEMBER_BYTES} if operation["kind"] == RECOVERY
+                     else {"sync-result.json": MAX_SYNC_RESULT_BYTES})
     def pairs(items):
         result = {}
         for key, value in items:
@@ -440,14 +452,28 @@ def _bundle(operation, evidence, archive):
         return result
     def nonfinite(_):
         raise ValueError("nonfinite artifact number")
+    def finite_float(value):
+        number = float(value)
+        require(math.isfinite(number), "nonfinite artifact number")
+        return number
     try:
         with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
             entries = bundle.infolist()
-            require(len(entries) == len(expected_files) and {e.filename for e in entries} == expected_files
-                    and all(0 < e.file_size <= 8192 and not e.is_dir() for e in entries), "unexpected artifact members")
-            return {entry.filename: json.loads(bundle.read(entry), object_pairs_hook=pairs,
-                                               parse_constant=nonfinite) for entry in entries}
-    except (zipfile.BadZipFile, UnicodeError, RuntimeError, OSError) as exc:
+            require(len(entries) == len(member_limits) and {e.filename for e in entries} == set(member_limits)
+                    and all(0 < e.file_size <= member_limits[e.filename] and not e.is_dir()
+                            and e.compress_type in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}
+                            for e in entries), "unexpected artifact members")
+            result = {}
+            for entry in entries:
+                limit = member_limits[entry.filename]
+                with bundle.open(entry) as member:
+                    raw = member.read(limit + 1)
+                require(len(raw) == entry.file_size and len(raw) <= limit, "artifact member size mismatch")
+                value = json.loads(raw, object_pairs_hook=pairs, parse_constant=nonfinite, parse_float=finite_float)
+                require(type(value) is dict, "artifact member must be a JSON object")
+                result[entry.filename] = value
+            return result
+    except (zipfile.BadZipFile, UnicodeError, RuntimeError, OSError, RecursionError) as exc:
         raise ValueError("unreadable original artifact") from exc
 
 
