@@ -817828,6 +817828,15 @@
         },
         "receipt_id": "4c260240842329fea8c8c4a366191875311b9cf24ac2cba7da335ea1c9283f2c",
         "event_id": "c87c10d2fd7a66de7d3e2117a4b90b2956d6b7aee2085119c3df4e94e2030e2d"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-27T21:02:34.332890Z",
+        "decision_id": "863d8ee993ae28db259a2b81915bb71f8135c9eb276536843307f12fbe6a8127",
+        "executor_claim_id": "19b44ffd1c97d9efebf331a96eb6328b963150c7c2414734e0a37101468b8a7f",
+        "receipt_id": "4c260240842329fea8c8c4a366191875311b9cf24ac2cba7da335ea1c9283f2c",
+        "frontier_seq": 1076,
+        "event_id": "c4e3867e8e9b87085ce7122580dca959e7ba44d516001eefd977a2f99314e1eb"
       }
     ]
   }
