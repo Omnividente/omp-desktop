@@ -812740,6 +812740,16 @@
           "actor": "Omnividente"
         },
         "event_id": "d94dbc501d7aa75a9e6137024fe3622dc13e2b29515daed0b78c53b6ea9981f9"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-27T20:25:21.923050Z",
+        "decision_id": "26b46e1f0bf60f3f606ebabc2aaf5c35b18bf17970393e0bbb47525df57c0f79",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-27T20:25:19.548389Z"
+        },
+        "event_id": "26e4fd4e9811de585b34b515f7ac7f94d381ed88ae43880a966c956ba1cc7220"
       }
     ]
   }
