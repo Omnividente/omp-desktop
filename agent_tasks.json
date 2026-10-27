@@ -817805,6 +817805,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "4122999c938681d6b1900adc59c75985ad14797b49ad5352e2bae9314a7c7cb1"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-27T21:02:04.389203Z",
+        "decision_id": "863d8ee993ae28db259a2b81915bb71f8135c9eb276536843307f12fbe6a8127",
+        "executor_claim_id": "19b44ffd1c97d9efebf331a96eb6328b963150c7c2414734e0a37101468b8a7f",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "e0d062a1290a41d194159c2af0a5cb0a660e7b2b",
+          "after_state_sha": "cc049567be8b32b0b1f510f0bf9285849453e0b2",
+          "poll_observations": [
+            {
+              "task_id": "research-workspace-navigation-ux-24",
+              "session_id": "16382305157041851105",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-27T21:00:49Z"
+            }
+          ],
+          "before_digest": "8c27973986aec15a46000e7e4cb09fbf0d08547edfebf0ef317950f97e4ed11b",
+          "after_digest": "8c27973986aec15a46000e7e4cb09fbf0d08547edfebf0ef317950f97e4ed11b"
+        },
+        "receipt_id": "4c260240842329fea8c8c4a366191875311b9cf24ac2cba7da335ea1c9283f2c",
+        "event_id": "c87c10d2fd7a66de7d3e2117a4b90b2956d6b7aee2085119c3df4e94e2030e2d"
       }
     ]
   }
