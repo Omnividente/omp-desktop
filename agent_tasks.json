@@ -246470,7 +246470,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T20:02:27.057823Z"
+        "observed_at": "2026-10-27T20:02:27.057823Z",
+        "released_attempt_ref": "autonomous/attempt-3b09b56f894095abd16e0af6"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and project switching failure recovery. Found that if saving a workspace selection to the backend fails (e.g., transient IO error), the frontend state is updated but the persistence failure prevents retrying the save without first switching to another workspace and back.",
