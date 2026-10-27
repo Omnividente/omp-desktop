@@ -801233,6 +801233,15 @@
         },
         "receipt_id": "04bfb8f478d7a91b91d9fcb3e4bd923bd492ae6b5cfc4a95d49f3be81b246bcb",
         "event_id": "5fc9034f4270f1272dad6f84fa498778fcb50a75399299f97dcb6123e8a4a56a"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-27T18:55:19.045500Z",
+        "decision_id": "feb8a9f602cf0312997a1d475034bec0c74e807e38afd1199192c624d43c797c",
+        "executor_claim_id": "224b04cfb750e18053d4706e08406fdfa8591703df89dd0f92e616d088f85d41",
+        "receipt_id": "04bfb8f478d7a91b91d9fcb3e4bd923bd492ae6b5cfc4a95d49f3be81b246bcb",
+        "frontier_seq": 1051,
+        "event_id": "86565ffb36678be56c2d1f54213591b6a0ff79cb9357fe8417b84c485387e0af"
       }
     ]
   }
