@@ -97,10 +97,15 @@ JSON allocation accommodates the reproduced 12,772-byte/100-proposal result
 without importing the proof-only limit. It is not a claimed producer maximum:
 the unchanged Sync/refresh producer has no count or byte cap, so some valid
 producer outputs can still exceed this consumer envelope or the ZIP envelope.
-Declared sizes are checked before decompression, reads are bounded, and all bytes
-returned by Python's ZIP reader must parse as one JSON object without duplicate
-keys or nonfinite values. ZIP member-size/CRC interpretation uses the standard
-library; this is not an independent validation of the complete compressed stream.
+Declared sizes are checked before decompression. ZIP local-header/name/overlap
+validation remains, but decoded output is not taken from `ZipExtFile`, which can
+truncate at an untrusted declared size. Each complete declared compressed member
+is decoded separately with an output ceiling of its member limit plus one byte.
+DEFLATE must reach EOF with no unused bytes or unconsumed input; stored members
+must also match their complete declared size. Every decoded member must match
+its size and CRC and parse as one JSON object without duplicate keys, nonfinite
+values or trailing content. This applies independently to both OwnerFence members
+and the Sync result; malformed fence proof cannot create a receipt permitting Sync.
 Rejected archives leave pending/lease unchanged and
 permit GET reconciliation only; never truncate a result, infer success or send
 again. Supporting larger results would need a separately reviewed bounded

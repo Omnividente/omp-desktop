@@ -9,12 +9,14 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
 from unittest import mock
 import warnings
 import zipfile
+import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dot_authority import digest
@@ -206,6 +208,26 @@ def raw_archive(proof, members, *, compression=zipfile.ZIP_DEFLATED, comment=b""
     return raw
 
 
+def controlled_zip(proof, members, overrides=None):
+    """Synthetic ZIP builder: central/local declared sizes need not match streams."""
+    overrides = overrides or {}; local = bytearray(); directory = bytearray()
+    for name, content in members:
+        change = overrides.get(name, {}); stated = change.get("declared", content)
+        method = change.get("method", zipfile.ZIP_DEFLATED)
+        compressor = zlib.compressobj(wbits=-15)
+        encoded = compressor.compress(content)+compressor.flush() if method == zipfile.ZIP_DEFLATED else content
+        encoded = change.get("encoded", encoded)
+        crc = change.get("crc", zlib.crc32(stated)); filename = name.encode(); offset = len(local)
+        local.extend(struct.pack("<IHHHHHIIIHH", 0x04034b50, 20, 0, method, 0, 0,
+                                 crc, len(encoded), len(stated), len(filename), 0)+filename+encoded)
+        directory.extend(struct.pack("<IHHHHHHIIIHHHHHII", 0x02014b50, 20, 20, 0, method, 0, 0,
+                                     crc, len(encoded), len(stated), len(filename), 0, 0, 0, 0, 0, offset)+filename)
+    end = struct.pack("<IHHHHIIH", 0x06054b50, 0, 0, len(members), len(members), len(directory), len(local), 0)
+    raw = bytes(local+directory+end)
+    proof["artifact"]["digest"] = "sha256:"+hashlib.sha256(raw).hexdigest()
+    return raw
+
+
 class OutcomesTest(unittest.TestCase):
     def deny(self, function, *args, **kwargs):
         snapshot = deepcopy((args, kwargs))
@@ -366,18 +388,110 @@ class OutcomesTest(unittest.TestCase):
     def test_artifact_decompression_uses_bounded_reads(self):
         state, proof, native = sync_execution_fixture()
         raw = raw_archive(proof, [("sync-result.json", json.dumps(native).encode())])
-        original_read = zipfile.ZipExtFile.read; requests = []
-        def bounded_read(stream, size=-1):
-            requests.append(size)
-            self.assertGreater(size, 0)
-            self.assertLessEqual(size, 1048577)
-            return original_read(stream, size)
-        with mock.patch.object(zipfile.ZipExtFile, "read", bounded_read):
+        factory = zlib.decompressobj; requests = []; test = self
+        class BoundedDecoder:
+            def __init__(self, *args, **kwargs):
+                self.decoder = factory(*args, **kwargs)
+            def __getattr__(self, name):
+                return getattr(self.decoder, name)
+            def decompress(self, data, max_length=0):
+                requests.append(max_length)
+                test.assertGreater(max_length, 0)
+                test.assertLessEqual(max_length, 1048577)
+                return self.decoder.decompress(data, max_length)
+            def flush(self, *args):
+                raise AssertionError("unbounded decoder flush must not be used")
+        with mock.patch.object(zlib, "decompressobj", BoundedDecoder), mock.patch.object(
+                zipfile.ZipExtFile, "read", side_effect=AssertionError("must not trust clipped ZIP output")):
             self.assertIsNone(complete_operation(state, proof, raw, now=NOW)["lease"])
         self.assertTrue(requests)
-        for data in (b"{}", b" "*1048577):
-            with mock.patch.object(zipfile.ZipExtFile, "read", return_value=data):
+
+    def artifact_cases(self):
+        state = pending(); proof, _ = execution(state)
+        recovery = [(name, json.dumps(value).encode()) for name, value in archive_payload(state).items()]
+        sync, sync_proof, native = sync_execution_fixture()
+        return [(state, proof, recovery, name, 8192) for name, _ in recovery] + [
+            (sync, sync_proof, [("sync-result.json", json.dumps(native).encode())], "sync-result.json", 1048576)]
+
+    def test_hidden_member_suffix_never_settles_any_artifact(self):
+        for state, proof, members, target, _ in self.artifact_cases():
+            for method in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                with self.subTest(target=target, method=method):
+                    prefix = dict(members)[target]
+                    changed = [(name, raw+b'\n{"publication":"blocked","allows_sync":false}' if name == target else raw)
+                               for name, raw in members]
+                    raw = controlled_zip(proof, changed, {target: {"declared": prefix, "method": method}})
+                    self.deny(complete_operation, state, proof, raw, now=NOW)
+                    self.deny(prepare_operation, state, candidate(SYNC, "after-malformed-proof"),
+                              preflight(state), authority(), now=NOW)
+
+    def test_missing_deflate_eof_never_settles_any_artifact(self):
+        for state, proof, members, target, _ in self.artifact_cases():
+            with self.subTest(target=target):
+                content = dict(members)[target]; compressor = zlib.compressobj(wbits=-15)
+                encoded = (compressor.compress(content)+compressor.flush())[:-1]
+                decoder = zlib.decompressobj(-15)
+                self.assertEqual(decoder.decompress(encoded), content)
+                self.assertFalse(decoder.eof)
+                raw = controlled_zip(proof, members, {target: {"encoded": encoded}})
                 self.deny(complete_operation, state, proof, raw, now=NOW)
+
+    def test_trailing_or_concatenated_deflate_stream_is_rejected(self):
+        for state, proof, members, target, _ in self.artifact_cases():
+            content = dict(members)[target]; compressor = zlib.compressobj(wbits=-15)
+            encoded = compressor.compress(content)+compressor.flush()
+            extra = zlib.compressobj(wbits=-15); second = extra.compress(b"{}")+extra.flush()
+            for suffix in (b"unclaimed trailing bytes", second):
+                with self.subTest(target=target, suffix=suffix):
+                    raw = controlled_zip(proof, members, {target: {"encoded": encoded+suffix}})
+                    self.deny(complete_operation, state, proof, raw, now=NOW)
+
+    def test_forged_small_size_cannot_hide_oversized_decoded_member(self):
+        for state, proof, members, target, limit in self.artifact_cases():
+            with self.subTest(target=target):
+                prefix = dict(members)[target]
+                changed = [(name, content+b" "*(limit+1) if name == target else content) for name, content in members]
+                raw = controlled_zip(proof, changed, {target: {"declared": prefix}})
+                self.assertLess(len(raw), 65536)
+                self.deny(complete_operation, state, proof, raw, now=NOW)
+                unknown = reconcile_operation(state, observation(state, "unknown"), now=NOW)
+                proof.update(state_sha256=digest(unknown))
+                self.deny(complete_operation, unknown, proof, raw, now=NOW)
+                self.assertEqual(unknown["pending_operation"], state["pending_operation"])
+                self.assertEqual(unknown["lease"], state["lease"])
+
+    def test_decoded_crc_and_local_header_method_flags_must_match(self):
+        for state, proof, members, target, _ in self.artifact_cases():
+            for method in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                raw = controlled_zip(proof, members, {target: {"method": method, "crc": 0}})
+                self.deny(complete_operation, state, proof, raw, now=NOW)
+            for offset, value in ((6, 8), (8, zipfile.ZIP_STORED)):
+                raw = bytearray(controlled_zip(proof, members))
+                with zipfile.ZipFile(io.BytesIO(raw)) as bundle:
+                    local = bundle.getinfo(target).header_offset
+                struct.pack_into("<H", raw, local+offset, value)
+                raw = bytes(raw); proof["artifact"]["digest"] = "sha256:"+hashlib.sha256(raw).hexdigest()
+                self.deny(complete_operation, state, proof, raw, now=NOW)
+
+    def test_normal_stored_deflated_descriptor_and_zip64_archives_still_complete(self):
+        class StreamingBuffer(io.BytesIO):
+            def seek(self, *args):
+                raise io.UnsupportedOperation("synthetic non-seekable upload stream")
+        # Recovery has two members; Sync has one. Neither format loses a member.
+        for state, proof, members, _, _ in self.artifact_cases()[::2]:
+            for method in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED):
+                for streaming, force_zip64 in ((False, False), (True, False), (False, True), (True, True)):
+                    with self.subTest(kind=state["pending_operation"]["kind"], method=method,
+                                      streaming=streaming, zip64=force_zip64):
+                        buffer = StreamingBuffer() if streaming else io.BytesIO()
+                        with zipfile.ZipFile(buffer, "w", method) as bundle:
+                            for name, content in members:
+                                with bundle.open(name, "w", force_zip64=force_zip64) as member:
+                                    member.write(content)
+                        raw = buffer.getvalue(); proof["artifact"]["digest"] = "sha256:"+hashlib.sha256(raw).hexdigest()
+                        done = complete_operation(state, proof, raw, now=NOW)
+                        self.assertIsNone(done["lease"])
+                        self.assertEqual(done["operations"][:-1], state["operations"])
 
     def test_dedicated_ops_entrypoint_handles_legacy_state_without_reinterpreting_source(self):
         original = pending(); before = deepcopy(original)

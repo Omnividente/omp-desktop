@@ -15,7 +15,9 @@ import hashlib
 import io
 import json
 import math
+import struct
 import zipfile
+import zlib
 
 from dot_authority import digest, instant
 
@@ -466,14 +468,33 @@ def _bundle(operation, evidence, archive):
             result = {}
             for entry in entries:
                 limit = member_limits[entry.filename]
-                with bundle.open(entry) as member:
-                    raw = member.read(limit + 1)
+                # Keep ZipFile's local-header/name/overlap checks, but never use
+                # ZipExtFile output: it truncates to the declared file_size and
+                # can hide a suffix or accept a stream without its DEFLATE EOF.
+                with bundle.open(entry):
+                    pass
+                flags, method = struct.unpack_from("<HH", archive, entry.header_offset + 6)
+                require(flags == entry.flag_bits and method == entry.compress_type,
+                        "ZIP local header differs from directory")
+                name_size, extra_size = struct.unpack_from("<HH", archive, entry.header_offset + 26)
+                start = entry.header_offset + 30 + name_size + extra_size
+                end = start + entry.compress_size
+                require(0 <= start < end <= len(archive), "invalid compressed member span")
+                compressed = archive[start:end]
+                if method == zipfile.ZIP_STORED:
+                    raw = compressed
+                else:
+                    decoder = zlib.decompressobj(-zlib.MAX_WBITS)
+                    raw = decoder.decompress(compressed, limit + 1)
+                    require(decoder.eof and not decoder.unused_data and not decoder.unconsumed_tail,
+                            "incomplete or trailing DEFLATE stream")
                 require(len(raw) == entry.file_size and len(raw) <= limit, "artifact member size mismatch")
+                require(zlib.crc32(raw) == entry.CRC, "artifact member CRC mismatch")
                 value = json.loads(raw, object_pairs_hook=pairs, parse_constant=nonfinite, parse_float=finite_float)
                 require(type(value) is dict, "artifact member must be a JSON object")
                 result[entry.filename] = value
             return result
-    except (zipfile.BadZipFile, UnicodeError, RuntimeError, OSError, RecursionError) as exc:
+    except (zipfile.BadZipFile, UnicodeError, RuntimeError, OSError, RecursionError, struct.error, zlib.error) as exc:
         raise ValueError("unreadable original artifact") from exc
 
 
