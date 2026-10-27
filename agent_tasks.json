@@ -245764,7 +245764,7 @@
       "id": "research-transcript-links-performance-23",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -245896,16 +245896,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "16736456777419029438",
         "dispatch_key": "04c7673dee7f81c7293cf4bf",
         "base_sha": "38f6e3d3c61b7a262759b8cd56ebc2bbf8628686",
         "starting_branch": "autonomous/attempt-04c7673dee7f81c7293cf4bf",
         "started_at": "2026-10-27T18:36:33.999677Z",
-        "finished_at": "",
+        "finished_at": "2026-10-27T19:06:13.202054Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "c05e015b584e7b16f0483bc2fb9fa19318faacd9",
@@ -246076,13 +246076,89 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-27T18:48:00.772341Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-27T19:06:13.202054Z"
+      },
+      "research_result": {
+        "summary": "Investigated the transcript loading and refresh behavior in useTranscript and TranscriptModal. During a same-path refresh, useTranscript unconditionally sets the transcript state to null before starting the network request. Furthermore, TranscriptModal unmounts the entire virtualized list of entries when transcriptLoading is true, replacing it with a loading spinner. This combination permanently destroys the existing visible list items and clears out context used by TranscriptModal for scroll state preservation when reloading the active session path.",
+        "observations": [
+          {
+            "scenario": "Triggering a load for an already loaded transcript via loadTranscript.",
+            "evidence": "Observed via mock vitest simulation in src/investigate_useTranscript.test.tsx that when calling loadTranscript for a session path already in sessionPathRef.current, the state's transcript becomes null immediately. Additionally, in TranscriptModal, when transcriptLoading is true, the transcript-entries container is completely unmounted in favor of a transcript-state loader, as observed in the source code and simulated renders.",
+            "result": "Established that both useTranscript and TranscriptModal fail to gracefully handle same-path refreshes, resulting in complete loss of UI state and scroll position. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-27T19:06:13.202054Z",
+        "source": {
+          "activity_id": "sessions/16736456777419029438/activities/1476c724923c42b485def61a2e2bdf29",
+          "report_sha256": "ff75cd341fd8de396922e3c250f975422b644017cec1bbed639d4f2cb742c37a",
+          "activity_created_at": "2026-10-27T18:53:34.910453Z",
+          "session_id": "16736456777419029438",
+          "dispatch_key": "04c7673dee7f81c7293cf4bf"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix loss of transcript rendering state during refresh by retaining previous data while loading",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-32eb6e3f7f5f07fc; not established as a duplicate. {\"detail\": \"Verified via mock vitest simulation that `useTranscript` currently wipes the entire `transcript` state before a refresh network request completes. Additionally, `TranscriptModal` unmounts the `transcript-entries` container whenever `transcriptLoading` is true, which replaces the existing UI with an empty or error state and destroys scroll tracking hooks. By modifying `load` in `useTranscript` to only clear `transcript` if `path !== sessionPathRef.current`, and modifying `TranscriptModal` to show a non-destructive loading indicator (or skip the blocking loader) if `transcript` is already present, the transcript data is preserved during same-path refreshes.\", \"reproduction\": {\"actual\": \"`transcript` becomes `null` immediately and `TranscriptModal` unmounts all entries, discarding scroll position.\", \"expected\": \"The `transcript` state remains populated and accessible while `transcriptLoading` is true, and `TranscriptModal` retains the virtualized list of entries on screen during a same-path refresh.\", \"steps\": [\"Create a vitest test file `src/investigate_useTranscript.test.tsx`\", \"Render `<Harness />` wrapped in `act` to observe `useTranscript`\", \"Trigger a successful load on `/a.jsonl`.\", \"Trigger a new load on `/a.jsonl` but do not resolve the mock API call yet.\", \"Observe that the state clears the transcript text before the promise resolves.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/useTranscript.ts",
+              "src/TranscriptModal.tsx"
+            ],
+            "acceptance": [
+              "When a user triggers a reload/refresh (via `load` or `loadTranscript`) for the same active `sessionPath` already loaded in state, `transcript` and `transcriptSession` should not be cleared (`setTranscript(null)` should not be called).",
+              "If the reload is for a different path, `setTranscript(null)` continues to clear state before the network call.",
+              "In `TranscriptModal`, if `transcriptLoading` is true but `transcript` is already populated and has entries, the virtual list of entries (`transcript-entries`) continues to be rendered instead of being unmounted for the loading spinner."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/16736456777419029438/activities/1476c724923c42b485def61a2e2bdf29",
+          "report_sha256": "ff75cd341fd8de396922e3c250f975422b644017cec1bbed639d4f2cb742c37a",
+          "activity_created_at": "2026-10-27T18:53:34.910453Z",
+          "session_id": "16736456777419029438",
+          "dispatch_key": "04c7673dee7f81c7293cf4bf"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-4bec4ea1780a26c9",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-32eb6e3f7f5f07fc"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix loss of transcript rendering state during refresh by retaining previous data while loading",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-32eb6e3f7f5f07fc; not established as a duplicate. {\"detail\": \"Verified via mock vitest simulation that `useTranscript` currently wipes the entire `transcript` state before a refresh network request completes. Additionally, `TranscriptModal` unmounts the `transcript-entries` container whenever `transcriptLoading` is true, which replaces the existing UI with an empty or error state and destroys scroll tracking hooks. By modifying `load` in `useTranscript` to only clear `transcript` if `path !== sessionPathRef.current`, and modifying `TranscriptModal` to show a non-destructive loading indicator (or skip the blocking loader) if `transcript` is already present, the transcript data is preserved during same-path refreshes.\", \"reproduction\": {\"actual\": \"`transcript` becomes `null` immediately and `TranscriptModal` unmounts all entries, discarding scroll position.\", \"expected\": \"The `transcript` state remains populated and accessible while `transcriptLoading` is true, and `TranscriptModal` retains the virtualized list of entries on screen during a same-path refresh.\", \"steps\": [\"Create a vitest test file `src/investigate_useTranscript.test.tsx`\", \"Render `<Harness />` wrapped in `act` to observe `useTranscript`\", \"Trigger a successful load on `/a.jsonl`.\", \"Trigger a new load on `/a.jsonl` but do not resolve the mock API call yet.\", \"Observe that the state clears the transcript text before the promise resolves.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/useTranscript.ts",
+                "src/TranscriptModal.tsx"
+              ],
+              "acceptance": [
+                "When a user triggers a reload/refresh (via `load` or `loadTranscript`) for the same active `sessionPath` already loaded in state, `transcript` and `transcriptSession` should not be cleared (`setTranscript(null)` should not be called).",
+                "If the reload is for a different path, `setTranscript(null)` continues to clear state before the network call.",
+                "In `TranscriptModal`, if `transcriptLoading` is true but `transcript` is already populated and has entries, the virtual list of entries (`transcript-entries`) continues to be rendered instead of being unmounted for the loading spinner."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-27T18:57:39.673348Z",
+    "last_poll_at": "2026-10-27T19:06:46.004135Z",
     "last_tick_at": "2026-10-27T18:57:54.358274Z",
     "run_id": "40564573696",
     "owner_recovery_requests": [
