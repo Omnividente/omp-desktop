@@ -812800,6 +812800,15 @@
         },
         "receipt_id": "e9e5768b74e9773258edabfac194f73bccf540455abb6bab49bdceb245455765",
         "event_id": "039b8e2b1ed36eebff33761c1d8dfb5fedfe319b1524f8c830a92c809a14c750"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-27T20:30:03.218561Z",
+        "decision_id": "26b46e1f0bf60f3f606ebabc2aaf5c35b18bf17970393e0bbb47525df57c0f79",
+        "executor_claim_id": "6b16cc8c530d876d87d30e7601181f4e879d7864c02661ab99f9533bc0110ffa",
+        "receipt_id": "e9e5768b74e9773258edabfac194f73bccf540455abb6bab49bdceb245455765",
+        "frontier_seq": 1069,
+        "event_id": "7ed5fd350dc1b6e0488b64e02a33514c792d02fe37024b810ac618dc233191dc"
       }
     ]
   }
