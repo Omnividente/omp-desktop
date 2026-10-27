@@ -246562,6 +246562,127 @@
         "session_id": "11324067306791790629",
         "dispatch_key": "3b09b56f894095abd16e0af6"
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-24",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-27T20:02:27Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 24,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
+            "observations": [
+              {
+                "scenario": "Simulated failed addWorkspace action in App.tsx (Open Folder).",
+                "evidence": "Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open.",
+                "result": "Focus remains lost (defaults to document.body) if the workspace creation or folder selection fails."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [
+              "discovery-64584f2ace44c556"
+            ],
+            "completed_at": "2026-10-25T12:52:54.154684Z",
+            "source": {
+              "activity_id": "sessions/5210389471572699823/activities/263b54ee675647ff88a30cdafbb4766d",
+              "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
+              "activity_created_at": "2026-10-25T12:41:44.996044Z",
+              "session_id": "5210389471572699823",
+              "dispatch_key": "3682292020859c5122952f05"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
+            "observations": [
+              {
+                "scenario": "Simulated failed addWorkspace action in App.tsx (Open Folder).",
+                "evidence": "Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open.",
+                "result": "Focus remains lost (defaults to document.body) if the workspace creation or folder selection fails."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-27T17:09:09.048461Z",
+            "source": {
+              "activity_id": "sessions/9179484144791724333/activities/4f09bbb01596406da0e0ea49dc2f3864",
+              "report_sha256": "ebbcb123d1665d664b82e96c4a5077ce92fe084c8b2a0687bea7772b92ea551e",
+              "activity_created_at": "2026-10-27T16:54:18.838621Z",
+              "session_id": "9179484144791724333",
+              "dispatch_key": "286f17edd4af5af5c9b54c32"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to initiating button on workspace creation failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-64584f2ace44c556; not established as a duplicate. {\"detail\": \"Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open. This causes focus to be lost (defaults to document.body) if the workspace creation or folder selection fails.\", \"reproduction\": {\"actual\": \"Focus is lost to document.body\", \"expected\": \"Focus returns to the 'Open Folder' button\", \"steps\": [\"Select a folder using 'Open Folder'\", \"Simulate an error during addWorkspace\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Focus returns to the button that triggered openFolder when workspace creation fails."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching failure recovery. Found that if saving a workspace selection to the backend fails (e.g., transient IO error), the frontend state is updated but the persistence failure prevents retrying the save without first switching to another workspace and back.",
+            "observations": [
+              {
+                "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+                "evidence": "Observed in src/App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. throws a transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry the operation, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+                "result": "A failed workspace selection persistence cannot be easily retried; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [
+              "discovery-da432379453e9196"
+            ],
+            "completed_at": "2026-10-27T20:02:27.057823Z",
+            "source": {
+              "activity_id": "sessions/11324067306791790629/activities/ec55ea09bc454237827b1ef4b94960e3",
+              "report_sha256": "9e54195b7bfd26651dca6f8b792b1babba1a91a154c5371f8db4406e7c0c8cc0",
+              "activity_created_at": "2026-10-27T19:30:43.522399Z",
+              "session_id": "11324067306791790629",
+              "dispatch_key": "3b09b56f894095abd16e0af6"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
