@@ -808650,6 +808650,25 @@
           "path": ".github/workflows/autonomous_sync.yml"
         },
         "event_id": "8197c4f6780ef31a91cfd61625e2be381bed23321e987e19b5dce7c129fab677"
+      },
+      {
+        "type": "ExecutionStage",
+        "at": "2026-10-27T19:45:28.278530Z",
+        "decision_id": "cb23ec7d203321f342cf1efb56752c5a3560cd87b12d3fb0d39c3dada46a4efa",
+        "executor_claim_id": "b9f49820b73cc25735f846d709f1ab9429b5dbee14dbb1f9dfbb3d6ca7df78f6",
+        "phase": "sync_prepared",
+        "stage_id": "995279b0696baed56d0b0c0d1d55c7aac80c4fcab72541d238169341d1bdca7c",
+        "evidence": {
+          "status": "prepared",
+          "main_sha": "f7cf4cf1d283676e9fc8a11ec74d7d3b6803d3e7",
+          "lab_sha": "38f6e3d3c61b7a262759b8cd56ebc2bbf8628686",
+          "candidate_sha": "6a758209c42d1f35893f33bfb3fab3585de6e224",
+          "queue_blob": "076585bc9ffdfc4be0a571714e4cc0605d51dde3",
+          "candidate_branch": "autonomous/sync-40571856956-1",
+          "candidate_owned": true
+        },
+        "evidence_hash": "1209a943c3b076edbce80282f7669e334414d4fc56358ad818209521c47f6c27",
+        "event_id": "7301b5c485541d151070ce5ea6183597ba78287dd61349325c4e49091840de27"
       }
     ]
   }
