@@ -242183,7 +242183,7 @@
       "id": "research-terminal-input-behavior-24",
       "title": "Investigate Terminal input, output and continuity: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -242353,7 +242353,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "quarantined",
         "session_id": "4331104029066831110",
         "dispatch_key": "ac194f4255dedd0fdbee2f95",
         "base_sha": "d773ad9f10139cbd418148b3d4269b8559160fcc",
@@ -242361,8 +242361,8 @@
         "started_at": "2026-10-26T07:57:08.831598Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "stale",
+        "note": "worker outcome unknown after 6h",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "398c6310e7938d51f713bbf1eeea75fb8e2066eb",
@@ -242536,7 +242536,8 @@
           ]
         },
         "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-26T08:08:55.936279Z"
+        "observed_at": "2026-10-26T08:08:55.936279Z",
+        "quarantined_at": "2026-10-27T15:16:20.968507Z"
       }
     }
   ],
