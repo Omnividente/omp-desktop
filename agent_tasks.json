@@ -246867,7 +246867,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T20:40:40.688331Z"
+        "observed_at": "2026-10-27T20:40:40.688331Z",
+        "released_attempt_ref": "autonomous/attempt-f8fff64441019685b2fa7f9b"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and project switching performance using synthetic benchmarks on pinned commit 6a758209c42d1f35893f33bfb3fab3585de6e224. Measured rendering latency and interaction times for large inputs.",
