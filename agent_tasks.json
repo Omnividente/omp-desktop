@@ -246914,7 +246914,7 @@
       "id": "research-workspace-navigation-ux-24",
       "title": "Investigate Workspace navigation and project switching: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "a11y",
         "i18n",
@@ -247046,7 +247046,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "awaiting_report",
         "session_id": "16382305157041851105",
         "dispatch_key": "29b2ac3335c6eaddb6a93eac",
         "base_sha": "6a758209c42d1f35893f33bfb3fab3585de6e224",
@@ -247054,8 +247054,8 @@
         "started_at": "2026-10-27T20:40:40.688331Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "report_invalid",
+        "note": "completed worker report requires inspection: research_invalid",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "f7cf4cf1d283676e9fc8a11ec74d7d3b6803d3e7",
@@ -247227,13 +247227,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-27T20:52:16.848855Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-27T21:37:23.598501Z",
+        "report_error": {
+          "code": "research_invalid",
+          "detail": "expected exactly one ordered research report block",
+          "reported_at": "2026-10-27T21:37:23.598501Z",
+          "source": {
+            "activity_id": "sessions/16382305157041851105/activities/a81a70d887044c208ac370b8b34f0758",
+            "report_sha256": "6a61613bad913653a2dd3e8210a621193dd52e037f7d5ef8947b983e27f0f0cd",
+            "activity_created_at": "2026-10-27T21:25:04.523409Z",
+            "session_id": "16382305157041851105",
+            "dispatch_key": "29b2ac3335c6eaddb6a93eac"
+          }
+        },
+        "report_repair": {
+          "at": "2026-10-27T21:38:08.502565Z",
+          "result": "pending",
+          "status": "pending",
+          "source": {
+            "activity_id": "sessions/16382305157041851105/activities/a81a70d887044c208ac370b8b34f0758",
+            "report_sha256": "6a61613bad913653a2dd3e8210a621193dd52e037f7d5ef8947b983e27f0f0cd",
+            "activity_created_at": "2026-10-27T21:25:04.523409Z",
+            "session_id": "16382305157041851105",
+            "dispatch_key": "29b2ac3335c6eaddb6a93eac"
+          }
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-27T21:19:06.608972Z",
+    "last_poll_at": "2026-10-27T21:38:03.196434Z",
     "last_tick_at": "2026-10-27T21:19:23.999303Z",
     "run_id": "40585538471",
     "owner_recovery_requests": [
