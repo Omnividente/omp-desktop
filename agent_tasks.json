@@ -246866,13 +246866,13 @@
             }
           ]
         },
-        "session_state": "QUEUED",
-        "observed_at": "2026-10-27T20:02:27.057823Z"
+        "session_state": "IN_PROGRESS",
+        "observed_at": "2026-10-27T20:14:19.867648Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-27T20:06:14.967873Z",
+    "last_poll_at": "2026-10-27T20:14:51.306894Z",
     "last_tick_at": "2026-10-27T20:06:32.477709Z",
     "run_id": "40574364278",
     "owner_recovery_requests": [
