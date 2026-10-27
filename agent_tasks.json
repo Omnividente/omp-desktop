@@ -246156,6 +246156,136 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-reliability-24",
+      "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-27T19:06:13Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one interrupted, concurrent or failed operation in this area. Using disposable data, exercise cancellation, retry or restart and check that state remains recoverable without loss or duplicate operations. Record the exact transition and evidence; on a revisit test a new failure boundary suggested by prior observations. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "reliability",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 24,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation and project switching performance using synthetic large-input benchmarks. Measured responsiveness across SessionList and ProjectRail.",
+            "observations": [
+              {
+                "scenario": "Simulated rendering 5000 sessions in the SessionList utilizing Vitest jsdom component testing.",
+                "evidence": "Executed a synthetic benchmark test (vitest_benchmark.test.tsx) initializing SessionList with 5000 mock sessions. VirtualList hooks handled the rendering in ~52ms on average, demonstrating efficient handling of large session lists without layout thrashing.",
+                "result": "SessionList efficiently manages large session datasets with high rendering performance due to its virtualization implementation."
+              },
+              {
+                "scenario": "Simulated rendering 2000 workspaces in ProjectRail utilizing Vitest jsdom component testing.",
+                "evidence": "Executed a synthetic benchmark test (vitest_project_rail.test.tsx) initializing ProjectRail with 2000 mock workspaces. Due to the lack of virtualization, the component took over 3300ms to render the DOM nodes. This validates a previously rejected proposal (discovery-e0f2bce9ebc246e7) where the owner cited that a synthetic extreme-size benchmark alone does not justify the complexity of workspace virtualization.",
+                "result": "ProjectRail does not scale efficiently to extreme workspace sizes and exhibits measurable latency under heavy synthetic loads, though owner decision explicitly rejects adding virtualization based solely on synthetic extremes."
+              },
+              {
+                "scenario": "Simulated updating the search input with a large session list (5000 sessions) utilizing Vitest jsdom component testing.",
+                "evidence": "Executed a synthetic benchmark test (vitest_search.test.tsx) providing a search query string to SessionList containing 5000 sessions. The render time remained performant at ~50ms, confirming search filtering does not break virtualization benefits.",
+                "result": "Search filtering maintains high rendering performance even when navigating very large session lists."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if debouncing the search input in SessionList could further improve interactivity when typing rapidly across extremely large datasets.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-25T12:16:58.334043Z",
+            "source": {
+              "activity_id": "sessions/7316562788903133598/activities/1a7d044f841a4018839a1a15d7416a8a",
+              "report_sha256": "fb0cd502fde87d3ebe0a9e9e642e65b2a56dc9f6adf82789734f8eff4de2dc34",
+              "activity_created_at": "2026-10-25T12:04:31.563038Z",
+              "session_id": "7316562788903133598",
+              "dispatch_key": "97c66f3bdb73d51e0d079269"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
+            "observations": [
+              {
+                "scenario": "Simulated failed addWorkspace action in App.tsx (Open Folder).",
+                "evidence": "Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open.",
+                "result": "Focus remains lost (defaults to document.body) if the workspace creation or folder selection fails."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [
+              "discovery-64584f2ace44c556"
+            ],
+            "completed_at": "2026-10-25T12:52:54.154684Z",
+            "source": {
+              "activity_id": "sessions/5210389471572699823/activities/263b54ee675647ff88a30cdafbb4766d",
+              "report_sha256": "05a33dcd4e08951f9f549f6ffd62fd55094d2c6584c3bbf28c21a633fef87ab4",
+              "activity_created_at": "2026-10-25T12:41:44.996044Z",
+              "session_id": "5210389471572699823",
+              "dispatch_key": "3682292020859c5122952f05"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
+            "observations": [
+              {
+                "scenario": "Simulated failed addWorkspace action in App.tsx (Open Folder).",
+                "evidence": "Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open.",
+                "result": "Focus remains lost (defaults to document.body) if the workspace creation or folder selection fails."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-27T17:09:09.048461Z",
+            "source": {
+              "activity_id": "sessions/9179484144791724333/activities/4f09bbb01596406da0e0ea49dc2f3864",
+              "report_sha256": "ebbcb123d1665d664b82e96c4a5077ce92fe084c8b2a0687bea7772b92ea551e",
+              "activity_created_at": "2026-10-27T16:54:18.838621Z",
+              "session_id": "9179484144791724333",
+              "dispatch_key": "286f17edd4af5af5c9b54c32"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to initiating button on workspace creation failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-64584f2ace44c556; not established as a duplicate. {\"detail\": \"Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open. This causes focus to be lost (defaults to document.body) if the workspace creation or folder selection fails.\", \"reproduction\": {\"actual\": \"Focus is lost to document.body\", \"expected\": \"Focus returns to the 'Open Folder' button\", \"steps\": [\"Select a folder using 'Open Folder'\", \"Simulate an error during addWorkspace\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Focus returns to the button that triggered openFolder when workspace creation fails."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
