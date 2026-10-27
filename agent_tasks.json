@@ -808687,6 +808687,26 @@
         },
         "stage_id": "995279b0696baed56d0b0c0d1d55c7aac80c4fcab72541d238169341d1bdca7c",
         "event_id": "8a10b0dbd6d97a3e2a49c48052b0d3025e68ffb8935406fdc08d01b658389ec5"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-27T19:57:41.635429Z",
+        "decision_id": "cb23ec7d203321f342cf1efb56752c5a3560cd87b12d3fb0d39c3dada46a4efa",
+        "executor_claim_id": "b9f49820b73cc25735f846d709f1ab9429b5dbee14dbb1f9dfbb3d6ca7df78f6",
+        "phase_claim_id": "67585123f07e79d3322b2ce801a526ca8ccb51cf8a4aee017eeb5f0544cec114",
+        "kind": "sync_publication",
+        "evidence": {
+          "stage_id": "995279b0696baed56d0b0c0d1d55c7aac80c4fcab72541d238169341d1bdca7c",
+          "main_sha": "f7cf4cf1d283676e9fc8a11ec74d7d3b6803d3e7",
+          "lab_sha": "38f6e3d3c61b7a262759b8cd56ebc2bbf8628686",
+          "candidate_sha": "6a758209c42d1f35893f33bfb3fab3585de6e224",
+          "published_lab_sha": "6a758209c42d1f35893f33bfb3fab3585de6e224",
+          "queue_blob": "076585bc9ffdfc4be0a571714e4cc0605d51dde3",
+          "candidate_branch": "autonomous/sync-40571856956-1",
+          "quality_gate": "success"
+        },
+        "receipt_id": "eda612f0357d6ed90d5e7ae5b8c4ec0a87567771283aff60e2bfeaea1e314c68",
+        "event_id": "a765d4593508369f3f881a8611a79005c5fe4ae64d79c35d9f5df2325868247c"
       }
     ]
   }
