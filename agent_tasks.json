@@ -808600,6 +808600,16 @@
           "actor": "Omnividente"
         },
         "event_id": "849b35b203ca8d31a357cee633676d851d8e54cb019b3a21bb25d51d3d673915"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-27T19:44:48.179349Z",
+        "decision_id": "cb23ec7d203321f342cf1efb56752c5a3560cd87b12d3fb0d39c3dada46a4efa",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-27T19:44:45.792490Z"
+        },
+        "event_id": "8eae2c1fe53a506a56571f0e868f44631fde89f281c676113729c4e43f31bf41"
       }
     ]
   }
