@@ -244773,7 +244773,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T17:41:39.555681Z"
+        "observed_at": "2026-10-27T17:41:39.555681Z",
+        "released_attempt_ref": "autonomous/attempt-4af6541387e64f74f74bcf87"
       },
       "research_result": {
         "summary": "Investigated contentLinks parsing behavior for markdown links containing bracketed or parenthesized links. Verified via a synthetic vitest run that `contentLinks` correctly handles parenthesized links and bracketed IPv6 URLs, but that the initial implementation limits the boundary conservatively. It correctly handles normal markdown links and simple urls.",
