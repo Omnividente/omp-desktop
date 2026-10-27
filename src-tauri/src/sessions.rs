@@ -166,6 +166,7 @@ pub(crate) fn build_bootstrap_excluding(
         workspaces,
         sessions,
         session_warnings: warnings,
+        startup_workspace_warning: None,
     })
 }
 

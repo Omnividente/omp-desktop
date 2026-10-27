@@ -38,6 +38,7 @@ vi.mock("./useClientUpdater", async (importOriginal) => {
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   bootstrap: vi.fn(),
+  resolveStartupWorkspace: vi.fn(),
   addWorkspace: vi.fn(),
   removeWorkspace: vi.fn(),
   deleteSession: vi.fn(),
@@ -318,7 +319,7 @@ describe("App lifecycle serialization", () => {
   let container: HTMLDivElement
 
   function element<T extends HTMLElement = HTMLButtonElement>(selector: string): T {
-    const found = container.querySelector<T>(selector)
+    const found = container.querySelector<T>(selector) ?? document.body.querySelector<T>(selector)
     expect(found, selector).not.toBeNull()
     return found!
   }
@@ -377,12 +378,326 @@ describe("App lifecycle serialization", () => {
     expect(element<HTMLButtonElement>(".settings-actions .primary").disabled).toBe(false)
   }
 
+  const startupWarning = {
+    requestedPath: "C:/fixture/missing",
+    message: "Requested folder unavailable",
+  }
+  const warningPayload = { ...bootstrap, startupWorkspaceWarning: startupWarning }
+  function recoveryAction(action: string) {
+    return element<HTMLButtonElement>(`[data-startup-action="${action}"]`)
+  }
+
+  it("keeps an unavailable explicit launch gated without persisting the fallback", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    await act(async () => root.render(<App />))
+    const gate = element('[aria-labelledby="startup-workspace-title"]')
+    expect(gate.textContent).toContain(startupWarning.requestedPath)
+    expect(gate.textContent).toContain(bootstrap.workspaces[0].path)
+    expect(element(".app-shell").hasAttribute("inert")).toBe(true)
+    expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { ctrlKey: true, code: "KeyN", bubbles: true }),
+      )
+      element(".new-session-button").click()
+    })
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("retains startup warning when folder selection is cancelled or fails", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    vi.mocked(open).mockResolvedValueOnce(null).mockResolvedValueOnce("C:/fixture/also-missing")
+    vi.mocked(api.addWorkspace).mockRejectedValueOnce(new Error("Folder selection failed"))
+    await act(async () => root.render(<App />))
+    await act(async () => recoveryAction("choose").click())
+    expect(api.addWorkspace).not.toHaveBeenCalled()
+    expect(recoveryAction("continue").disabled).toBe(false)
+    await act(async () => recoveryAction("choose").click())
+    expect(element('[aria-labelledby="startup-workspace-title"]').textContent).toContain(
+      "Folder selection failed",
+    )
+    expect(api.resolveStartupWorkspace).not.toHaveBeenCalled()
+    expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+  })
+
+  it("continues only after matching backend acknowledgement and never launches a terminal", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    const pending = deferred<BootstrapPayload>()
+    vi.mocked(api.resolveStartupWorkspace).mockReturnValue(pending.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => {
+      recoveryAction("continue").click()
+      recoveryAction("continue").click()
+    })
+    expect(api.resolveStartupWorkspace).toHaveBeenCalledOnce()
+    expect(api.resolveStartupWorkspace).toHaveBeenCalledWith(
+      startupWarning.requestedPath,
+      "continue",
+    )
+    expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+    await act(async () => pending.resolve(bootstrap))
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+    expect(element(".app-shell").hasAttribute("inert")).toBe(false)
+    expect(api.saveWorkspaceSelection).toHaveBeenCalledWith(bootstrap.workspaces[0].path)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("keeps startup recovery actionable after Continue rejects", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    vi.mocked(api.resolveStartupWorkspace).mockRejectedValue(new Error("Snapshot unavailable"))
+    await act(async () => root.render(<App />))
+    await act(async () => recoveryAction("continue").click())
+    expect(element('[aria-labelledby="startup-workspace-title"]').textContent).toContain(
+      "Snapshot unavailable",
+    )
+    expect(recoveryAction("choose").disabled).toBe(false)
+    expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+  })
+
+  it("retries explicitly, retains repeated failure, then selects the restored requested path", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    const restored = {
+      ...bootstrap,
+      workspaces: [
+        ...bootstrap.workspaces,
+        {
+          ...bootstrap.workspaces[0],
+          key: "restored",
+          path: startupWarning.requestedPath,
+          name: "Restored",
+        },
+      ],
+    }
+    vi.mocked(api.resolveStartupWorkspace)
+      .mockResolvedValueOnce(warningPayload)
+      .mockResolvedValueOnce(restored)
+    await act(async () => root.render(<App />))
+    await act(async () => recoveryAction("retry").click())
+    expect(recoveryAction("retry").disabled).toBe(false)
+    expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+    await act(async () => recoveryAction("retry").click())
+    expect(api.resolveStartupWorkspace).toHaveBeenLastCalledWith(
+      startupWarning.requestedPath,
+      "retry",
+    )
+    expect(element(".project-item.is-active").textContent).toContain("Restored")
+    expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith(startupWarning.requestedPath)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("a successful alternate folder resolves startup recovery without removing history", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    const next = {
+      ...bootstrap,
+      workspaces: [
+        ...bootstrap.workspaces,
+        {
+          ...bootstrap.workspaces[0],
+          key: "chosen",
+          path: "C:/fixture/chosen",
+          name: "Chosen",
+        },
+      ],
+    }
+    vi.mocked(open).mockResolvedValue("C:/fixture/chosen")
+    vi.mocked(api.addWorkspace).mockResolvedValue(next)
+    await act(async () => root.render(<App />))
+    await act(async () => recoveryAction("choose").click())
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+    expect(projectNames()).toEqual(["Fixture", "Chosen"])
+    expect(api.removeWorkspace).not.toHaveBeenCalled()
+    expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith("C:/fixture/chosen")
+  })
+
+  it("does not let a delayed startup retry replace a newer second-instance workspace", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    const pending = deferred<BootstrapPayload>()
+    vi.mocked(api.resolveStartupWorkspace).mockReturnValue(pending.promise)
+    const newer = {
+      ...bootstrap,
+      workspaces: [
+        ...bootstrap.workspaces,
+        {
+          ...bootstrap.workspaces[0],
+          key: "newer",
+          path: "C:/fixture/newer",
+          name: "Newer",
+        },
+      ],
+    }
+    vi.mocked(api.addWorkspace).mockResolvedValue(newer)
+    await act(async () => root.render(<App />))
+    await act(async () => recoveryAction("retry").click())
+    await act(async () => requestWorkspace("newer"))
+    // Reconciliation reads the state committed by the newer successful mutation.
+    vi.mocked(api.bootstrap).mockResolvedValue(newer)
+    await act(async () => pending.resolve(bootstrap))
+    expect(element(".project-item.is-active").textContent).toContain("Newer")
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+    expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith("C:/fixture/newer")
+  })
+
+  it("keeps existing terminal elements mounted while startup recovery is shown", async () => {
+    await mountAndResume()
+    const tab = element(".terminal-tab")
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([event]) => event === "single-instance",
+      )![1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receive({ event: "single-instance", id: 1, payload: { workspace: null, error: null } }),
+    )
+    expect(element('[aria-labelledby="startup-workspace-title"]')).toBeDefined()
+    expect(element(".terminal-tab")).toBe(tab)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    vi.mocked(api.resolveStartupWorkspace).mockResolvedValue(bootstrap)
+    await act(async () => recoveryAction("continue").click())
+    expect(element(".terminal-tab")).toBe(tab)
+  })
+
+  it("offers continuation without inventing a prior workspace when the snapshot is empty", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({ ...warningPayload, workspaces: [], sessions: [] })
+    vi.mocked(api.resolveStartupWorkspace).mockResolvedValue({
+      ...bootstrap,
+      workspaces: [],
+      sessions: [],
+    })
+    await act(async () => root.render(<App />))
+    const gate = element('[aria-labelledby="startup-workspace-title"]')
+    expect(gate.textContent).toContain("Без выбранного проекта")
+    await act(async () => recoveryAction("continue").click())
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("a pre-resolution PTY bootstrap must not strand acknowledged startup recovery", async () => {
+    await mountAndResume()
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    const receiveInstance = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([event]) => event === "single-instance",
+      )![1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receiveInstance({
+        event: "single-instance",
+        id: 1,
+        payload: { workspace: null, error: null },
+      }),
+    )
+    const oldSnapshot = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(oldSnapshot.promise)
+    const receivePty = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receivePty({
+        event: "pty-session",
+        id: 2,
+        payload: { terminalId: started.terminalId, session: bootstrap.sessions[0] },
+      }),
+    )
+    const ack = deferred<BootstrapPayload>()
+    vi.mocked(api.resolveStartupWorkspace).mockReturnValueOnce(ack.promise)
+    await act(async () => recoveryAction("continue").click())
+    await act(async () => oldSnapshot.resolve(warningPayload))
+    await act(async () => ack.resolve(bootstrap))
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+  })
+
+  it("a newer forwarded launch error must not strand successful Continue", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    await act(async () => root.render(<App />))
+    const ack = deferred<BootstrapPayload>()
+    vi.mocked(api.resolveStartupWorkspace).mockReturnValueOnce(ack.promise)
+    await act(async () => recoveryAction("continue").click())
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([event]) => event === "single-instance",
+      )![1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receive({
+        event: "single-instance",
+        id: 1,
+        payload: { workspace: null, error: "Newer launch cannot be resolved" },
+      }),
+    )
+    vi.mocked(api.bootstrap).mockResolvedValue(bootstrap)
+    await act(async () => ack.resolve(bootstrap))
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("actual bootstrap API ordering consumes old PTY warning before acknowledgement", async () => {
+    const actual = await vi.importActual<typeof api>("./api")
+    const oldSnapshot = deferred<BootstrapPayload>()
+    let bootstrapCalls = 0
+    let cleared = false
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "bootstrap") {
+        ++bootstrapCalls
+        if (bootstrapCalls === 1) return bootstrap
+        if (bootstrapCalls === 3) return oldSnapshot.promise
+        return cleared ? bootstrap : warningPayload
+      }
+      if (command === "resolve_startup_workspace") {
+        cleared = true
+        return bootstrap
+      }
+      throw new Error("Unexpected IPC " + command)
+    })
+    vi.mocked(api.bootstrap).mockImplementation(actual.bootstrap)
+    vi.mocked(api.resolveStartupWorkspace).mockImplementation(actual.resolveStartupWorkspace)
+    await mountAndResume()
+    const receiveInstance = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([event]) => event === "single-instance",
+      )![1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receiveInstance({
+        event: "single-instance",
+        id: 1,
+        payload: { workspace: null, error: null },
+      }),
+    )
+    expect(element('[aria-labelledby="startup-workspace-title"]')).toBeDefined()
+    const receivePty = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receivePty({
+        event: "pty-session",
+        id: 2,
+        payload: { terminalId: started.terminalId, session: bootstrap.sessions[0] },
+      }),
+    )
+    await act(async () => recoveryAction("continue").click())
+    expect(
+      invokeMock.mock.calls.filter(([command]) => command === "resolve_startup_workspace"),
+    ).toHaveLength(0)
+    await act(async () => oldSnapshot.resolve(warningPayload))
+    expect(invokeMock.mock.calls.map(([command]) => command)).toEqual([
+      "bootstrap",
+      "bootstrap",
+      "bootstrap",
+      "resolve_startup_workspace",
+    ])
+    expect(document.body.querySelector('[aria-labelledby="startup-workspace-title"]')).toBeNull()
+    expect(cleared).toBe(true)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     invokeMock.mockReset()
     vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
+    vi.mocked(api.resolveStartupWorkspace).mockReset()
     vi.mocked(api.addWorkspace).mockReset()
     vi.mocked(api.removeWorkspace).mockReset()
     vi.mocked(api.deleteSession).mockReset()
