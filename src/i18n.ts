@@ -583,6 +583,16 @@ export const UI_TEXT = {
     importSelected: "Импортировать выбранные",
     selectAll: "Выбрать все",
     imported: "Импортировано",
+    sessionCopyBusy: "Сессия запускается или работает. Закройте её перед копированием.",
+    sessionCopyTitle: "Копия сессии в другом проекте",
+    sessionCopyHelp:
+      "Создаётся новая копия истории и вложений в выбранной папке проекта. Оригинал сохраняется; запуск не выполняется. Сначала закройте работающую сессию.",
+    sessionCopySource: "Исходная сессия",
+    sessionCopyTarget: "Папка назначения",
+    sessionCopyChoose: "Выбрать папку назначения",
+    sessionCopyConfirm: "Создать копию",
+    sessionCopyUnknown:
+      "Результат копирования не подтверждён. Проверьте историю проекта перед новой попыткой.",
     importSessionTitle: "Импорт сессии OMP",
     importMode: "Если сессия уже импортирована",
     importModeSkip: "Пропустить",
@@ -1174,6 +1184,16 @@ export const UI_TEXT = {
     importSelected: "Import selected",
     selectAll: "Select all",
     imported: "Imported",
+    sessionCopyBusy: "The source session is starting or running. Close it before copying.",
+    sessionCopyTitle: "Copy session to another project",
+    sessionCopyHelp:
+      "Create a new copy of the history and attachments in the chosen project folder. The original is kept; nothing is launched. Close a running session first.",
+    sessionCopySource: "Source session",
+    sessionCopyTarget: "Destination folder",
+    sessionCopyChoose: "Choose destination folder",
+    sessionCopyConfirm: "Create copy",
+    sessionCopyUnknown:
+      "Copy result was not confirmed. Check the project history before trying again.",
     importSessionTitle: "Import OMP session",
     importMode: "If this session was already imported",
     importModeSkip: "Skip",
