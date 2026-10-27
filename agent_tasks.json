@@ -242978,7 +242978,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-27T15:46:21.453093Z"
+        "observed_at": "2026-10-27T15:46:21.453093Z",
+        "released_attempt_ref": "autonomous/attempt-18795a96d16a5f302c015ef4"
       },
       "research_result": {
         "summary": "Investigated session list empty state ARIA attributes and import error message localization handling. Confirmed that the empty state in SessionList lacks `role=\"status\"` or `aria-live` attributes. Confirmed that `parseBackendError` in `api.ts` does not correctly handle errors when the bracket code is inside an object's message property rather than a plain string, and that `App.tsx` directly renders `item.message` for failed imports without running it through `errorMessage`.",
