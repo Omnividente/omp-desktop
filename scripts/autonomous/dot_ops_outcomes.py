@@ -413,13 +413,19 @@ def prepare_operation(state, candidate, preflight, authority, *, predecessor_id=
 
 def _bundle(operation, evidence, archive):
     """Check supplied original retained artifact bytes; caller authenticates GETs."""
+    _run(operation, evidence.get("run"))
+    return _retained_artifact(operation["kind"], evidence, archive)
+
+
+def _retained_artifact(kind, evidence, archive):
+    """Shared bounded parser; provenance is validated by the distinct caller."""
+    require(kind in WORKFLOWS, "unsupported retained artifact kind")
     run, artifact = evidence.get("run"), evidence.get("artifact", {})
-    _run(operation, run)
     require(run.get("status") == "completed" and run.get("conclusion") == "success",
             "native run not successfully completed")
     jobs = evidence.get("jobs")
     expected_steps = ({"Fence exactly one unclaimed delivery by owner-bound state CAS",
-                       "Retain acknowledged fence or safe blocked outcome"} if operation["kind"] == RECOVERY else
+                       "Retain acknowledged fence or safe blocked outcome"} if kind == RECOVERY else
                       {"Retain a terminal preparation or publish one checked finalization", "Preserve final outcome"})
     require(type(jobs) is list and jobs, "original native/upload job evidence required")
     relevant = []
@@ -435,7 +441,7 @@ def _bundle(operation, evidence, archive):
         matches = [step for step in relevant[0]["steps"] if step.get("name") == name]
         require(len(matches) == 1 and matches[0].get("status") == "completed"
                 and matches[0].get("conclusion") == "success", "native/proof retention not successful")
-    expected_name = ("owner-fence-" + str(run["id"]) + "-1" if operation["kind"] == RECOVERY
+    expected_name = ("owner-fence-" + str(run["id"]) + "-1" if kind == RECOVERY
                      else "autonomous-sync-result-1")
     require(type(archive) is bytes and 0 < len(archive) <= MAX_ARTIFACT_BYTES
             and artifact.get("name") == expected_name and artifact.get("expired") is False
@@ -444,7 +450,7 @@ def _bundle(operation, evidence, archive):
             and artifact.get("workflow_run", {}).get("id") == run["id"]
             and artifact["workflow_run"].get("head_sha") == run["head_sha"], "retained artifact mismatch")
     member_limits = ({"owner-fence-result.json": MAX_FENCE_MEMBER_BYTES,
-                      "owner-fence-proof.json": MAX_FENCE_MEMBER_BYTES} if operation["kind"] == RECOVERY
+                      "owner-fence-proof.json": MAX_FENCE_MEMBER_BYTES} if kind == RECOVERY
                      else {"sync-result.json": MAX_SYNC_RESULT_BYTES})
     def pairs(items):
         result = {}
