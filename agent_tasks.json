@@ -773600,6 +773600,16 @@
           "actor": "Omnividente"
         },
         "event_id": "42d93e3ce7d7a9e1898a6ef8f3c81283bc5d5ad43ba661a9f9560a27f741b71a"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-27T15:15:43.484761Z",
+        "decision_id": "ec1b4a27f84068938fea713bbaed230580fad33ddbe5c5b5025fdb62568a4edf",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-27T15:15:41.281671Z"
+        },
+        "event_id": "bc52d3c1df1fb1c4959be9626b136bb4e085e14c84ad987cb4f5117f09456533"
       }
     ]
   }
