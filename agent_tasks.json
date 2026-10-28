@@ -248798,7 +248798,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-28T22:17:35.198207Z"
+        "observed_at": "2026-10-28T22:17:35.198207Z",
+        "released_attempt_ref": "autonomous/attempt-9761d9d559a0323ec34b5f3f"
       },
       "research_result": {
         "summary": "Investigated the performance of ModelPicker with a large number of models (300 and 3000). Created a vitest test using jsdom and @testing-library/react to measure render times and search responsiveness. Verified that even with 3000 models, the typing response and clear search take less than 1.5s in jsdom, but the initial render takes around 1.4s.",
