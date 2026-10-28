@@ -822856,6 +822856,24 @@
           "path": ".github/workflows/autonomous_sync.yml"
         },
         "event_id": "c0d57d35b4b6c42d41989a01056066d7263ef63fb9dee6c4e849e198a900e707"
+      },
+      {
+        "type": "ExecutorClaim",
+        "at": "2026-10-28T19:26:41.809598Z",
+        "decision_id": "730a0c0eee30ce70d1752ad6c0b9cae98a973131f87090548158ee3eea806c21",
+        "claim_id": "35830c31bd4bbf9446b8c9d10c10ce4cbd6ca7253f2c1390ac680d607d209f7b",
+        "trigger": {
+          "run_id": "40754202547",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente"
+        },
+        "correlation_key": "d2c4e6805b73800e26cd2c8d508cf154",
+        "before_state_sha": "be740bf70ae07832c0fb7e6e60859d3ad5d16978",
+        "before_digest": "e995526c3261c91a7e71116edde481f48d6c4b9c6632836d90d0d0e4b58bd9dc",
+        "event_id": "74410678f909fabf09fec60ad4f1c379981097ad1d108d3a25265e0d7c20abcd"
       }
     ]
   }
