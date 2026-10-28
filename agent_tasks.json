@@ -845701,6 +845701,15 @@
         },
         "receipt_id": "f799dd2f929cbdd67ea42c4bc7aa76fe65ec28f1a1977d2e9df8f27ff3394549",
         "event_id": "ab68183d463a3146f3a4e42702e246cc64714c67e46e6a80bf1564e7d074a8a5"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-28T23:04:59.129857Z",
+        "decision_id": "70fb39754081b3a7d31bdad810b4e66120a98b54eb703bf01a704d67f4794c1f",
+        "executor_claim_id": "d92cfa1cb6e3503501abd07790a3695e574dc52181d37f54a8ab0d3dcde44eef",
+        "receipt_id": "f799dd2f929cbdd67ea42c4bc7aa76fe65ec28f1a1977d2e9df8f27ff3394549",
+        "frontier_seq": 1120,
+        "event_id": "53a51e5eddc05299920fbf021474ce5c6b9abcd624d89d83b7292e8a1ad6cccb"
       }
     ]
   }
