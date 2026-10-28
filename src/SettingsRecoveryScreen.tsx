@@ -4,6 +4,7 @@ import { t, type Lang } from "./i18n"
 import type { SettingsUnavailableDetails } from "./types"
 
 interface SettingsRecoveryScreenProps {
+  actionError?: string | null
   busy: boolean
   language: Lang
   recovery: SettingsUnavailableDetails
@@ -13,6 +14,7 @@ interface SettingsRecoveryScreenProps {
 }
 
 export function SettingsRecoveryScreen({
+  actionError,
   busy,
   language,
   recovery,
@@ -73,6 +75,11 @@ export function SettingsRecoveryScreen({
             </div>
           )}
         </dl>
+        {actionError && (
+          <p className="splash-error settings-recovery-action-error" role="alert">
+            {actionError}
+          </p>
+        )}
         <div className="settings-recovery-actions">
           <button className="button" disabled={busy} onClick={onOpenFolder} type="button">
             <Icon name="folderOpen" /> {t(language, "openSettingsFolder")}
