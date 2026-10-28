@@ -29,7 +29,7 @@ jobs:
     name: Observe one owner-selected original partial controller failure
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ secrets.PAT || secrets.GH_TOKEN }}
       CONTROL_SHA: ${{ github.sha }}
@@ -41,6 +41,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          filter: blob:none
           fetch-depth: 0
           path: control
           persist-credentials: false

@@ -533,16 +533,26 @@ dispatch abort. `autonomous_complete_partial_next.yml` accepts only the original
    yields `presence=unknown`; terminal candidates still count as present. A
    successful `presence=absent` is scoped to those verified inventories, not a
    global absence claim or permission to create, bind, delete or adopt anything.
-6. Closure and provider observation are separate outcomes retained in the same
-   artifact. A later observation failure does not undo an acknowledged completion;
-   inspect the receipt before deciding whether any owner replay is needed. Old
-   frozen readers reject the new event. Start only separately authorized compatible
-   checked control, never rerun or repin the spent original executor. Before a
-   Sync advances lab, reconcile any pre-reservation attempt ref independently:
-   a ref matching the old lab may conflict with the new one. Do not automatically
-   move/delete/adopt it, change the attempt key or infer no external effects from
-   the failed Actions status. Ref retirement needs its own reviewed evidence and
-   explicit owner authorization. Genuine report-invalid attention remains visible.
+6. Closure and provider observation are separate outcomes. The completion workflow
+   retains each outcome that was produced; a later observation failure or job
+   timeout does not undo an acknowledged completion. After receipt acknowledgement,
+   do not replay completion to obtain another observation. Run
+   `autonomous_observe_planned_dispatch.yml` separately from checked event-main,
+   keeping the original `decision_id` and native `expected_state_sha` (not the
+   post-closure state SHA). It loads the current authoritative state read-only and
+   requires the existing receipt and unchanged native body before any provider
+   GET. Its separate `planned-dispatch-observation-<run>-<attempt>` artifact grants
+   no CAS, retry, handoff, session or ref rights. Both workflows retain full Git
+   ancestry with a `blob:none` checkout and a 20-minute job limit, avoiding a full
+   download of historical queue blobs before the operation.
+   Old frozen readers reject the new event. Start only separately authorized
+   compatible checked control, never rerun or repin the spent original executor.
+   Before a Sync advances lab, reconcile any pre-reservation attempt ref
+   independently: a ref matching the old lab may conflict with the new one. Do not
+   automatically move/delete/adopt it, change the attempt key or infer no external
+   effects from the failed Actions status. Ref retirement needs its own reviewed
+   evidence and explicit owner authorization. Genuine report-invalid attention
+   remains visible.
 
 
 Exceptional **original reserved research dispatch recovery** is a separate owner
