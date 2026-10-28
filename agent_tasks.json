@@ -250087,7 +250087,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-28T23:44:32.673050Z"
+        "observed_at": "2026-10-28T23:44:32.673050Z",
+        "released_attempt_ref": "autonomous/attempt-e1f6e705020a77b0e4ad8b90"
       },
       "research_result": {
         "summary": "Investigated session lifecycle and virtual list interactions in CodexImportModal and SessionList for performance bottlenecks and focus stability. Conducted a manual test for 10k session scan backend constraints (passed ~0.65s cold, ~0.25s warm). Verified that burst navigation (e.g. holding arrow keys or rapid End + ArrowUp sequences) in the CodexImportModal accurately tracks focus and shifts selection to expected virtualized items (e.g. index 198 out of 200). Virtual list rendering for both SessionList and CodexImportModal efficiently handles up to 10k sessions locally, completing initial render cycles under ~300ms without crashing.",
