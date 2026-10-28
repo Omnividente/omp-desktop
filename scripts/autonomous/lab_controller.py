@@ -33,7 +33,7 @@ from task_lifecycle import (
     awaiting_report, awaiting_review, complete, find_task, iso, quarantine, reconcile,
     parse_iso, reserve, start, sweep,
 )
-from validate_tasks import validate, validate_feedback_nudges
+from validate_tasks import validate, validate_dispatch_request, validate_feedback_nudges
 from loop_health import WAITING_REASONS, worker_observation, waiting_attention
 from dispatch_journal import JournalStore, next_no_effect_evidence
 from workflow_admission import add_arguments, context, recheck_context, substantive_manifest
@@ -65,6 +65,21 @@ def _persist_checkpoint(data, persist, stage, message):
             exc.checkpoint_stage = stage
             raise
         raise StateWriteError(message, stage=stage) from exc
+
+
+class AttemptRefStop(ValueError):
+    """A known immutable-ref guard failure, not a worker or transport outcome."""
+
+    def __init__(self, branch: str, expected_sha: str, observed_sha: str):
+        if (not re.fullmatch(r"autonomous/attempt-[0-9a-f]{24}", branch)
+                or not re.fullmatch(r"[0-9a-f]{40}", expected_sha)
+                or (observed_sha and not re.fullmatch(r"[0-9a-f]{40}", observed_sha))):
+            raise ValueError("invalid immutable attempt ref observation")
+        self.reason = "attempt_ref_mismatch" if observed_sha else "attempt_ref_unconfirmed"
+        self.branch = branch
+        self.expected_sha = expected_sha
+        self.observed_sha = observed_sha
+        super().__init__(self.reason)
 
 
 class GitHub:
@@ -108,13 +123,17 @@ class GitHub:
                 raise RuntimeError("loop_disabled_before_attempt_ref")
             try:
                 self.api("git/refs", method="POST", body={"ref": "refs/heads/" + branch, "sha": sha})
-            except RuntimeError:
-                # Creation may have succeeded despite a lost acknowledgement.
-                if self.head(branch) != sha:
+            except RuntimeError as exc:
+                # Readback can prove success or a conflicting immutable ref.
+                # Empty readback after a failed POST cannot settle that error.
+                observed = self.head(branch)
+                if observed and observed != sha:
+                    raise AttemptRefStop(branch, sha, observed) from exc
+                if observed != sha:
                     raise
             current = self.head(branch)
         if current != sha:
-            raise ValueError("attempt branch already exists at a different revision")
+            raise AttemptRefStop(branch, sha, current)
 
     def proposal(self, number: int) -> dict:
         result = self.api("pulls/" + str(number))
@@ -180,17 +199,28 @@ def _git(repo: Path, *args: str, check=True):
     return result
 
 
-def _request(task: dict, repository: str, templates: Path, *, focus: str, risk: str) -> dict:
+def _request(task: dict, repository: str) -> dict:
+    """Read the original payload; legacy identities get a lookup-only envelope."""
     execution = task.get("execution") or {}
     if task.get("task_type") == "project_discovery":
         saved = saved_request(task)
         if saved is not None:
             return saved
-    name = "JULES_PROJECT_DISCOVERY_PROMPT.md" if task.get("task_type") == "project_discovery" else "JULES_TASK_PROMPT.md"
-    return build(task, template=(templates / name).read_text(encoding="utf-8"), repo=repository,
-                 branch=LAB_BRANCH, base_sha=execution.get("base_sha", ""),
-                 starting_branch=execution.get("starting_branch", LAB_BRANCH),
-                 attempt=execution.get("attempts") or 1, focus=focus, risk_ceiling=risk)
+    elif "dispatch_request" in execution:
+        errors = validate_dispatch_request(task)
+        if errors:
+            raise ValueError("; ".join(errors))
+        return copy.deepcopy(execution["dispatch_request"]["request"])
+    key, branch, base = (execution.get(field, "") for field in ("dispatch_key", "starting_branch", "base_sha"))
+    if (not re.fullmatch(r"[A-Za-z0-9_-]+", key) or branch != "autonomous/attempt-" + key
+            or not re.fullmatch(r"[0-9a-f]{40}", base)):
+        raise ValueError("legacy lookup requires its saved dispatch identity and pinned base/ref")
+    # No original bytes were saved. These markers authorize GET-only matching,
+    # not a reconstructed prompt, current-base substitution or worker creation.
+    return {"prompt": "AUTONOMOUS_DISPATCH_KEY: " + key + "\nAUTONOMOUS_TASK_ID: " + task["id"] + "\n\n",
+            "title": "[dispatch:" + key + "] " + task["id"],
+            "sourceContext": {"source": "sources/github/" + repository,
+                              "githubRepoContext": {"startingBranch": branch}}}
 
 
 def tick(
@@ -714,7 +744,7 @@ def tick(
                 session = get_session(transport, api_base, ring, execution["session_id"])
             else:
                 response = dispatch(transport, api_base=api_base, api_keys=ring,
-                                    request_body=_request(task, repository, templates, focus=focus, risk=risk),
+                                    request_body=_request(task, repository),
                                     allow_create=False)
                 if response["result"] == "deferred":
                     result["attention"].append({"task_id": task["id"], "reason": "unbound_dispatch_intent"})
@@ -801,11 +831,16 @@ def tick(
     if not github.enabled() or github.head("main") != main_sha or github.head(LAB_BRANCH) != lab_sha:
         result["reason"] = "dispatch_conditions_changed"
         return finish()
-    github.ensure_attempt(starting_branch, lab_sha)
     research = task.get("task_type") == "project_discovery"
     context, proposal_context = request_context(manifest["tasks"], task.get("target_paths", [])) if research else ([], "")
     template_name = "JULES_PROJECT_DISCOVERY_PROMPT.md" if research else "JULES_TASK_PROMPT.md"
-    request = build(task, template=(templates / template_name).read_text(encoding="utf-8"),
+    # Implementation templates include task data; never recursively embed saved
+    # payloads or their histories in the next attempt's immutable request.
+    request_task = task
+    if not research and "execution" in task:
+        request_task = dict(task, execution={field: value for field, value in task["execution"].items()
+                                             if field not in ("dispatch_request", "dispatch_request_history")})
+    request = build(request_task, template=(templates / template_name).read_text(encoding="utf-8"),
                     repo=repository, branch=LAB_BRANCH, base_sha=lab_sha, starting_branch=starting_branch,
                     focus=focus, risk_ceiling=risk, decision_context=context, proposal_context=proposal_context)
     intent = None
@@ -813,8 +848,22 @@ def tick(
         control_sha = _git(Path(__file__).resolve().parents[2], "rev-parse", "HEAD").stdout.decode().strip()
         intent = snapshot(request, context, control_sha)
     reserve(manifest, task["id"], key, base_sha=lab_sha, starting_branch=starting_branch,
-            research_request=intent, now=now)
-    checkpoint("dispatch_reservation")  # No external session exists before the reservation is durable.
+            research_request=intent,
+            dispatch_request=None if research else {"request": request, "request_sha256": sha256_json(request)}, now=now)
+    checkpoint("dispatch_reservation")  # No attempt ref or session effect precedes this save.
+    try:
+        github.ensure_attempt(starting_branch, lab_sha)
+    except AttemptRefStop as exc:
+        # Ref creation may have committed even if readback is empty. Preserve the
+        # same unbound identity for GET-only reconciliation, never mutate/retry.
+        quarantine(manifest, task["id"], reason=exc.reason, now=now)
+        checkpoint("attempt_ref_stop")
+        attention = {"task_id": task["id"], "attempt": task["execution"]["attempts"],
+                     "dispatch_key": key, "ref": exc.branch, "expected_sha": exc.expected_sha,
+                     "observed_sha": exc.observed_sha, "reason": exc.reason}
+        result["attention"].append(attention)
+        result.update(action="stopped", reason=exc.reason, task_id=task["id"], attempt_ref=attention.copy())
+        return finish()
     if not github.enabled():
         quarantine(manifest, task["id"], reason="loop_disabled_before_create", now=now)
         checkpoint("quarantine_before_create")

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import unittest
-from pathlib import Path
 
 from build_jules_request import build, dispatch_key
 from import_discovery_tasks import import_tasks
@@ -60,7 +59,7 @@ class ResearchRequestTests(unittest.TestCase):
         start(data, "research", dispatch_key=key, session_id="7")
         task["title"] = "Owner changed the title after dispatch"
         task["evidence"]["detail"] = "New details not delivered to the existing worker"
-        replay = _request(task, "foreign/repo", Path("missing-templates"), focus="new focus", risk="high")
+        replay = _request(task, "foreign/repo")
         self.assertEqual(replay, saved["request"])
         replay["prompt"] += "caller mutation"
         self.assertEqual(task["execution"]["research_request"], saved)
