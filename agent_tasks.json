@@ -842813,6 +842813,16 @@
           "actor": "Omnividente"
         },
         "event_id": "df2cb70d2897a757c869ccc6cfcc55c894b6c779ad4b4123b8d677740c6665b3"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-28T22:32:55.982240Z",
+        "decision_id": "eebb1c9a382ecdd3340e4c9b4d34869b5b15d34b9d0a3bd5d6f6e7cf13884726",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-28T22:32:54.138149Z"
+        },
+        "event_id": "fb93af72213faf6e15ca9cfa9b0973f6def82cf1f7a38c0bed0937c971f8caff"
       }
     ]
   }
