@@ -36,6 +36,7 @@ export interface SessionListProps {
   tabs: TerminalTab[]
   platform: string
   onSelectSession: (session: SessionSummary) => void
+  onCopySession?: (session: SessionSummary) => void
   onLaunchSession: (session: SessionSummary) => void
   onNewSession: () => void
   onLoadTranscript: (session: SessionSummary) => void
@@ -69,6 +70,7 @@ export function SessionList({
   tabs,
   platform,
   onSelectSession,
+  onCopySession,
   onLaunchSession,
   onNewSession,
   onLoadTranscript,
@@ -354,6 +356,14 @@ export function SessionList({
                         return next
                       })
                     }}
+                    onCopyToWorkspace={
+                      onCopySession
+                        ? (event) => {
+                            event.stopPropagation()
+                            onCopySession(session)
+                          }
+                        : undefined
+                    }
                     onLaunch={() => onLaunchSession(session)}
                     onRenameChange={onRenameValueChange}
                     onRenameKeyDown={keyDown}

@@ -43,6 +43,7 @@ import {
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
 import { IncidentCenter } from "./IncidentCenter"
+import { SessionCopyModal } from "./SessionCopyModal"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
 import { matchesSelector, splitSelector, thinkingOptionsForModel } from "./ModelPicker"
@@ -308,6 +309,47 @@ function App() {
   const [importing, setImporting] = useState(false)
   const [importMode, setImportMode] = useState<ImportMode>("skip")
   const [ompFilePickerOpen, setOmpFilePickerOpen] = useState(false)
+  const copyCloseFocusRef = useRef<{ workspace: number; session: number } | null>(null)
+  const [copySession, setCopySession] = useState<{
+    session: SessionSummary
+    selectionRequest: number
+    sessionRequest: number
+    payloadRevision: number
+  } | null>(null)
+  useLayoutEffect(() => {
+    const pending = copyCloseFocusRef.current
+    if (copySession || !pending) return
+    copyCloseFocusRef.current = null
+    if (
+      pending.workspace !== workspaceSelectionRequestRef.current ||
+      pending.session !== sessionSelectionRequestRef.current ||
+      document.activeElement !== document.body ||
+      document.querySelector('[aria-modal="true"]')
+    )
+      return
+    const targets = [
+      document.querySelector<HTMLElement>(".session-item.is-selected .session-select"),
+      document.querySelector<HTMLElement>(".project-item.is-active"),
+      document.querySelector<HTMLElement>(".rail-open-folder"),
+    ]
+    for (const target of targets) {
+      if (!target) continue
+      if (target.matches(":disabled") || target.closest("[hidden], [inert]")) continue
+      let visible = true
+      for (let node: HTMLElement | null = target; node; node = node.parentElement) {
+        const style = getComputedStyle(node)
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.visibility === "collapse"
+        )
+          visible = false
+      }
+      if (!visible) continue
+      target.focus({ preventScroll: false })
+      if (document.activeElement === target) break
+    }
+  }, [copySession])
   const [pendingOmpImportPath, setPendingOmpImportPath] = useState<string | null>(null)
   const [resourceHealth, setResourceHealth] = useState<ResourceHealthSnapshot | null>(null)
   const [resourceHealthError, setResourceHealthError] = useState<string | null>(null)
@@ -2103,6 +2145,7 @@ function App() {
         settingsOpen ||
         codexOpen ||
         ompFilePickerOpen ||
+        copySession ||
         pendingOmpImportPath ||
         transcriptSession
       )
@@ -2144,6 +2187,7 @@ function App() {
     openFolder,
     ompFilePickerOpen,
     pendingOmpImportPath,
+    copySession,
     railMode,
     railAutoOpen,
     resourceHealthOpen,
@@ -2283,6 +2327,7 @@ function App() {
           autoHidePaused={
             codexOpen ||
             ompFilePickerOpen ||
+            copySession !== null ||
             pendingOmpImportPath !== null ||
             transcriptSession !== null
           }
@@ -2316,6 +2361,23 @@ function App() {
             onClearSearch: () => setSearch(""),
             onDeleteSession: (session) => void deleteOmpSession(session),
             onImportOmp: () => void importOmpFile(),
+            onCopySession: (session) => {
+              if (
+                launchingRef.current ||
+                tabs.some(
+                  (tab) =>
+                    tab.status === "running" &&
+                    tabMatchesSession(tab, session, payload.runtime.platform),
+                )
+              )
+                return
+              setCopySession({
+                session,
+                selectionRequest: workspaceSelectionRequestRef.current,
+                sessionRequest: sessionSelectionRequestRef.current,
+                payloadRevision: payloadRevisionRef.current,
+              })
+            },
             onLaunchSession: (session) => void launchSession(session),
             onLoadTranscript: (session) => void loadTranscript(session),
             onNewSession: () => void launchSession(),
@@ -2458,6 +2520,47 @@ function App() {
         />
       )}
 
+      {copySession && (
+        <SessionCopyModal
+          key={copySession.session.filePath}
+          session={copySession.session}
+          language={lang}
+          sourceBusy={
+            launching === copySession.session.id ||
+            tabs.some(
+              (tab) =>
+                tab.status === "running" &&
+                tabMatchesSession(tab, copySession.session, payload.runtime.platform),
+            )
+          }
+          onClose={() => {
+            copyCloseFocusRef.current = {
+              workspace: workspaceSelectionRequestRef.current,
+              session: sessionSelectionRequestRef.current,
+            }
+            setCopySession(null)
+          }}
+          onImported={(result) => {
+            if (payloadRevisionRef.current !== copySession.payloadRevision) {
+              void refresh()
+              return
+            }
+            const item = result.items[0]
+            const imported = result.bootstrap.sessions.find(
+              (session) => session.filePath === item?.destinationPath,
+            )
+            const selectCopy =
+              imported &&
+              workspaceSelectionRequestRef.current === copySession.selectionRequest &&
+              sessionSelectionRequestRef.current === copySession.sessionRequest
+            applyPayload(result.bootstrap, selectCopy ? imported.cwd : undefined)
+            if (selectCopy) {
+              setSelectedSessionId(imported.id)
+              setSearch("")
+            }
+          }}
+        />
+      )}
       {pendingOmpImportPath && (
         <ImportSessionModal
           importing={importing}

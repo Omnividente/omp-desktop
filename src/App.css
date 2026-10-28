@@ -996,6 +996,10 @@ button:disabled {
   border-radius: 8px;
 }
 
+.session-item.has-copy-action {
+  grid-template-columns: 20px minmax(0, 1fr) repeat(6, 24px);
+}
+
 .session-group-toggle,
 .session-group-spacer {
   width: 20px;
