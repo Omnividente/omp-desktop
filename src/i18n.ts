@@ -2,6 +2,13 @@ export type Lang = "ru" | "en"
 
 export const UI_TEXT = {
   ru: {
+    importItemFailed: "Не удалось импортировать файл",
+    importFailureDetails: "Причины ошибок импорта",
+    importFailurePages: "Страницы ошибок импорта",
+    importFailurePrevious: "Предыдущие",
+    importFailureNext: "Следующие",
+    importFailureRange: "Ошибки {start}–{end} из {count}",
+    importFailedItems: "Не импортировано файлов: {count}. Причины показаны в списке ошибок.",
     emptyTitle: "Откройте папку проекта",
     emptyDesc: "OMP Desktop запустит агента в выбранной папке и соберёт связанные с ней сессии.",
     btnOpenFolder: "Открыть папку",
@@ -595,6 +602,13 @@ export const UI_TEXT = {
     failed: "Ошибок",
   },
   en: {
+    importItemFailed: "Could not import the file",
+    importFailureDetails: "Import failure details",
+    importFailurePages: "Import failure pages",
+    importFailurePrevious: "Previous",
+    importFailureNext: "Next",
+    importFailureRange: "Failures {start}–{end} of {count}",
+    importFailedItems: "Files not imported: {count}. Reasons are shown in the failure details.",
     emptyTitle: "Open project folder",
     emptyDesc: "OMP Desktop will launch the agent in the selected folder and collect its sessions.",
     btnOpenFolder: "Open folder",

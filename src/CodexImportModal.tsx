@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Icon } from "./Icon"
 import { ImportModeSelect } from "./ImportModeSelect"
 import { t, type Lang } from "./i18n"
@@ -10,6 +10,7 @@ import { useVirtualList } from "./useVirtualList"
 const codexSessionKey = (session: CodexSessionSummary) => session.filePath
 
 interface CodexImportModalProps {
+  failures?: Record<string, string>
   language: Lang
   loading: boolean
   importing: boolean
@@ -22,7 +23,12 @@ interface CodexImportModalProps {
   onSelectedChange: (selected: Record<string, boolean>) => void
 }
 
+const FAILURE_PAGE_SIZE = 20
+
+const NO_FAILURES: Record<string, string> = {}
+
 export function CodexImportModal({
+  failures = NO_FAILURES,
   language,
   loading,
   importing,
@@ -37,6 +43,30 @@ export function CodexImportModal({
   const panelRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const pendingFocusRef = useRef<number | null>(null)
+  const reportRef = useRef<HTMLElement>(null)
+  const [requestedPage, setRequestedPage] = useState(0)
+  const failedSessions = useMemo(
+    () => sessions.filter((session) => Object.hasOwn(failures, session.filePath)),
+    [sessions, failures],
+  )
+  const failurePages = useMemo(
+    () =>
+      new Map(
+        failedSessions.map((session, index) => [
+          session.filePath,
+          Math.floor(index / FAILURE_PAGE_SIZE),
+        ]),
+      ),
+    [failedSessions],
+  )
+  const lastPage = Math.max(0, Math.ceil(failedSessions.length / FAILURE_PAGE_SIZE) - 1)
+  const page = Math.min(requestedPage, lastPage)
+  const pageStart = page * FAILURE_PAGE_SIZE
+  const pageEnd = Math.min(pageStart + FAILURE_PAGE_SIZE, failedSessions.length)
+  useLayoutEffect(() => {
+    setRequestedPage(page)
+    if (reportRef.current) reportRef.current.scrollTop = 0
+  }, [page])
   const { virtualItems, totalHeight, measureElement, scrollToIndex } = useVirtualList(
     sessions,
     listRef,
@@ -122,6 +152,53 @@ export function CodexImportModal({
               {t(language, "loading")}
             </p>
           )}
+          {failedSessions.length > 0 && (
+            <p className="field-help" role="alert">
+              {t(language, "importFailedItems").replace("{count}", String(failedSessions.length))}
+            </p>
+          )}
+          {failedSessions.length > 0 && (
+            <section
+              aria-label={t(language, "importFailureDetails")}
+              className="codex-import-failures"
+              tabIndex={0}
+              ref={reportRef}
+            >
+              <nav aria-label={t(language, "importFailurePages")} className="codex-import-pages">
+                <button
+                  type="button"
+                  className="button secondary"
+                  aria-disabled={page === 0}
+                  onClick={() => setRequestedPage(Math.max(0, page - 1))}
+                >
+                  {t(language, "importFailurePrevious")}
+                </button>
+                <span role="status">
+                  {t(language, "importFailureRange")
+                    .replace("{start}", String(pageStart + 1))
+                    .replace("{end}", String(pageEnd))
+                    .replace("{count}", String(failedSessions.length))}
+                </span>
+                <button
+                  type="button"
+                  className="button secondary"
+                  aria-disabled={page === lastPage}
+                  onClick={() => setRequestedPage(Math.min(lastPage, page + 1))}
+                >
+                  {t(language, "importFailureNext")}
+                </button>
+              </nav>
+              <ul>
+                {failedSessions.slice(pageStart, pageEnd).map((session) => (
+                  <li key={session.filePath}>
+                    <strong>{session.title}</strong>
+                    <small>{session.filePath}</small>
+                    <span className="codex-import-error">{failures[session.filePath]}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <div className="codex-list" ref={listRef} aria-busy={loading}>
             {sessions.length === 0 ? (
               <p className="field-help" role="status">
@@ -141,7 +218,16 @@ export function CodexImportModal({
                     style={{ position: "absolute", top: offset, left: 0, right: 0 }}
                   >
                     <input
+                      aria-describedby={
+                        Object.hasOwn(failures, session.filePath)
+                          ? `codex-import-description-${index}`
+                          : undefined
+                      }
                       checked={Boolean(selected[session.filePath])}
+                      onFocus={() => {
+                        const failurePage = failurePages.get(session.filePath)
+                        if (failurePage !== undefined) setRequestedPage(failurePage)
+                      }}
                       onChange={(event) =>
                         onSelectedChange({
                           ...selected,
@@ -163,8 +249,19 @@ export function CodexImportModal({
                       type="checkbox"
                     />
                     <span>
+                      {Object.hasOwn(failures, session.filePath) && (
+                        <span
+                          aria-hidden="true"
+                          className="sr-only"
+                          id={`codex-import-description-${index}`}
+                        >
+                          {failures[session.filePath]}
+                        </span>
+                      )}
                       <strong>{session.title}</strong>
                       <small>
+                        {Object.hasOwn(failures, session.filePath) &&
+                          `${t(language, "importItemFailed")} · `}
                         {session.cwd} · {formatRelative(session.updatedAt, language)}
                         {session.model ? ` · ${session.model}` : ""}
                       </small>

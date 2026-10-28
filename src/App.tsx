@@ -304,6 +304,12 @@ function App() {
   const [codexOpen, setCodexOpen] = useState(false)
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([])
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({})
+  const [codexFailures, setCodexFailures] = useState<Record<string, string>>({})
+  const codexViewRef = useRef(0)
+  const codexContextRef = useRef<{ open: boolean; path: string | null | undefined }>({
+    open: false,
+    path: undefined,
+  })
   const [codexLoading, setCodexLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importMode, setImportMode] = useState<ImportMode>("skip")
@@ -1123,6 +1129,12 @@ function App() {
   }, [payload, selectedWorkspaceKey])
 
   const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
+  codexContextRef.current = { open: codexOpen, path: selectedWorkspacePath }
+  useEffect(() => {
+    // Feedback belongs to this import view and destination, not another project.
+    codexViewRef.current += 1
+    setCodexFailures({})
+  }, [codexOpen, selectedWorkspacePath])
   useEffect(() => {
     if (selectedWorkspacePath === undefined) return
     const request = ++workspaceSaveRequestRef.current
@@ -1465,6 +1477,7 @@ function App() {
   ])
 
   const openCodexImport = useCallback(async () => {
+    setCodexFailures({})
     setRailAutoOpen(true)
     setCodexOpen(true)
     setCodexLoading(true)
@@ -1487,6 +1500,17 @@ function App() {
     }
     const selected = codexSessions.filter((session) => codexSelected[session.filePath])
     if (selected.length === 0) return
+    const view = codexViewRef.current
+    const targetPath = selectedWorkspace.path
+    const currentView = () =>
+      codexViewRef.current === view &&
+      codexContextRef.current.open &&
+      codexContextRef.current.path === targetPath
+    setCodexFailures((current) => {
+      const next = { ...current }
+      for (const session of selected) delete next[session.filePath]
+      return next
+    })
     setImporting(true)
     try {
       const result = await importSessions(
@@ -1499,7 +1523,7 @@ function App() {
       applyPayload(result.bootstrap)
       const failures = result.items.filter((item) => item.status === "failed")
       const completed = result.items.filter((item) => item.status !== "failed")
-      if (completed.length > 0) {
+      if (currentView() && completed.length > 0) {
         setCodexSelected((current) => {
           const next = { ...current }
           for (const item of completed) delete next[item.sourcePath]
@@ -1508,8 +1532,20 @@ function App() {
       }
       showNotice(summarizeImport(result.items, lang))
       if (failures.length > 0) {
+        if (currentView()) {
+          setCodexFailures((current) => ({
+            ...current,
+            ...Object.fromEntries(
+              failures.map((item) => [
+                item.sourcePath,
+                (item.message || t(lang, "importItemFailed")).slice(0, 2048) +
+                  (item.message && item.message.length > 2048 ? "…" : ""),
+              ]),
+            ),
+          }))
+        }
         showError(failures.map((item) => item.message ?? item.sourcePath).join("\n"))
-      } else {
+      } else if (currentView()) {
         setCodexOpen(false)
       }
     } catch (error) {
@@ -2443,6 +2479,7 @@ function App() {
 
       {codexOpen && (
         <CodexImportModal
+          failures={codexFailures}
           importing={importing}
           language={lang}
           loading={codexLoading}
