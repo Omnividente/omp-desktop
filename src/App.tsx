@@ -314,6 +314,7 @@ function App() {
   const [resourceHealthOpen, setResourceHealthOpen] = useState(false)
   const resourceHealthTriggerRef = useRef<HTMLButtonElement>(null)
   const resourceHealthSamplingRef = useRef(false)
+  const resourceHealthPendingRefreshRef = useRef<(() => void) | null>(null)
   const [railAutoOpen, setRailAutoOpen] = useState(false)
   const [railModeSaving, setRailModeSaving] = useState(false)
 
@@ -1144,9 +1145,14 @@ function App() {
     let disposed = false
     setResourceHealth(null)
     setResourceHealthError(null)
-    const poll = async () => {
-      if (disposed || resourceHealthSamplingRef.current || document.visibilityState !== "visible")
+    const poll = async (refreshAfterCurrent = false) => {
+      if (disposed || document.visibilityState !== "visible") return
+      if (resourceHealthSamplingRef.current) {
+        // Explicit invalidations need one latest sample; periodic ticks must not
+        // create a continuous backlog when sampling takes longer than the interval.
+        if (refreshAfterCurrent) resourceHealthPendingRefreshRef.current = catchUp
         return
+      }
       resourceHealthSamplingRef.current = true
       try {
         const snapshot = await sampleResourceHealth(selectedWorkspace?.path ?? null)
@@ -1161,18 +1167,25 @@ function App() {
         }
       } finally {
         resourceHealthSamplingRef.current = false
+        const pendingRefresh = resourceHealthPendingRefreshRef.current
+        resourceHealthPendingRefreshRef.current = null
+        pendingRefresh?.()
       }
     }
+    const catchUp = () => void poll()
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") void poll()
+      if (document.visibilityState === "visible") void poll(true)
     }
-    void poll()
+    void poll(true)
     const interval = window.setInterval(() => void poll(), 30_000)
     document.addEventListener("visibilitychange", handleVisibility)
     return () => {
       disposed = true
       window.clearInterval(interval)
       document.removeEventListener("visibilitychange", handleVisibility)
+      if (resourceHealthPendingRefreshRef.current === catchUp) {
+        resourceHealthPendingRefreshRef.current = null
+      }
     }
   }, [lang, selectedWorkspace?.path])
 
