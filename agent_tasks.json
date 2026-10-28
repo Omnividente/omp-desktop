@@ -247260,7 +247260,7 @@
       "id": "research-settings-models-behavior-24",
       "title": "Investigate Settings recovery and model selection: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -247401,16 +247401,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1893302599349174845",
         "dispatch_key": "bf20d3b91df5eb65889c4eac",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-bf20d3b91df5eb65889c4eac",
         "started_at": "2026-10-28T19:42:47.412429Z",
-        "finished_at": "",
+        "finished_at": "2026-10-28T20:24:22.027581Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -247582,13 +247582,87 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-28T20:06:23.139586Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-28T20:24:22.027581Z"
+      },
+      "research_result": {
+        "summary": "Investigated the SettingsRecoveryScreen bug where users are trapped on generic errors. Identified that `recoverSettingsWithDefaults` in `src/App.tsx` misses clearing `settingsRecovery` when a non-settings error happens. Created a temporary React test matching the scenario which confirmed that generic network errors during startWithDefaults leave the user trapped in the SettingsRecoveryScreen rather than viewing the main application error splash screen. Also observed the same omission in the `refresh` function catch block in `src/App.tsx`.",
+        "observations": [
+          {
+            "scenario": "Simulating a generic network error during startWithDefaults fallback flow via SettingsRecoveryScreen",
+            "evidence": "Source code review of `recoverSettingsWithDefaults` (lines 780-801) and `refresh` (lines 744-769) in `src/App.tsx`. Both handle errors by checking `settingsUnavailableDetails(error)`. If it returns null (for non-settings errors), they correctly show the generic error via `showError()` and update `startupError`, but they fail to call `setSettingsRecovery(null)`. A temporary test (`src/App_refresh_bug.test.tsx`) confirmed that when `startWithDefaults` throws a generic error, the `settingsRecovery` state persists and the user continues to see the recovery UI.",
+            "result": "The UI fails to dismiss the SettingsRecoveryScreen because `settingsRecovery` is not cleared on subsequent non-settings errors, trapping the user."
+          }
+        ],
+        "next_hypotheses": [
+          "Test if similar missing state resets occur during other bootstrap load actions or workspace switches when network errors occur."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-28T20:24:22.027581Z",
+        "source": {
+          "activity_id": "sessions/1893302599349174845/activities/70d68ef3ea9f47ce88dcc79314828e4c",
+          "report_sha256": "5f7491e43171488239f8d8519de7ba151f1110c8531e8d95c19b8a19928a2079",
+          "activity_created_at": "2026-10-28T20:12:44.214937Z",
+          "session_id": "1893302599349174845",
+          "dispatch_key": "bf20d3b91df5eb65889c4eac"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-cc13c452f9838bbe; not established as a duplicate. {\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults and refresh call showError for non-settings errors but fail to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults by interacting with the recovery UI.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal directly addresses the missing state clearance in `recoverSettingsWithDefaults` and `refresh` inside `src/App.tsx`, tracking the persistent buggy UI state observed and tested with a synthetic mockup.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-cc13c452f9838bbe\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed.",
+              "If refresh throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1893302599349174845/activities/70d68ef3ea9f47ce88dcc79314828e4c",
+          "report_sha256": "5f7491e43171488239f8d8519de7ba151f1110c8531e8d95c19b8a19928a2079",
+          "activity_created_at": "2026-10-28T20:12:44.214937Z",
+          "session_id": "1893302599349174845",
+          "dispatch_key": "bf20d3b91df5eb65889c4eac"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e982e435945a44d3",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-cc13c452f9838bbe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-cc13c452f9838bbe; not established as a duplicate. {\"detail\": \"Source code review of App.tsx shows that recoverSettingsWithDefaults and refresh call showError for non-settings errors but fail to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults by interacting with the recovery UI.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal directly addresses the missing state clearance in `recoverSettingsWithDefaults` and `refresh` inside `src/App.tsx`, tracking the persistent buggy UI state observed and tested with a synthetic mockup.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-cc13c452f9838bbe\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed.",
+                "If refresh throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-28T20:15:53.276437Z",
+    "last_poll_at": "2026-10-28T20:24:52.383630Z",
     "last_tick_at": "2026-10-28T20:16:06.426499Z",
     "run_id": "40761458906",
     "owner_recovery_requests": [
