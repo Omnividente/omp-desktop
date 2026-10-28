@@ -821778,6 +821778,41 @@
         "before_state_sha": "fe9dc991676173d04c81356a6328a3e3fcbf0418",
         "before_digest": "e995526c3261c91a7e71116edde481f48d6c4b9c6632836d90d0d0e4b58bd9dc",
         "event_id": "e5d2562ff4781c6750654b54c8e2fef0f2c9d3d4f4a88509ae3781b15b6616b5"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-28T19:24:20.777313Z",
+        "decision_id": "81a8bb30b825e7eb01b9241202d20fb56c04c9906e279e9cad68d073fbb1de86",
+        "executor_claim_id": "c3ee9c3c28c0d71bdff6f721ff64abaa389cf9d2d8f4027545f094671f5698e5",
+        "kind": "continue_handoff",
+        "evidence": {
+          "run_id": "40753659773",
+          "run_attempt": "1",
+          "event_name": "workflow_run",
+          "control_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "source_run_id": "40752189387",
+          "source_run_attempt": "1",
+          "source_workflow": "Autonomous Loop Switch",
+          "decision_id": "81a8bb30b825e7eb01b9241202d20fb56c04c9906e279e9cad68d073fbb1de86",
+          "stage_started_at": "2026-10-28T19:23:11.753427Z",
+          "stage_completed_at": "2026-10-28T19:24:14.330111Z",
+          "observation": {
+            "health": "attention",
+            "action": "sync",
+            "reason": "sync_required",
+            "due_at": null,
+            "main_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
+            "lab_sha": "6a758209c42d1f35893f33bfb3fab3585de6e224",
+            "state_sha": "f38fb0f4312dff8d4018b1d845e4469f08482f04"
+          },
+          "waited_seconds": 62.576677192999995,
+          "stage": "bounded_observe_wait",
+          "switch_enabled": true
+        },
+        "receipt_id": "b75bf8329f63a957f136a0b5461f803dc7ae45140549a2c8031f3909da9699e7",
+        "event_id": "edbc7a16988463e4e6deaf7344fb7f3ce5c572efcf93063b141309320383228c"
       }
     ]
   }
