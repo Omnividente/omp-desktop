@@ -249690,7 +249690,7 @@
       "id": "research-sessions-persistence-performance-25",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -249904,16 +249904,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "18205578699523600537",
         "dispatch_key": "e1f6e705020a77b0e4ad8b90",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-e1f6e705020a77b0e4ad8b90",
         "started_at": "2026-10-28T23:15:02.980382Z",
-        "finished_at": "",
+        "finished_at": "2026-10-28T23:44:32.673050Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -250086,13 +250086,52 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-28T23:27:09.230942Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-28T23:44:32.673050Z"
+      },
+      "research_result": {
+        "summary": "Investigated session lifecycle and virtual list interactions in CodexImportModal and SessionList for performance bottlenecks and focus stability. Conducted a manual test for 10k session scan backend constraints (passed ~0.65s cold, ~0.25s warm). Verified that burst navigation (e.g. holding arrow keys or rapid End + ArrowUp sequences) in the CodexImportModal accurately tracks focus and shifts selection to expected virtualized items (e.g. index 198 out of 200). Virtual list rendering for both SessionList and CodexImportModal efficiently handles up to 10k sessions locally, completing initial render cycles under ~300ms without crashing.",
+        "observations": [
+          {
+            "scenario": "CodexImportModal handles large session quantities efficiently",
+            "evidence": "Ran a synthetic jsdom test loading 10,000 mocked CodexSessionSummary items into CodexImportModal. Evaluated initial mounting phase.",
+            "result": "Render time was ~246ms, and 'Select All' completed in ~42ms, demonstrating sufficient performance bounds for virtualized list execution."
+          },
+          {
+            "scenario": "CodexImportModal rapid burst focus navigation behavior",
+            "evidence": "Ran synthetic jsdom test performing 'End' and then 'ArrowUp' immediately within CodexImportModal having 200 mock items, utilizing React's act() for layout effects.",
+            "result": "Expected behavior: Focus safely targeted index 198 without failing due to virtual list partial rendering. This verifies focus resilience inside CodexImportModal's useVirtualList tracking during edge cases."
+          },
+          {
+            "scenario": "Ten thousand session discovery meets cold and warm budgets in backend",
+            "evidence": "Ran cargo test --manifest-path src-tauri/Cargo.toml ten_thousand_session_discovery_meets_cold_and_warm_budgets -- --ignored --nocapture",
+            "result": "Cold scan resolved in ~647ms, and warm scan resolved in ~258ms, staying well beneath the 10s and 3s budgets."
+          },
+          {
+            "scenario": "SessionList efficiently manages huge workspace workloads",
+            "evidence": "Ran synthetic jsdom test mounting 10,000 SessionSummary items to SessionList component.",
+            "result": "Virtual list rendering handled it safely: initial mounting phase took ~234ms. Indicates acceptable UI responsiveness for pathological large repositories."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session selection latency regresses when massive volumes of workspace folders are indexed outside of the main SessionList.",
+          "Evaluate resource consumption footprint when leaving a deeply nested tree structure open in SessionList (since 10k flat lists passed reliably)."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-28T23:44:32.673050Z",
+        "source": {
+          "activity_id": "sessions/18205578699523600537/activities/ee3b028f30d84ecbb0ad0d1c52d39824",
+          "report_sha256": "a4853e6efeae64a3053a771a006d99de47f30a60659131410970790453477bc0",
+          "activity_created_at": "2026-10-28T23:32:30.402088Z",
+          "session_id": "18205578699523600537",
+          "dispatch_key": "e1f6e705020a77b0e4ad8b90"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-28T23:36:29.215190Z",
+    "last_poll_at": "2026-10-28T23:45:01.656710Z",
     "last_tick_at": "2026-10-28T23:36:44.777473Z",
     "run_id": "40788385550",
     "owner_recovery_requests": [
