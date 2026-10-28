@@ -10,8 +10,12 @@ import type { SessionSummary } from "./types"
 
 // Node process-local TZ simulates a changed host default; this is not native
 // OS/WebView coverage. Components are checked on their next ordinary render.
-const originalRuntimeTimezone = vi.hoisted(() => {
-  const timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone
+const originalTimezone = vi.hoisted(() => {
+  const timezone = {
+    runtime: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+    environment: import.meta.env.TZ,
+    present: Object.hasOwn(import.meta.env, "TZ"),
+  }
   vi.stubEnv("TZ", "UTC")
   return timezone
 })
@@ -40,17 +44,29 @@ beforeEach(() => {
   vi.stubEnv("TZ", "UTC")
   vi.spyOn(Date, "now").mockReturnValue(now)
 })
-afterEach(() => {
-  if (root) act(() => root!.unmount())
-  root = undefined
-  container?.remove()
-  container = undefined
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
+afterEach(cleanup)
+function cleanup() {
+  try {
+    if (root) act(() => root!.unmount())
+  } finally {
+    root = undefined
+    container?.remove()
+    container = undefined
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    restoreTimezone()
+  }
+}
+afterAll(restoreTimezone)
+function restoreTimezone() {
+  // Windows Node clears the TZ variable without resetting ICU's default zone.
+  // Restore that runtime state explicitly before restoring the original raw env.
+  vi.stubEnv("TZ", originalTimezone.runtime)
   vi.unstubAllEnvs()
-  expect(new Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(originalRuntimeTimezone)
-})
-afterAll(() => vi.unstubAllEnvs())
+  expect(import.meta.env.TZ).toBe(originalTimezone.environment)
+  expect(Object.hasOwn(import.meta.env, "TZ")).toBe(originalTimezone.present)
+  expect(new Intl.DateTimeFormat().resolvedOptions().timeZone).toBe(originalTimezone.runtime)
+}
 const rowProps: Omit<ComponentProps<typeof SessionRow>, "lang" | "session"> = {
   selected: false,
   busy: false,
@@ -79,6 +95,27 @@ const rowProps: Omit<ComponentProps<typeof SessionRow>, "lang" | "session"> = {
   onRenameKeyDown: vi.fn(),
 }
 describe("relative date calendar presentation", () => {
+  it("restores timezone after thrown work and repeated cleanup", () => {
+    expect(() => {
+      try {
+        vi.stubEnv("TZ", "America/New_York")
+        throw new Error("Synthetic body failure")
+      } finally {
+        restoreTimezone()
+      }
+    }).toThrow("Synthetic body failure")
+    restoreTimezone()
+  })
+  it("restores timezone even when unmount throws", () => {
+    vi.stubEnv("TZ", "Europe/Paris")
+    root = {
+      unmount: () => {
+        throw new Error("Synthetic unmount failure")
+      },
+    } as Root
+    expect(cleanup).toThrow("Synthetic unmount failure")
+    restoreTimezone()
+  })
   it("keeps Home/import dates aligned with the sidebar after timezone and language changes", async () => {
     expect(formatRelative(session.updatedAt, "en")).toBe("Oct 1")
     vi.stubEnv("TZ", "America/Los_Angeles")
