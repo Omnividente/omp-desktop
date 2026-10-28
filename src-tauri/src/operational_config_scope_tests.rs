@@ -1,76 +1,8 @@
 use super::*;
 use serde_json::json;
-use std::os::unix::fs::PermissionsExt;
 
 // A real subprocess exercises the Rust command/transaction boundary. This is
 // an isolated synthetic CLI, not evidence of a native OMP or Windows UI run.
-const CLI: &str = r#"#!/usr/bin/env python3
-import json, os, pathlib, sys
-root = pathlib.Path(os.environ['OMP_SCOPE_TEST_ROOT'])
-args = sys.argv[1:]
-with (root / 'calls.jsonl').open('a') as log:
-    log.write(json.dumps(args) + '\n')
-mode = (root / 'mode').read_text()
-path = root / 'config.yml'
-state = json.loads(path.read_text()) if path.exists() else {}
-project = json.loads((root / 'project.json').read_text())
-def raw(key):
-    value = state
-    for part in key.split('.'):
-        if not isinstance(value, dict) or part not in value: return None, False
-        value = value[part]
-    return value, True
-def effective(key):
-    value, present = raw(key)
-    if key in project:
-        inherited = project[key]
-        if isinstance(value, dict) and isinstance(inherited, dict): return {**value, **inherited}
-        return inherited
-    return value if present else ([] if key == 'task.disabledAgents' else {} if key == 'task.agentModelOverrides' else False)
-def listing(scoped):
-    result = {}
-    for key, kind in [('task.agentModelOverrides','record'), ('task.disabledAgents','array')]:
-        value, present = raw(key)
-        if not scoped or present:
-            result[key] = {'type':kind, 'value':value if scoped else effective(key)}
-    return result
-def fail(message):
-    print(message, file=sys.stderr)
-    sys.exit(1)
-if args[0:2] == ['config','path']:
-    print(root)
-elif '--scope' in args and mode == 'old-parser':
-    fail('Unknown flag: --scope')
-elif '--scope' in args and mode not in ['legacy-wrapper', 'legacy-new-help'] and args[1] != 'list':
-    fail('--scope applies to `config list` only')
-elif args[0:2] == ['config','list']:
-    scoped = '--scope' in args and mode not in ['legacy-wrapper', 'legacy-new-help']
-    result = json.loads(json.dumps(listing(scoped)))
-    if scoped and mode == 'invalid-list': result = []
-    if scoped and mode == 'hidden-race':
-        counter = root / 'reads'
-        n = int(counter.read_text()) if counter.exists() else 0
-        counter.write_text(str(n + 1))
-        if n == 0:
-            state['task']['agentModelOverrides']['hidden'] = 'synthetic/concurrent'
-            path.write_text(json.dumps(state))
-    print(json.dumps(result))
-elif args[0:2] == ['config','get']:
-    print(json.dumps({'key':args[2], 'value':effective(args[2])}))
-elif args[0:2] == ['config','set']:
-    key = args[2]
-    if mode == 'fail-second' and key == 'task.disabledAgents': fail('synthetic second write failure')
-    parent = state
-    parts = key.split('.')
-    for part in parts[:-1]: parent = parent.setdefault(part,{})
-    parent[parts[-1]] = json.loads(args[3])
-    if mode == 'foreign-during-write': state['unknown'] = 'external'
-    path.write_text(json.dumps(state))
-    if mode == 'fail-after-write': fail('synthetic failure after write')
-    print(json.dumps({'key':key, 'value':parent[parts[-1]]}))
-else:
-    fail('Unsupported synthetic command')
-"#;
 
 struct Fixture {
     root: PathBuf,
@@ -86,9 +18,11 @@ impl Fixture {
             rand::random::<u64>()
         ));
         fs::create_dir(&root).unwrap();
-        let executable = root.join("omp-test");
-        fs::write(&executable, CLI).unwrap();
-        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        // Checked out before tests start, never opened for writing here. A
+        // parallel fork can retain a writable executable FD until exec even
+        // after its creator closes it, causing ETXTBSY in another test.
+        let executable = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/fixtures/operational_config_scope_cli.py");
         if let Some(global) = global {
             // The leading whitespace is intentional: rollback restores exact bytes.
             fs::write(root.join("config.yml"), format!("  {global}\n")).unwrap();
@@ -390,4 +324,34 @@ fn unchanged_global_payload_still_requires_requested_effective_result() {
     assert!(fixture.save(override_change()).1.is_err());
     assert_eq!(fixture.bytes(), before);
     assert!(fixture.writes().is_empty());
+}
+
+#[test]
+fn shared_checkout_executable_keeps_parallel_fixture_state_isolated() {
+    let fixture = Fixture::new(None, json!({}), "scoped");
+    let executable = PathBuf::from(&fixture.executable);
+    let before = fs::read(&executable).unwrap();
+    assert!(!executable.starts_with(&fixture.root));
+    std::thread::scope(|scope| {
+        for index in 0..8 {
+            let executable = &executable;
+            scope.spawn(move || {
+                let fixture = Fixture::new(None, json!({}), "scoped");
+                assert_eq!(Path::new(&fixture.executable), executable);
+                let model = format!("synthetic/parallel-{index}");
+                fixture
+                    .save(
+                        json!({"reviewer":{"modelOverride":[model],"expectedModelOverride":null}}),
+                    )
+                    .1
+                    .unwrap();
+                assert_eq!(
+                    fixture.global(),
+                    json!({"task":{"agentModelOverrides":{"reviewer":[model]}}})
+                );
+                assert_eq!(fixture.writes().len(), 1);
+            });
+        }
+    });
+    assert_eq!(fs::read(&executable).unwrap(), before);
 }
