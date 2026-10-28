@@ -844363,6 +844363,16 @@
           "actor": "Omnividente"
         },
         "event_id": "0283d2abb1f2ee2728de25201bd1dbe44378d0ffc35b48691663cdedca3752df"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-28T22:50:59.647884Z",
+        "decision_id": "0bd31c0fbb30ee1762946df399654f758f83b7a31b67b918b2da0eebd7fe53dd",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-28T22:50:57.326859Z"
+        },
+        "event_id": "b1f76753c005da54ce69228701e3ff82207bf92fff9ac26041efc6e930be7b1f"
       }
     ]
   }
