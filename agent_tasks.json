@@ -821707,6 +821707,26 @@
         "before_state_sha": "b1ff9b0270c03050b6fd964833d78b534b13bc07",
         "before_digest": "e995526c3261c91a7e71116edde481f48d6c4b9c6632836d90d0d0e4b58bd9dc",
         "event_id": "b3ee3f19dce974d6050c2fdd75fd8e6c3354b0f9a5ba7469de7332ec29c60d7f"
+      },
+      {
+        "type": "ExecutionCompletion",
+        "at": "2026-10-28T18:38:28.306109Z",
+        "decision_id": "a513d2310b7bc98a6d15177d35a9c6772146a7783e81956bb852ce59bc476556",
+        "executor_claim_id": "cf991ddcff8d108a1379ebbb880349b8bf1ea65cf5cf20e44b50ca24e9e7fe99",
+        "kind": "sync_no_effect",
+        "evidence": {
+          "status": "disabled",
+          "reason": "loop_disabled",
+          "decision_id": "a513d2310b7bc98a6d15177d35a9c6772146a7783e81956bb852ce59bc476556",
+          "main_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
+          "lab_sha": "6a758209c42d1f35893f33bfb3fab3585de6e224",
+          "candidate_sha": "",
+          "queue_blob": "",
+          "candidate_branch": "autonomous/sync-40746869030-1"
+        },
+        "receipt_id": "65694001d7556449701b94698a9a861c5909aefdfdc849e0f8fc1caf8d8c7dd0",
+        "frontier_seq": 1083,
+        "event_id": "bb3839cede01804845f24693b2d4efe19142ff9bdfba2a105eef28db4e921e40"
       }
     ]
   }
