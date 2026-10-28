@@ -31,6 +31,71 @@ VALID_EXECUTION_STATES = {
     "", "dispatching", "dispatched", "quarantined", "dispatch_aborted", "completed", "retry", "exhausted", "awaiting_review", "awaiting_report",
 }
 
+DISPATCH_ATTEMPT_FIELDS = frozenset({"attempts", "session_id", "dispatch_key", "base_sha",
+                                     "starting_branch", "dispatch_request"})
+
+
+def validate_dispatch_request(task: dict, *, prefix: str = "task") -> list[str]:
+    """Validate exact implementation payloads without rebuilding mutable task data."""
+    # The request builder also imports report validation; defer this dependency.
+    from build_jules_request import dispatch_key
+
+    execution = task.get("execution")
+    if not isinstance(execution, dict):
+        return []
+    errors = []
+
+    def validate_attempt(record, location):
+        block = record.get("dispatch_request")
+        if "dispatch_request" not in record:
+            return  # Legacy attempts have lookup authority only.
+        try:
+            request = block["request"]
+            key, base, branch = (record[field] for field in ("dispatch_key", "base_sha", "starting_branch"))
+            if (task.get("task_type") == "project_discovery" or set(block) != {"request", "request_sha256"}
+                    or set(request) != {"prompt", "title", "sourceContext", "requirePlanApproval", "automationMode"}
+                    or type(record["attempts"]) is not int or record["attempts"] < 1
+                    or not re.fullmatch(r"[0-9a-f]{24}", key)
+                    or (record.get("session_id") and not re.fullmatch(r"(?:sessions/)?[A-Za-z0-9_-]+", record["session_id"]))
+                    or not re.fullmatch(r"[0-9a-f]{40}", base) or branch != "autonomous/attempt-" + key
+                    or not request["prompt"].startswith("AUTONOMOUS_DISPATCH_KEY: " + key
+                                                       + "\nAUTONOMOUS_TASK_ID: " + task["id"] + "\n\n")
+                    or ("pinned base " + base + " ") not in request["prompt"]
+                    or ("Immutable starting branch: " + branch) not in request["prompt"]
+                    or not request["title"].startswith("[dispatch:" + key + "] ")
+                    or request["requirePlanApproval"] is not False or request["automationMode"] != "AUTO_CREATE_PR"
+                    or set(request["sourceContext"]) != {"source", "githubRepoContext"}
+                    or not re.fullmatch(r"sources/github/[^/\s]+/[^/\s]+", request["sourceContext"]["source"])
+                    or request["sourceContext"]["githubRepoContext"] != {"startingBranch": branch}
+                    or key != dispatch_key(request["sourceContext"]["source"][len("sources/github/"):],
+                                           task["id"], record["attempts"])
+                    or block["request_sha256"] != sha256_json(request)):
+                raise ValueError("request identity")
+        except (ValueError, TypeError, KeyError, AttributeError):
+            errors.append(location + " does not match the saved implementation request and attempt")
+
+    validate_attempt(execution, prefix + ".execution.dispatch_request")
+    history = execution.get("dispatch_request_history", [])
+    if not isinstance(history, list) or (history and task.get("task_type") == "project_discovery"):
+        return errors + [prefix + ".execution.dispatch_request_history must contain implementation attempts"]
+    previous = 0
+    keys = {execution.get("dispatch_key")} if isinstance(execution.get("dispatch_key"), str) else set()
+    for index, record in enumerate(history):
+        location = prefix + ".execution.dispatch_request_history[" + str(index) + "]"
+        if (not isinstance(record, dict) or set(record) - DISPATCH_ATTEMPT_FIELDS
+                or not isinstance(record.get("dispatch_request"), dict)
+                or type(record.get("attempts")) is not int or type(execution.get("attempts")) is not int
+                or not previous < record["attempts"] < execution["attempts"]
+                or not isinstance(record.get("dispatch_key"), str) or record["dispatch_key"] in keys
+                or not isinstance(record.get("session_id", ""), str)):
+            errors.append(location + " must retain an ordered, unique earlier attempt")
+            continue
+        previous = record["attempts"]
+        keys.add(record["dispatch_key"])
+        validate_attempt(record, location)
+    return errors
+
+
 MAX_PREVIOUS_REPORTS = 3
 MAX_PREVIOUS_REPORT_CHARS = 24000
 
@@ -777,6 +842,7 @@ def validate(manifest: Any) -> list:
                         or not isinstance(stop, dict) or not _utc_timestamp(stop.get("at"))
                         or stop.get("result") not in ("pending", "sent", "unknown", "rejected")):
                     errors.append(prefix + ".execution.rejection_stop requires a staged rejection and durable send receipt")
+            errors.extend(validate_dispatch_request(task, prefix=prefix))
             state, outcome = execution.get("state"), execution.get("outcome", "")
             expected = {"dispatching": "in_progress", "dispatched": "in_progress",
                         "quarantined": "blocked", "completed": "done", "retry": "todo", "exhausted": "blocked"}

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import copy
 import json
+import io
+import os
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -15,12 +18,16 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from complete_jules_task import latest_report
 from jules_dispatch import Response
 from jules_provenance import bind_proposal
-from lab_controller import GitHub, StateWriteError, _git, tick, _poll_observations
+import lab_controller
+from lab_controller import AttemptRefStop, GitHub, StateWriteError, _git, tick, _poll_observations
+from build_jules_request import dispatch_key
+from dispatch_journal import NEXT, JournalStore
+from workflow_admission import control_revision
 from jules_dispatch import COMPLETED_STATES, FAILED_STATES
 from loop_health import assess_health
 from state_store import load_state, save_state
 from proposal_backlog import close_research_unaccepted, decide
-from task_lifecycle import start
+from task_lifecycle import reserve, start
 from validate_tasks import validate
 
 NOW = datetime(2026, 9, 13, 12, tzinfo=timezone.utc)
@@ -104,16 +111,23 @@ class LaboratoryGitHub(GitHub):
         self.is_enabled = True
         self.proposals = {}
         self.retargets = 0
+        self.ref_posts = []
+        self.empty_attempt_readback = False
+        self.after_ref_create = lambda: None
 
     def api(self, path, *, method="GET", body=None, missing=False):
         if path == "actions/variables/JULES_LOOP_ENABLED":
             return {"value": "true" if self.is_enabled else "false"}
         if path.startswith("git/ref/heads/"):
             branch = unquote(path[len("git/ref/heads/"):])
+            if self.empty_attempt_readback and branch.startswith("autonomous/attempt-"):
+                return None
             result = self.case.git(self.case.remote, "rev-parse", "--verify", "refs/heads/" + branch, check=False)
             return {"object": {"sha": result.stdout.decode().strip()}} if result.returncode == 0 else None
         if method == "POST" and path == "git/refs":
+            self.ref_posts.append(copy.deepcopy(body))
             self.case.git(self.case.repo, "push", "origin", body["sha"] + ":" + body["ref"])
+            self.after_ref_create()
             return {}
         if path.startswith("pulls?"):
             query = parse_qs(urlsplit(path).query)
@@ -357,7 +371,7 @@ class ControllerTests(unittest.TestCase):
                                   "refs/heads/autonomous/attempt-").stdout, b"")
         self.assertEqual(self.reload()[0]["status"], "todo")
 
-    def test_failed_reservation_save_never_creates_external_worker(self):
+    def test_failed_reservation_save_never_creates_attempt_ref_or_external_worker(self):
         def fail_reservation(data):
             if data["tasks"][0].get("execution", {}).get("state") == "dispatching":
                 raise RuntimeError("unreachable state remote")
@@ -367,7 +381,216 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(caught.exception.checkpoint_stage, "dispatch_reservation")
         self.assertIsInstance(caught.exception.__cause__, RuntimeError)
         self.assertEqual(self.api.posts, 0)
+        self.assertEqual(self.github.ref_posts, [])
+        self.assertEqual(self.git(self.remote, "for-each-ref", "--format=%(refname)",
+                                  "refs/heads/autonomous/attempt-").stdout, b"")
         self.assertEqual(self.reload()[0]["status"], "todo")
+
+    def test_failed_research_reservation_save_has_no_ref_or_worker_effect(self):
+        source = self.data["tasks"][0]
+        source["task_type"] = "project_discovery"
+        source.pop("proposal_decision")
+
+        def fail_reservation(data):
+            if (data["tasks"][0].get("execution") or {}).get("state") == "dispatching":
+                raise RuntimeError("synthetic research reservation save failure")
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError) as caught:
+            self.run_tick(persist=fail_reservation, config=self.research_config())
+        self.assertEqual(caught.exception.checkpoint_stage, "dispatch_reservation")
+        self.assertEqual((self.api.posts, self.github.ref_posts), (0, []))
+        self.assertEqual(self.git(self.remote, "for-each-ref", "--format=%(refname)",
+                                  "refs/heads/autonomous/attempt-").stdout, b"")
+        durable = self.reload()[0]
+        self.assertEqual((durable["status"], (durable.get("execution") or {}).get("attempts", 0)), ("todo", 0))
+
+    def native_ref_stop(self, *, empty_readback):
+        source = self.data["tasks"][0]
+        source["task_type"] = "project_discovery"
+        source.pop("proposal_decision")
+        self.persist(self.data)
+        control = control_revision()
+        store = JournalStore(self.repo, self.queue, self.revision)
+        original = json.loads(self.revision.read_text(encoding="utf-8"))["state_sha"]
+        store.initialize(original, control, {"kind": "fenced_bootstrap", "state_sha": original,
+                                            "legacy_senders_fenced": True, "pending_legacy": "none"})
+        trigger = {"run_id": "700", "run_attempt": "1", "event_name": "workflow_dispatch",
+                   "control_sha": control, "repository": REPOSITORY, "actor": "Omnividente"}
+        intent, send = store.reserve_send(NEXT, {"task_id": "first"}, basis={},
+                                          trigger=trigger, control_sha=control)
+        send.consume()
+        key = dispatch_key(REPOSITORY, "first", 1)
+        branch = "autonomous/attempt-" + key
+        observed, reservations = "", []
+        if empty_readback:
+            self.github.empty_attempt_readback = True
+
+            def observe_reservation():
+                durable = json.loads(self.git(self.remote, "show", "autonomous/state:agent_tasks.json").stdout)
+                reservations.append(copy.deepcopy(durable["tasks"][0]["execution"]))
+
+            self.github.after_ref_create = observe_reservation
+        else:
+            observed = self.git(self.repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD",
+                                "-m", "synthetic foreign attempt revision").stdout.decode().strip()
+            self.git(self.repo, "push", "origin", observed + ":refs/heads/" + branch)
+        config = self.root / "config.json"
+        config.write_text(json.dumps(self.research_config()), encoding="utf-8")
+        templates = self.root / "docs" / "autonomous"
+        templates.mkdir(parents=True)
+        (templates / "JULES_PROJECT_DISCOVERY_PROMPT.md").write_text(
+            (TEMPLATES / "JULES_PROJECT_DISCOVERY_PROMPT.md").read_text(encoding="utf-8"), encoding="utf-8")
+        event = self.root / "event.json"
+        event.write_text(json.dumps({"inputs": {**intent["normalized_inputs"], "control_sha": control,
+                                                "continuation_key": intent["correlation_key"]}}), encoding="utf-8")
+        out = self.root / "native-result.json"
+        environment = {key: value for key, value in os.environ.items()
+                       if not key.startswith(("GITHUB_", "JULES_API_KEY"))
+                       and key not in {"GH_TOKEN", "GH_ENTERPRISE_TOKEN", "CONTROL_SHA", "CONTINUATION_KEY"}}
+        environment.update(GITHUB_RUN_ID="900", GITHUB_RUN_ATTEMPT="1", GITHUB_EVENT_NAME="workflow_dispatch",
+                           GITHUB_REF="refs/heads/main", GITHUB_REPOSITORY=REPOSITORY, GITHUB_ACTOR="Omnividente",
+                           GITHUB_EVENT_PATH=str(event), CONTROL_SHA=control, JULES_API_KEY="fixture-only",
+                           CONTINUATION_KEY=intent["correlation_key"],
+                           GITHUB_WORKFLOW_REF=REPOSITORY + "/.github/workflows/" + NEXT + "@refs/heads/main")
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(lab_controller, "GitHub", return_value=self.github), \
+                patch("jules_dispatch.urllib.request.urlopen", side_effect=AssertionError("provider before ref guard")) as provider, \
+                redirect_stdout(io.StringIO()):
+            code = lab_controller.main(["--repo", str(self.repo), "--config", str(config),
+                                        "--manifest", str(self.queue), "--revision-file", str(self.revision),
+                                        "--task-id", "first", "--out", str(out)])
+        result = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(code, 1)
+        self.assertEqual(result["action"], "stopped")
+        self.assertEqual(result["reason"], "attempt_ref_unconfirmed" if empty_readback else "attempt_ref_mismatch")
+        self.assertEqual(result["attempt_ref"], {"task_id": "first", "attempt": 1, "dispatch_key": key,
+                                                "ref": branch, "expected_sha": self.head,
+                                                "observed_sha": observed, "reason": result["reason"]})
+        provider.assert_not_called()
+        saved = copy.deepcopy(self.reload()[0]["execution"])
+        self.assertEqual((saved["state"], saved["outcome"], saved["session_id"], saved["attempts"]),
+                         ("quarantined", "stale", "", 1))
+        self.assertNotIn("session_state", saved)
+        self.assertEqual(saved["finished_at"], "")
+        self.assertEqual((saved["base_sha"], saved["starting_branch"], saved["dispatch_key"]), (self.head, branch, key))
+        if empty_readback:
+            self.assertEqual(len(reservations), 1)
+            self.assertEqual(reservations[0]["state"], "dispatching")
+            for field in ("attempts", "dispatch_key", "base_sha", "starting_branch", "research_request"):
+                self.assertEqual(reservations[0][field], saved[field])
+        self.assertEqual(len(self.github.ref_posts), 1 if empty_readback else 0)
+        real_ref = self.git(self.remote, "rev-parse", "refs/heads/" + branch).stdout.decode().strip()
+        self.assertEqual(real_ref, self.head if empty_readback else observed)
+        receipt = store.current()["effects"][intent["decision_id"]]
+        self.assertEqual((receipt["kind"], receipt["receipt_id"]), ("controller_checkpoint", result["effect_receipt_id"]))
+        disposition = store.nonexecution_outcome(intent, key=intent["correlation_key"],
+                                                trigger=dict(trigger, run_id="900"), control_sha=control)
+        self.assertEqual(disposition["reason"], "execution_outcome_already_recorded")
+        # Changed product and inputs cannot replace the saved request or turn
+        # an incomplete lookup into a ref mutation or a new worker POST.
+        self.git(self.repo, "commit", "--allow-empty", "-m", "synthetic later product")
+        self.git(self.repo, "push", "origin", "HEAD", "HEAD:refs/heads/main")
+        self.data["tasks"][0]["title"] = "Changed after reservation"
+        self.persist(self.data)
+        self.run_tick(config=self.research_config(), focus="changed", risk="high")
+        resumed = self.reload()[0]["execution"]
+        for field in ("attempts", "dispatch_key", "base_sha", "starting_branch", "research_request", "session_id"):
+            self.assertEqual(resumed[field], saved[field])
+        self.assertEqual(self.api.posts, 0)
+        self.assertGreater(self.api.gets, 0)
+        self.assertEqual(len(self.github.ref_posts), 1 if empty_readback else 0)
+        self.assertEqual(self.git(self.remote, "rev-parse", "refs/heads/" + branch).stdout.decode().strip(), real_ref)
+
+    def test_ref_mismatch_has_native_effect_receipt_and_never_retries_identity(self):
+        self.native_ref_stop(empty_readback=False)
+
+    def test_empty_ref_readback_has_native_effect_receipt_without_claiming_ref_absence(self):
+        self.native_ref_stop(empty_readback=True)
+
+    def test_ref_effect_follows_saved_implementation_payload_and_crash_resumes_get_only(self):
+        reservations = []
+
+        def crash_after_ref():
+            durable = json.loads(self.git(self.remote, "show", "autonomous/state:agent_tasks.json").stdout)
+            reservations.append(copy.deepcopy(durable["tasks"][0]["execution"]))
+            raise KeyboardInterrupt("synthetic process interruption after ref creation")
+
+        self.github.after_ref_create = crash_after_ref
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_tick()
+        saved = copy.deepcopy(self.reload()[0]["execution"])
+        self.assertEqual(len(reservations), 1)
+        self.assertEqual(saved, reservations[0])
+        self.assertEqual((saved["state"], saved["session_id"], saved["attempts"]), ("dispatching", "", 1))
+        self.assertIn("dispatch_request", saved)
+        self.assertEqual(lab_controller._request(self.data["tasks"][0], REPOSITORY), saved["dispatch_request"]["request"])
+        self.git(self.repo, "commit", "--allow-empty", "-m", "synthetic later base")
+        self.git(self.repo, "push", "origin", "HEAD", "HEAD:refs/heads/main")
+        source = self.data["tasks"][0]
+        source["title"] = "Changed title after saved intent"
+        source["evidence"]["detail"] = "Changed evidence after saved intent"
+        self.persist(self.data)
+        self.github.empty_attempt_readback = True
+        result = self.run_tick(focus="changed", risk="high")
+        self.assertTrue(any(item["reason"] == "unbound_dispatch_intent" for item in result["attention"]))
+        self.assertEqual(self.reload()[0]["execution"], saved)
+        self.assertEqual((self.api.posts, len(self.github.ref_posts)), (0, 1))
+        self.assertGreater(self.api.gets, 0)
+        self.assertEqual(self.git(self.remote, "rev-parse", "refs/heads/" + saved["starting_branch"]).stdout.decode().strip(), self.head)
+
+    def test_unknown_ref_create_error_stays_exception_and_retains_saved_identity(self):
+        original_api = self.github.api
+
+        def failed_post(path, *, method="GET", body=None, missing=False):
+            if method == "POST" and path == "git/refs":
+                raise RuntimeError("synthetic unavailable ref service")
+            return original_api(path, method=method, body=body, missing=missing)
+
+        with patch.object(self.github, "api", side_effect=failed_post), self.assertRaises(RuntimeError) as caught:
+            self.run_tick()
+        self.assertNotIsInstance(caught.exception, AttemptRefStop)
+        self.assertEqual(self.api.posts, 0)
+        saved = self.reload()[0]["execution"]
+        self.assertEqual((saved["state"], saved["attempts"], saved["session_id"]), ("dispatching", 1, ""))
+        self.assertIn("dispatch_request", saved)
+
+    def test_ref_stop_checkpoint_failure_remains_state_write_error(self):
+        key = dispatch_key(REPOSITORY, "first", 1)
+        branch = "autonomous/attempt-" + key
+        observed = self.git(self.repo, "commit-tree", "HEAD^{tree}", "-p", "HEAD",
+                            "-m", "synthetic different ref").stdout.decode().strip()
+        self.git(self.repo, "push", "origin", observed + ":refs/heads/" + branch)
+
+        def fail_stop(data):
+            if (data["tasks"][0].get("execution") or {}).get("state") == "quarantined":
+                raise RuntimeError("synthetic failed controlled-stop save")
+            self.persist(data)
+
+        with self.assertRaises(StateWriteError) as caught:
+            self.run_tick(persist=fail_stop)
+        self.assertEqual(caught.exception.checkpoint_stage, "attempt_ref_stop")
+        saved = self.reload()[0]["execution"]
+        self.assertEqual((saved["state"], saved["attempts"], self.api.posts), ("dispatching", 1, 0))
+        self.assertEqual(saved["dispatch_key"], key)
+
+    def test_legacy_unbound_lookup_never_synthesizes_new_payload_or_current_base(self):
+        key = dispatch_key(REPOSITORY, "first", 1)
+        branch = "autonomous/attempt-" + key
+        reserve(self.data, "first", key, base_sha=self.head, starting_branch=branch, now=NOW)
+        self.persist(self.data)
+        saved = copy.deepcopy(self.reload()[0]["execution"])
+        self.git(self.repo, "commit", "--allow-empty", "-m", "synthetic changed legacy product")
+        self.git(self.repo, "push", "origin", "HEAD", "HEAD:refs/heads/main")
+        self.data["tasks"][0]["title"] = "Legacy title has changed"
+        self.persist(self.data)
+        self.run_tick(focus="changed", risk="high")
+        self.assertEqual(self.reload()[0]["execution"], saved)
+        self.assertNotIn("dispatch_request", saved)
+        self.assertEqual((self.api.posts, self.github.ref_posts), (0, []))
+        self.assertGreater(self.api.gets, 0)
+        self.assertEqual(self.git(self.remote, "for-each-ref", "--format=%(refname)",
+                                  "refs/heads/autonomous/attempt-").stdout, b"")
 
     def test_lost_binding_save_restarts_through_lookup_without_second_create(self):
         def fail_binding(data):

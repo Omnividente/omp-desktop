@@ -22,6 +22,7 @@ WORKFLOW = "autonomous_next_task.yml"
 FAILED_AUTOMATIC_NEXT_PRODUCER = "e4b46f52c431459fce33d25f93d7324440b59cb2"
 # This producer's single CreateSession call is behind the recorded create guard.
 ABORTED_DISPATCH_PRODUCER = "4f9e9db9f779f92fca1cb8d03fbd986c728b2adb"
+PARTIAL_NEXT_PRODUCER = "f7cf4cf1d283676e9fc8a11ec74d7d3b6803d3e7"
 NATIVE_JOB = "Research and collect proposals without accepting them"
 NATIVE_STEP = "Reconcile saved attempts and run one laboratory tick"
 UPLOAD_STEP = "Preserve laboratory outcome and redacted report diagnostics"
@@ -362,6 +363,19 @@ def _failed_save_checkpoint(archive, decision_id):
     return report, report_digest
 
 
+def _partial_controller_checkpoint(archive, decision_id):
+    # Separate predicate: neither failed-save nor no-effect acceptance changes.
+    report, report_digest = _native_json(archive, allow_diagnostics=True)
+    _require(isinstance(report, dict)
+             and set(report) == {"action", "merge_mode", "reason", "attention", "state_sha"}
+             and report["action"] == "stopped" and report["merge_mode"] == "manual"
+             and report["reason"] == "controller_error"
+             and report["attention"] == [{"reason": "attempt branch already exists at a different revision"}]
+             and isinstance(report["state_sha"], str) and SHA.fullmatch(report["state_sha"]),
+             "native report is not the supported partial controller checkpoint")
+    return report, report_digest
+
+
 def _authenticate(repository, executor_trigger, decision_id, correlation_key, report_reader,
                   *, get_json=None, get_archive=None):
     try:
@@ -463,6 +477,44 @@ def authenticated_failed_automatic_next_save(repository, executor_trigger, decis
         raise ValueError("unsupported failed automatic NEXT producer")
     return _authenticate(repository, executor_trigger, decision_id, correlation_key,
                          _failed_save_checkpoint, get_json=get_json, get_archive=get_archive)
+
+
+def authenticated_partial_next_checkpoint(repository, executor_trigger, decision_id, correlation_key,
+                                          *, get_json=None, get_archive=None) -> dict:
+    """Authenticate only f7cf's original failed ref-guard checkpoint; effects unknown."""
+    if (not isinstance(executor_trigger, dict)
+            or executor_trigger.get("control_sha") != PARTIAL_NEXT_PRODUCER):
+        raise ValueError("unsupported partial NEXT producer")
+    diagnostic = None
+
+    def read_checkpoint(archive, original_decision):
+        nonlocal diagnostic
+        from partial_next_checkpoint import NATIVE_DIAGNOSTIC_FIELDS, validate_native_diagnostic
+        report, report_digest = _partial_controller_checkpoint(archive, original_decision)
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            names = [name for name in bundle.namelist()
+                     if name.startswith("research-diagnostics/") and name.endswith(".json")]
+            _require(len(names) == 1, "missing or ambiguous original partial report diagnostic")
+            raw = bundle.read(names[0])
+        item = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_object,
+                          parse_constant=_invalid_constant)
+        _require(isinstance(item, dict) and all(field in item for field in NATIVE_DIAGNOSTIC_FIELDS),
+                 "missing original partial report provenance")
+        diagnostic = {field: item[field] for field in NATIVE_DIAGNOSTIC_FIELDS}
+        validate_native_diagnostic(diagnostic)
+        expected_name = ("research-diagnostics/" + hashlib.sha256(diagnostic["task_id"].encode("utf-8")).hexdigest()
+                         + "-" + str(diagnostic["attempts"]) + "-" + diagnostic["source"]["report_sha256"]
+                         + "-" + hashlib.sha256(raw).hexdigest() + ".json")
+        _require(names[0] == expected_name
+                 and item.get("session_resource") == "sessions/" + diagnostic["session_id"]
+                 and item.get("outcome") == "report_invalid"
+                 and item.get("selection") == {"status": "ok", "detail": "latest worker report selected"},
+                 "original partial diagnostic is not the pinned native report error path")
+        return report, report_digest
+
+    result = _authenticate(repository, executor_trigger, decision_id, correlation_key,
+                           read_checkpoint, get_json=get_json, get_archive=get_archive)
+    return {**result, "partial_diagnostic": diagnostic}
 
 
 def authenticated_aborted_dispatch(repository, executor_trigger, decision_id, correlation_key,

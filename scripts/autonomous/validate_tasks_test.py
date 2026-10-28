@@ -14,7 +14,10 @@ from validate_tasks import validate  # noqa: E402
 from import_discovery_tasks import import_tasks
 from import_discovery_tasks_test import post_fixture, CONFIG as PRODUCT_CONFIG
 from proposal_backlog import materialize_deferred
-from research_request import CONTRACT_VERSION
+from research_request import CONTRACT_VERSION, sha256_json
+from build_jules_request import build, dispatch_key
+from task_lifecycle import reserve, start, complete
+from datetime import datetime, timezone
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "agent_tasks.json"
@@ -286,6 +289,87 @@ class EvidenceTest(unittest.TestCase):
         before = copy.deepcopy(data)
         self.assertEqual(validate(data), [])
         self.assertEqual(data, before)
+
+
+class ImplementationRequestTest(unittest.TestCase):
+    def queue(self, *, retry=False):
+        data = manifest(task(proposal_decision={"action": "approve", "actor": "owner",
+                                                "at": "2026-09-12T11:00:00Z", "note": "Synthetic approval"}))
+        now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
+        for attempt in range(1, 3 if retry else 2):
+            key = dispatch_key("owner/project", "auto-1", attempt)
+            branch = "autonomous/attempt-" + key
+            request = build(task(), template="{{TASK_JSON}}", repo="owner/project", branch="autonomous/lab",
+                            starting_branch=branch, base_sha="a" * 40, attempt=attempt)
+            reserve(data, "auto-1", key, base_sha="a" * 40, starting_branch=branch,
+                    dispatch_request={"request": request, "request_sha256": sha256_json(request)}, now=now)
+            if retry and attempt == 1:
+                start(data, "auto-1", session_id="7", dispatch_key=key, now=now)
+                complete(data, "auto-1", outcome="failed", now=now)
+        return data
+
+    def test_saved_payload_and_legacy_lookup_identity_are_valid(self):
+        data = self.queue()
+        self.assertEqual(validate(data), [])
+        del data["tasks"][0]["execution"]["dispatch_request"]
+        self.assertEqual(validate(data), [])
+        self.assertEqual(validate(self.queue(retry=True)), [])
+
+    def test_changed_identity_or_payload_is_rejected_even_with_recomputed_hash(self):
+        for change in ("hash", "base", "branch", "key", "attempt", "next_attempt", "source", "approval", "mode", "task", "shape", "null", "research"):
+            with self.subTest(change=change):
+                data = self.queue()
+                entry = data["tasks"][0]
+                block = entry["execution"]
+                payload = block["dispatch_request"]
+                request = payload["request"]
+                if change == "hash":
+                    request["prompt"] += " modified"
+                elif change == "base":
+                    block["base_sha"] = "b" * 40
+                elif change == "branch":
+                    request["sourceContext"]["githubRepoContext"]["startingBranch"] += "-other"
+                elif change == "key":
+                    block["dispatch_key"] = "b" * 24
+                elif change == "attempt":
+                    block["attempts"] = 0
+                elif change == "next_attempt":
+                    block["attempts"] = 2
+                elif change == "source":
+                    request["sourceContext"]["source"] = "untrusted"
+                elif change == "approval":
+                    request["requirePlanApproval"] = True
+                elif change == "mode":
+                    request["automationMode"] = "UNKNOWN"
+                elif change == "task":
+                    entry["id"] = "different-task"
+                elif change == "shape":
+                    payload["extra"] = "not part of snapshot"
+                elif change == "null":
+                    block["dispatch_request"] = None
+                else:
+                    entry["task_type"] = "project_discovery"
+                if change != "hash":
+                    payload["request_sha256"] = sha256_json(request)
+                self.assertTrue(validate(data))
+
+    def test_history_retains_order_unique_identity_and_valid_prior_payload(self):
+        for change in ("order", "key", "payload", "shape", "null"):
+            with self.subTest(change=change):
+                data = self.queue(retry=True)
+                block = data["tasks"][0]["execution"]
+                history = block["dispatch_request_history"]
+                if change == "order":
+                    history[0]["attempts"] = block["attempts"]
+                elif change == "key":
+                    history[0]["dispatch_key"] = block["dispatch_key"]
+                elif change == "payload":
+                    history[0]["dispatch_request"]["request"]["prompt"] += " changed"
+                elif change == "shape":
+                    history[0]["extra"] = "not archived identity"
+                else:
+                    block["dispatch_request_history"] = None
+                self.assertTrue(validate(data))
 
 
 class LifecycleTest(unittest.TestCase):
