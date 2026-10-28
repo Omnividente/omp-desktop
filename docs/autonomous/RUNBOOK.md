@@ -486,6 +486,65 @@ report command, or reserved-session recovery. Use
    NEXT-to-CONTINUE cycle. Keep genuine invalid-report attention; do not reset the
    journal, restart the spent original NEXT or claim the unknown cause was fixed.
 
+Exceptional **observed partial controller failure** is a distinct owner operation.
+It must not be relabeled as a no-effect, failed-save-before-mutation or reserved
+dispatch abort. `autonomous_complete_partial_next.yml` accepts only the original
+`decision_id` and exact native `expected_state_sha`, invoking
+`recover_delivery.py --operation partial_next_checkpoint` from checked event-main.
+
+1. The only supported historical producer is
+   `f7cf4cf1d283676e9fc8a11ec74d7d3b6803d3e7`: an unfinished default automatic
+   sender NEXT with its original attempt-1 executor and no effect, completion,
+   phase claim or stage. Authenticate the original failed run, actors, repository,
+   workflow, frozen revision, native job and upload, artifact metadata and ZIP
+   digest. Its exact native result remains `stopped/manual/controller_error` with
+   `attempt branch already exists at a different revision` and its native state
+   pin. The message does not establish the historical observed ref SHA: the old
+   guard also emits it for empty readback after acknowledged ref creation.
+2. Validate the complete before/native/current queues and Git lineage. Preserve
+   the entire journal prefix, original executor and one subsequent delivery
+   observation; current must equal the native checkpoint. The only supported
+   body changes are one bound research worker becoming `COMPLETED` and
+   `blocked/awaiting_report/report_invalid`, its pending/sent format-repair receipt,
+   the original `last_poll_at`, and one appended unreserved research task. Every
+   other task, request, identity, decision, history and clock stays unchanged.
+3. The original content-addressed research diagnostic is mandatory. Authenticate
+   its task/session/key/attempt/source and collection time against the queue,
+   accepting only the fixed native `research_invalid` missing-envelope branch.
+   Retain only typed provenance and that fixed parser error, never worker prose.
+   Reconstruct the complete appended task through the native pure planner with
+   all area fingerprints from the exact saved historical product tree. Missing
+   Git objects, changed context or any unmatched structural field fail closed.
+4. One owner-bound, single-attempt CAS appends only
+   `OwnerPartialNextCheckpointCompletion(partial_controller_failure_observed)`.
+   Its `status=failed_with_partial_checkpoints` and
+   `external_effects=not_presumed_absent` preserve the terminal failure honestly.
+   This closes the spent NEXT, not the research task or any external operation.
+   It does not change the body, move/delete a ref, create a session, update useful
+   clocks, perform handoff or issue execution rights. Exact original-owner replay
+   may only observe `already_completed`; changed inputs or authorization reject.
+   A lost ACK stays uncertain until read-only reconciliation, never a fresh CAS.
+5. After acknowledged closure, a separate step runs
+   `planned_dispatch_observation.py` with the configured production Jules keys.
+   It performs GET only, and requires each configured credential's complete list
+   to contain the immutable known bound worker before interpreting a missing
+   planned key. Direct GetSession success alone does not prove list visibility.
+   A missing/changed anchor, provider error or contradictory candidate identity
+   yields `presence=unknown`; terminal candidates still count as present. A
+   successful `presence=absent` is scoped to those verified inventories, not a
+   global absence claim or permission to create, bind, delete or adopt anything.
+6. Closure and provider observation are separate outcomes retained in the same
+   artifact. A later observation failure does not undo an acknowledged completion;
+   inspect the receipt before deciding whether any owner replay is needed. Old
+   frozen readers reject the new event. Start only separately authorized compatible
+   checked control, never rerun or repin the spent original executor. Before a
+   Sync advances lab, reconcile any pre-reservation attempt ref independently:
+   a ref matching the old lab may conflict with the new one. Do not automatically
+   move/delete/adopt it, change the attempt key or infer no external effects from
+   the failed Actions status. Ref retirement needs its own reviewed evidence and
+   explicit owner authorization. Genuine report-invalid attention remains visible.
+
+
 Exceptional **original reserved research dispatch recovery** is a separate owner
 operation, never a normal no-effect completion or permission to create a worker.
 It requires explicit owner selection and checked source deployment. Use
@@ -880,15 +939,35 @@ replaced with a fresh seed. Reports and pending proposals survive restarts.
 ### Versioned requests and historical POST admission
 
 Every newly reserved research attempt stores `execution.research_request` before
-CreateSession: `contract_version = post-revisit-v1`, the controller checkout SHA,
-the exact credential-free request payload, its SHA-256 and the decision-context
-snapshot/hash. The prompt includes that exact context. Reconciliation reads the
-saved payload, not a new template or the now-mutated task; it keeps
-`allow_create=False`. A reservation is intent, not proof of delivery or worker
+any attempt-ref or CreateSession effect: `contract_version = post-revisit-v1`,
+the controller checkout SHA, exact credential-free request payload, its SHA-256
+and decision-context snapshot/hash. The prompt includes that exact context.
+Reconciliation reads the saved payload, not a new template or the now-mutated
+task; it keeps `allow_create=False`. A reservation is intent, not proof of delivery or worker
 understanding. A bound session confirms delivery, not the truth of its findings.
 On a genuine retry, the prior request and attempt/session identity are retained
 in `execution.research_request_history`; state writes cannot rewrite the same
 attempt's payload or its history, even by recomputing hashes.
+
+New implementation reservations likewise save
+`execution.dispatch_request={request,request_sha256}` before any attempt-ref
+effect. `dispatch_request_history` retains each earlier attempt's exact payload,
+key, base, starting branch and any bound session. Schema and state CAS checks
+reject rewrites, dropped history or a substituted bound session, even when hashes
+are recomputed. A legacy attempt without saved payload bytes receives only a
+GET-only lookup envelope from its saved identity, never a rebuilt current prompt
+or new-session permission. Retry payloads exclude prior saved payload/history
+from embedded task JSON to avoid recursively copying previous requests.
+
+A ref mismatch or empty readback after acknowledged creation is a controlled
+`attempt_ref_mismatch` or `attempt_ref_unconfirmed` stop. The durable reservation
+is quarantined without inventing a worker or terminal session; safe metadata
+names the task, attempt, key, ref and expected/observed SHA. Empty observed SHA
+means unconfirmed readback, not proof of no effects. The normal native path records
+its `controller_checkpoint` receipt, preserving earlier checkpoints without
+leaving this known guard failure as an executor without outcome. Unknown ref
+transport failures and any failed required checkpoint still stop exceptionally;
+no ref move/delete, mutation retry or automatic worker creation is introduced.
 
 At dispatch, missing-context obligations take priority over other settled owner
 notes and active proposal excerpts. Ties use prior full bound delivery count,

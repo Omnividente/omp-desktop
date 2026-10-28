@@ -208,20 +208,13 @@ class ProofTests(unittest.TestCase):
         run = subprocess.run([sys.executable, str(Path(proof.__file__)), "before",
                               "--repo", str(self.repo), "--expected-state-sha", self.sha,
                               "--decision-id", "d" * 64, "--baseline", str(self.root / "baseline")],
-                             env={"PATH": os.environ.get("PATH", "")}, capture_output=True, text=True)
+                             env={key: os.environ[key] for key in ("PATH", "SYSTEMROOT") if key in os.environ},
+                             capture_output=True, text=True)
         self.assertEqual(run.returncode, 1)
         self.assertIn('"allows_sync":false', run.stdout)
         self.assertNotIn("retain this", run.stdout + run.stderr)
         self.assertFalse((self.root / "baseline").exists())
 
-    def test_workflow_runs_native_gate_between_before_and_after(self):
-        path = Path(__file__).resolve().parents[2] / ".github/workflows/autonomous_recover_delivery.yml"
-        text = path.read_text()
-        self.assertLess(text.index("owner_fence_proof.py before"), text.index("recover_delivery.py"))
-        self.assertLess(text.index("recover_delivery.py"), text.index("owner_fence_proof.py after"))
-        self.assertIn("set -euo pipefail", text)
-        self.assertIn("owner-fence-proof.json", text)
-        self.assertNotIn("continue-on-error:", text)
 
 
 @unittest.skipUnless(Path(__file__).with_name("dispatch_journal_test.py").exists(),

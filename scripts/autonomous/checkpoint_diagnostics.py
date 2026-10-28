@@ -11,7 +11,7 @@ CHECKPOINT_STAGES = frozenset({
     "report_repair_disabled", "report_repair_result", "rejection_closed",
     "rejection_stop_intent", "rejection_result", "collect", "review_sweep",
     "report_repair_expired", "existing_session_binding", "attempt_ref_release",
-    "research_planner", "dispatch_reservation", "quarantine_before_create",
+    "research_planner", "dispatch_reservation", "attempt_ref_stop", "quarantine_before_create",
     "quarantine_create_guard", "created_session_binding", "quarantine_during_create",
     "owner_quarantine", "owner_recovery_queue", "owner_recovery_claim",
     "observer_context", "observer_state_read", "observer_native_proof",

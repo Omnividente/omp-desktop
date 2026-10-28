@@ -26,6 +26,7 @@ OWNER_CONTINUE_CUTOVER = "autonomous_cutover_continue.yml"
 OWNER_NEXT_COMPLETION = "autonomous_complete_next.yml"
 OWNER_REPORT_CHECKPOINT = "autonomous_complete_report_recovery.yml"
 OWNER_FAILED_NEXT_CHECKPOINT = "autonomous_complete_failed_next.yml"
+OWNER_PARTIAL_NEXT_CHECKPOINT = "autonomous_complete_partial_next.yml"
 OWNER_DISPATCH_OBSERVATION = "autonomous_observe_dispatch.yml"
 OWNER_DISPATCH_BINDING = "autonomous_recover_dispatch.yml"
 OWNER_DISPATCH_ABORT = "autonomous_abort_dispatch.yml"
@@ -837,6 +838,21 @@ def materialize(journal: dict) -> dict:
                 if event.get("phase_claim_id") != phase["claim_id"]:
                     raise ValueError("publication does not bind the finalize claim")
             state["effects"][decision_id] = event
+        elif kind == "OwnerPartialNextCheckpointCompletion":
+            from partial_next_checkpoint import receipt_id, validate_event
+            owner = validate_event(event, intent, executor, state)
+            if (set(event) != {"type", "at", "event_id", "decision_id", "executor_claim_id", "kind",
+                               "owner_trigger", "before_state_sha", "before_digest", "evidence", "proof",
+                               "native_report", "frontier_seq", "receipt_id"}
+                    or event.get("receipt_id") != receipt_id(event)
+                    or event.get("frontier_seq") != state["frontier_seq"] + 1):
+                raise ValueError("invalid partial NEXT receipt identity or frontier")
+            state["completions"][decision_id] = event
+            state["completed_receipts"].add(event["receipt_id"])
+            state["source_ids"].add(_source_identity(owner))
+            state["frontier_seq"] += 1
+            state["predecessor_decision_id"] = decision_id
+            state["active_intent"] = None
         elif kind == "OwnerFailedNextCheckpointCompletion":
             owner = _valid_failed_next_checkpoint(event, intent, executor, state)
             if (set(event) != {"type", "at", "event_id", "decision_id", "executor_claim_id", "kind",
@@ -1338,6 +1354,93 @@ class JournalStore:
             _valid_failed_next_checkpoint(fields, intent, executor, state)
             event = _event("OwnerFailedNextCheckpointCompletion",
                            receipt_id=_failed_next_checkpoint_receipt(fields), **fields)
+            return (event, "completed"), [event]
+
+        (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)
+        return {"outcome": outcome, "decision_id": decision_id, "receipt_id": event["receipt_id"],
+                "kind": event["kind"], "state_sha": state_sha, "frontier_seq": event["frontier_seq"]}
+
+    def complete_partial_next_checkpoint(self, *, decision_id, expected_state_sha, owner_trigger, config):
+        """Append one terminal partial-failure observation, with no body or execution rights."""
+        from failed_next_checkpoint import automatic_inputs
+        from next_no_effect_artifact import authenticated_partial_next_checkpoint
+        from partial_next_checkpoint import (FAILURE_KIND, SUPPORTED_PRODUCER, partial_body_delta,
+                                              receipt_id, validate_event)
+        from proposal_backlog import authorize
+        from state_store import _git
+        from validate_tasks import validate
+        trigger = _owner_trigger(owner_trigger, decision_id, expected_state_sha,
+                                 workflow=OWNER_PARTIAL_NEXT_CHECKPOINT)
+        authorize(config, trigger["actor"])
+        if trigger["repository"] != config.get("repository"):
+            raise JournalConflict("partial NEXT repository differs from configured authority")
+
+        def complete(data, state_sha, state):
+            prior = state["completions"].get(decision_id)
+            if prior is not None:
+                original = prior.get("owner_trigger", {})
+                if (prior.get("type") != "OwnerPartialNextCheckpointCompletion"
+                        or prior["before_state_sha"] != expected_state_sha
+                        or {k: v for k, v in original.items() if k != "run_attempt"}
+                        != {k: v for k, v in trigger.items() if k != "run_attempt"}):
+                    raise JournalConflict("partial NEXT replay changed its original owner authorization")
+                authorize(config, prior["proof"]["producer"].get("actor", ""))
+                return (prior, "already_completed"), []
+            if state_sha != expected_state_sha:
+                raise JournalConflict("partial NEXT owner state pin moved")
+            intent, executor = state["active_intent"], state["executor_claims"].get(decision_id)
+            if (intent is None or intent["decision_id"] != decision_id or intent["workflow"] != NEXT
+                    or intent["source_kind"] != "sender" or not automatic_inputs(intent["normalized_inputs"])
+                    or intent["control_sha"] != SUPPORTED_PRODUCER or executor is None
+                    or executor["trigger"].get("run_attempt") != "1"
+                    or decision_id not in state["send_claims"] or decision_id in state["effects"]
+                    or decision_id in state["phase_claims"]
+                    or any(stage["decision_id"] == decision_id for stage in state["stages"].values())
+                    or _source_identity(trigger) in state["source_ids"]
+                    or trigger["repository"] != intent["first_source_trigger"].get("repository")
+                    or trigger["repository"] != executor["trigger"].get("repository")):
+                raise JournalConflict("partial NEXT requires the supported original consumed automatic sender")
+            authorize(config, executor["trigger"].get("actor", ""))
+            proof = copy.deepcopy(authenticated_partial_next_checkpoint(
+                config["repository"], executor["trigger"], decision_id, intent["correlation_key"]))
+            report = proof.pop("report")
+            diagnostic = proof.pop("partial_diagnostic")
+            if report["state_sha"] != expected_state_sha:
+                raise JournalConflict("partial NEXT artifact does not name the selected current native pin")
+            before = self._checkpoint_state(executor["before_state_sha"])
+            native = self._checkpoint_state(report["state_sha"])
+            if validate(before) or validate(native) or validate(data):
+                raise JournalConflict("partial NEXT requires complete valid authoritative queues")
+            for older, newer in ((executor["before_state_sha"], report["state_sha"]),
+                                 (report["state_sha"], state_sha)):
+                if _git(self.repo, "merge-base", "--is-ancestor", older, newer, check=False).returncode:
+                    raise JournalConflict("partial NEXT checkpoint is outside the original state lineage")
+            initial, observed = materialize(before["dispatch_journal"]), materialize(native["dispatch_journal"])
+            prefix, events = before["dispatch_journal"]["events"], native["dispatch_journal"]["events"]
+            suffix = events[len(prefix):]
+            if (initial["active_intent"] != intent or decision_id in initial["executor_claims"]
+                    or observed["active_intent"] != intent
+                    or observed["executor_claims"].get(decision_id) != executor
+                    or events[:len(prefix)] != prefix or len(suffix) != 2 or suffix[0] != executor
+                    or suffix[1].get("type") != "DeliveryObservation"
+                    or suffix[1].get("decision_id") != decision_id
+                    or set(suffix[1]) != {"type", "at", "event_id", "decision_id", "observation"}
+                    or native["dispatch_journal"] != data["dispatch_journal"]
+                    or _body(native) != _body(data)
+                    or substantive_digest(before) != executor["before_digest"]):
+                raise JournalConflict("partial NEXT changed its complete journal prefix, executor or native body")
+            delta = partial_body_delta(before, native, config, self.repo, diagnostic)
+            evidence = {"status": "failed_with_partial_checkpoints", "action": "stopped",
+                        "reason": "controller_error", "external_effects": "not_presumed_absent",
+                        "before_state_sha": executor["before_state_sha"], "after_state_sha": report["state_sha"],
+                        "before_digest": substantive_digest(before), "after_digest": substantive_digest(native),
+                        "before_body_sha256": digest(_body(before)), "native_body_sha256": digest(_body(native)),
+                        "delta": delta, "native_diagnostic": diagnostic}
+            fields = dict(decision_id=decision_id, executor_claim_id=executor["claim_id"], kind=FAILURE_KIND,
+                          owner_trigger=trigger, before_state_sha=state_sha, before_digest=substantive_digest(data),
+                          evidence=evidence, proof=proof, native_report=report, frontier_seq=state["frontier_seq"] + 1)
+            validate_event(fields, intent, executor, state)
+            event = _event("OwnerPartialNextCheckpointCompletion", receipt_id=receipt_id(fields), **fields)
             return (event, "completed"), [event]
 
         (event, outcome), state_sha, _ = self._mutate(complete, attempts=1)

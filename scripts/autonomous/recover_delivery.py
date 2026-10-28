@@ -4,7 +4,9 @@
 Delivery fencing revokes only unclaimed sends. CONTINUE cutover closes only a
 selected idle CONTINUE. NEXT completion observes an authentic terminal native
 no-op, failed queued report checkpoint, or proven automatic pre-mutation save
-failure against its immutable baseline. Reserved
+failure against its immutable baseline. A separate partial checkpoint observes
+only the pinned historical controller failure, preserving every partial body
+checkpoint and never presuming external effects absent. Reserved
 dispatch observation is GET-only; original-session binding may change only the
 selected task's execution.state and execution.session_id by one native state CAS,
 appending only its typed owner recovery receipt to the journal. A separately
@@ -30,7 +32,8 @@ from proposal_backlog import authorize
 from state_store import StateConflict, StateUncertain, _atomic_bytes
 from workflow_admission import (OWNER_CONTINUE_CUTOVER, OWNER_DISPATCH_ABORT, OWNER_DISPATCH_BINDING,
                                 OWNER_DISPATCH_OBSERVATION, OWNER_FAILED_NEXT_CHECKPOINT,
-                                OWNER_NEXT_COMPLETION, OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
+                                OWNER_NEXT_COMPLETION, OWNER_PARTIAL_NEXT_CHECKPOINT,
+                                OWNER_REPORT_CHECKPOINT, OWNER_RECOVERY,
                                 add_arguments, context, recheck_context)
 
 OPERATIONS = {
@@ -43,6 +46,8 @@ OPERATIONS = {
                           frozenset(("completed", "already_completed"))),
     "failed_next_checkpoint": (OWNER_FAILED_NEXT_CHECKPOINT, "owner_failed_next_checkpoint",
                                frozenset(("completed", "already_completed"))),
+    "partial_next_checkpoint": (OWNER_PARTIAL_NEXT_CHECKPOINT, "owner_partial_next_checkpoint",
+                                frozenset(("completed", "already_completed"))),
     "dispatch_observation": (OWNER_DISPATCH_OBSERVATION, "owner_dispatch_observation",
                              frozenset(("observed",))),
     "dispatch_binding": (OWNER_DISPATCH_BINDING, "owner_dispatch_binding",
@@ -159,6 +164,10 @@ def _acknowledged_result(value, decision_id, operation):
     if operation == "failed_next_checkpoint":
         if value.get("kind") != "automatic_next_failed_before_external_mutation":
             raise JournalUncertain("owner failed NEXT acknowledgement is not usable")
+        result["kind"] = value["kind"]
+    if operation == "partial_next_checkpoint":
+        if value.get("kind") != "partial_controller_failure_observed":
+            raise JournalUncertain("owner partial NEXT acknowledgement is not usable")
         result["kind"] = value["kind"]
     return result
 
@@ -289,6 +298,7 @@ def main(argv=None):
                            "next_completion": store.complete_observed_next,
                            "report_checkpoint": store.complete_failed_report_checkpoint,
                            "failed_next_checkpoint": store.complete_failed_next_checkpoint,
+                           "partial_next_checkpoint": store.complete_partial_next_checkpoint,
                            "dispatch_observation": store.observe_reserved_dispatch,
                            "dispatch_binding": store.bind_reserved_dispatch,
                            "dispatch_abort": store.abort_reserved_dispatch}[operation]

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from checkpoint_diagnostics import GIT_OPERATIONS, normalized_returncode
 
-from validate_tasks import validate
+from validate_tasks import DISPATCH_ATTEMPT_FIELDS, validate
 from research_request import ATTEMPT_FIELDS, CONTRACT_VERSION
 
 STATE_BRANCH = "autonomous/state"
@@ -221,9 +221,27 @@ def _save_state(repo, manifest_path, revision_path, branch, *, require_ack, fact
         current_tasks = {task["id"]: task for task in data["tasks"]}
         for task in previous["tasks"]:
             old = task.get("execution") or {}
+            new = current_tasks.get(task["id"], {}).get("execution") or {}
+            if "dispatch_request" in old:
+                if old["dispatch_request"] == new.get("dispatch_request"):
+                    if any(old.get(field) != new.get(field) for field in
+                           ("attempts", "dispatch_key", "base_sha", "starting_branch")):
+                        raise ValueError("a saved implementation request cannot change its attempt identity")
+                    if old.get("session_id") and new.get("session_id") != old["session_id"]:
+                        raise ValueError("a saved implementation request cannot change its bound session")
+                    if new.get("dispatch_request_history", []) != old.get("dispatch_request_history", []):
+                        raise ValueError("implementation request history is immutable")
+                else:
+                    if (new.get("attempts") != old["attempts"] + 1 or new.get("state") != "dispatching"
+                            or new.get("dispatch_key") == old["dispatch_key"] or not new.get("dispatch_request")):
+                        raise ValueError("a saved implementation request is immutable within its attempt")
+                    archived = {field: old[field] for field in DISPATCH_ATTEMPT_FIELDS if field in old}
+                    if new.get("dispatch_request_history") != [*old.get("dispatch_request_history", []), archived]:
+                        raise ValueError("a new attempt must retain the previous implementation request")
+            elif new.get("dispatch_request_history", []) != old.get("dispatch_request_history", []):
+                raise ValueError("implementation request history is immutable")
             if "research_request" not in old:
                 continue
-            new = current_tasks.get(task["id"], {}).get("execution") or {}
             if old["research_request"] == new.get("research_request"):
                 if (new.get("attempts"), new.get("dispatch_key")) != (old.get("attempts"), old.get("dispatch_key")):
                     raise ValueError("a saved research request cannot change its attempt identity")
