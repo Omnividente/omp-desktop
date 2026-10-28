@@ -109,10 +109,11 @@ describe("relative date calendar presentation", () => {
   it("restores timezone even when unmount throws", () => {
     vi.stubEnv("TZ", "Europe/Paris")
     root = {
+      render: vi.fn(),
       unmount: () => {
         throw new Error("Synthetic unmount failure")
       },
-    } as Root
+    }
     expect(cleanup).toThrow("Synthetic unmount failure")
     restoreTimezone()
   })
