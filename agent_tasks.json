@@ -853647,6 +853647,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "bc17e1dc534a53a799c58e0340fa9d4c4e06b5bebf58c4018c27ae0a015b76db"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-28T23:58:56.195368Z",
+        "decision_id": "3c645d4da6cba4e6939cd6eab7368171834274ddad89626a2b6dcab714b07a5e",
+        "executor_claim_id": "a2a12fc197de1a47e026b19e96a516c38fe2474453728f3953a90186ce6fbb2c",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "c539a83310dbfabb445f639115ede6b7b39999fe",
+          "after_state_sha": "f8eb2880ce1980cb27d1939098a5b3d07ded0d79",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-reliability-24",
+              "session_id": "13565892755806712813",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-28T23:57:42Z"
+            }
+          ],
+          "before_digest": "e7553d01a07bbeec6511fa692cddd443c2ea04bb4978d5bfed21735e42e80031",
+          "after_digest": "bdc55981642cbcbfc0390f69812db28c6c626558ddd0a6ba96c0eca3bdb22646"
+        },
+        "receipt_id": "33ead98c33289ed22eefee613ad51c7b270d1306806110327306979d73da75b2",
+        "event_id": "c17aacacf9374cb7212cdd6c8269d7405ed251ba4813759ac8552f99b5406aad"
       }
     ]
   }
