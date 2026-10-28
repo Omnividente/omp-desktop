@@ -1,7 +1,7 @@
 use crate::{
     models::{OmpAgentChange, OmpOperationalChange, OmpOperationalSetting, SettingsPatch},
     omp_bridge::{model_patterns, run_omp_json, run_omp_text},
-    omp_command::OmpOperation,
+    omp_command::{run_omp_command, OmpOperation},
     sessions::atomic_write_private_file,
 };
 use serde_json::Value;
@@ -348,6 +348,12 @@ impl OperationalTransaction {
         env: &HashMap<String, String>,
         changes: &BTreeMap<String, OmpAgentChange>,
     ) -> Result<(), String> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+        // Probe this executable on every save; a cached version/capability can
+        // outlive a runtime replacement, and legacy wrappers may ignore --scope.
+        require_agent_scope(executable, env)?;
         for key in ["task.agentModelOverrides", "task.disabledAgents"] {
             let relevant = changes
                 .iter()
@@ -370,18 +376,88 @@ impl OperationalTransaction {
                 OmpOperation::Config,
             )?;
             let current = result.get("value").cloned().unwrap_or(Value::Null);
-            let value = merge_agent_changes(key, &current, changes)?;
-            self.apply_checked(
+            // User baselines describe effective settings, never the global layer.
+            merge_agent_changes(key, &current, changes)?;
+            let global = read_agent_global(executable, env, key)?;
+            let value = merge_global_agent_changes(key, global.as_ref(), changes)?;
+            self.apply_agent_write(
                 executable,
                 env,
-                key,
-                &OmpOperationalChange {
-                    expected_value: current,
+                AgentWrite {
+                    key,
+                    effective: current,
+                    global,
                     value,
-                    reset: false,
+                    names: relevant,
                 },
-                Some(relevant),
             )?;
+            // A project/overlay can still shadow a successful global write (or
+            // an inherited-only clear). Do not report that as an applied edit.
+            let effective = run_omp_json(
+                executable,
+                &["config", "get", key, "--json"],
+                env,
+                OmpOperation::Config,
+            )?;
+            verify_agent_value(key, effective.get("value").unwrap_or(&Value::Null), changes)?;
+        }
+        Ok(())
+    }
+
+    fn apply_agent_write(
+        &mut self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        write: AgentWrite,
+    ) -> Result<(), String> {
+        let current = run_omp_json(
+            executable,
+            &["config", "get", write.key, "--json"],
+            env,
+            OmpOperation::Config,
+        )?;
+        // Recheck both layers: a hidden global sibling can change without any
+        // effective change. This is a stale-read guard, not cross-process CAS;
+        // the public CLI still has a read/set window before acquiring its lock.
+        if current.get("value") != Some(&write.effective)
+            || read_agent_global(executable, env, write.key)? != write.global
+        {
+            return Err(format!(
+                "Параметр `{}` изменён во время сохранения; обновите настройки",
+                write.key
+            ));
+        }
+        if write.global == write.value {
+            return Ok(());
+        }
+        let value = write.value.ok_or("Нельзя сбросить весь параметр агентов")?;
+        let before = read_optional(&self.path)?;
+        let rendered = value.to_string();
+        let result = run_omp_json(
+            executable,
+            &["config", "set", write.key, &rendered, "--json"],
+            env,
+            OmpOperation::Config,
+        );
+        let after = read_optional(&self.path)?;
+        if before != after {
+            self.writes.push(ConfigWrite {
+                key: write.key.to_owned(),
+                owned_roles: Some(write.names),
+                before,
+                after,
+            });
+        }
+        // The scoped CLI contract returns the saved global value. Read it back
+        // as well; comparing the entire effective record with this payload
+        // would incorrectly reject preserved project/overlay siblings.
+        if result?.get("value") != Some(&value)
+            || read_agent_global(executable, env, write.key)?.as_ref() != Some(&value)
+        {
+            return Err(format!(
+                "OMP не применил значение параметра `{}`",
+                write.key
+            ));
         }
         Ok(())
     }
@@ -460,6 +536,165 @@ impl OperationalTransaction {
         }
         errors
     }
+}
+
+struct AgentWrite {
+    key: &'static str,
+    effective: Value,
+    global: Option<Value>,
+    value: Option<Value>,
+    names: Vec<String>,
+}
+
+fn require_agent_scope(executable: &str, env: &HashMap<String, String>) -> Result<(), String> {
+    let mut plain_env = env.clone();
+    plain_env.insert("NO_COLOR".to_owned(), "1".to_owned());
+    plain_env.insert("FORCE_COLOR".to_owned(), "0".to_owned());
+    // A successful JSON response alone is unsafe: old parseConfigArgs wrappers
+    // silently ignore --scope. The current handler rejects this read-only use
+    // before Settings.init, proving that the selected CLI forwards the flag.
+    let output = run_omp_command(
+        executable,
+        &[
+            "config",
+            "get",
+            "task.disabledAgents",
+            "--scope",
+            "global",
+            "--json",
+        ],
+        &plain_env,
+        OmpOperation::Config,
+    );
+    if output.is_ok_and(|output| {
+        !output.status.success()
+            && output.stdout.iter().all(u8::is_ascii_whitespace)
+            && String::from_utf8_lossy(&output.stderr).trim()
+                == "--scope applies to `config list` only"
+    }) {
+        Ok(())
+    } else {
+        Err("Выбранный OMP не подтвердил поддержку `config list --scope global`, необходимую для безопасного сохранения агентов. Остальные настройки можно сохранить отдельно".to_owned())
+    }
+}
+
+fn read_agent_global(
+    executable: &str,
+    env: &HashMap<String, String>,
+    key: &str,
+) -> Result<Option<Value>, String> {
+    let raw = run_omp_json(
+        executable,
+        &["config", "list", "--scope", "global", "--json"],
+        env,
+        OmpOperation::Config,
+    )?;
+    let invalid = || format!("OMP вернул некорректный global-параметр `{key}`");
+    let entries = raw.as_object().ok_or_else(invalid)?;
+    let Some(entry) = entries.get(key) else {
+        return Ok(None);
+    };
+    let kind = if key == "task.disabledAgents" {
+        "array"
+    } else {
+        "record"
+    };
+    if entry.get("type").and_then(Value::as_str) != Some(kind)
+        || entry.get("redacted").and_then(Value::as_bool) == Some(true)
+    {
+        return Err(invalid());
+    }
+    entry.get("value").cloned().map(Some).ok_or_else(invalid)
+}
+
+fn merge_global_agent_changes(
+    key: &str,
+    global: Option<&Value>,
+    changes: &BTreeMap<String, OmpAgentChange>,
+) -> Result<Option<Value>, String> {
+    // Absence is not null or an empty container. Never normalize an invalid raw
+    // value, and never reconstruct YAML or a whole layer from config list.
+    let invalid = || {
+        format!(
+            "Нельзя безопасно изменить global-параметр `{key}`: ожидается {}",
+            if key == "task.disabledAgents" {
+                "массив"
+            } else {
+                "объект"
+            }
+        )
+    };
+    let value = if key == "task.disabledAgents" {
+        let mut disabled = match global {
+            Some(value) => value.as_array().cloned().ok_or_else(invalid)?,
+            None => Vec::new(),
+        };
+        for (name, change) in changes {
+            match change.enabled {
+                Some(true) => disabled.retain(|value| value.as_str() != Some(name.as_str())),
+                Some(false) if !disabled.iter().any(|value| value.as_str() == Some(name)) => {
+                    disabled.push(Value::String(name.clone()));
+                }
+                _ => {}
+            }
+        }
+        Value::Array(disabled)
+    } else {
+        let mut overrides = match global {
+            Some(value) => value.as_object().cloned().ok_or_else(invalid)?,
+            None => serde_json::Map::new(),
+        };
+        for (name, change) in changes {
+            match &change.model_override {
+                SettingsPatch::Set(Some(patterns)) => {
+                    overrides.insert(
+                        name.clone(),
+                        serde_json::to_value(patterns).map_err(|_| "Некорректные модели агента")?,
+                    );
+                }
+                SettingsPatch::Set(None) => {
+                    overrides.remove(name);
+                }
+                SettingsPatch::Missing => {}
+            }
+        }
+        Value::Object(overrides)
+    };
+    if global.is_none()
+        && (value.as_object().is_some_and(|value| value.is_empty())
+            || value.as_array().is_some_and(|value| value.is_empty()))
+    {
+        Ok(None)
+    } else {
+        Ok(Some(value))
+    }
+}
+
+fn verify_agent_value(
+    key: &str,
+    effective: &Value,
+    changes: &BTreeMap<String, OmpAgentChange>,
+) -> Result<(), String> {
+    for (name, change) in changes {
+        let applied = if key == "task.disabledAgents" {
+            change.enabled.is_none_or(|enabled| {
+                effective.as_array().is_some_and(|disabled| {
+                    enabled != disabled.iter().any(|value| value.as_str() == Some(name))
+                })
+            })
+        } else {
+            match &change.model_override {
+                SettingsPatch::Missing => true,
+                SettingsPatch::Set(expected) => effective.as_object().is_some_and(|overrides| {
+                    overrides.get(name).and_then(model_patterns) == *expected
+                }),
+            }
+        };
+        if !applied {
+            return Err(format!("OMP не применил настройки агента `{name}`; проверьте переопределения проекта или overlay"));
+        }
+    }
+    Ok(())
 }
 
 fn merge_agent_changes(
@@ -804,3 +1039,7 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "operational_config_scope_tests.rs"]
+mod scope_tests;
