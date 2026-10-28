@@ -430,6 +430,195 @@ describe("App lifecycle serialization", () => {
     vi.restoreAllMocks()
   })
 
+  async function selectionBackend() {
+    const actual = await vi.importActual<typeof api>("./api")
+    vi.mocked(api.saveWorkspaceSelection).mockImplementation(actual.saveWorkspaceSelection)
+    let saved: string | null = "C:/fixture/A"
+    let failB = true
+    const requests: (string | null)[] = []
+    const projects = workspacePayload("A", "B", "C")
+    vi.mocked(api.bootstrap).mockImplementation(async () => ({
+      ...projects,
+      settings: { ...projects.settings, lastWorkspace: saved },
+    }))
+    invokeMock.mockImplementation(async (command: string, args?: { path?: string | null }) => {
+      if (command !== "save_workspace_selection") throw new Error(`Unexpected command ${command}`)
+      const path = args?.path ?? null
+      requests.push(path)
+      if (path === "C:/fixture/B" && failB)
+        throw new Error("Synthetic workspace persistence denied")
+      saved = path
+    })
+    return {
+      requests,
+      saved: () => saved,
+      recover: () => {
+        failB = false
+      },
+    }
+  }
+
+  it("probe: failed selection keeps UI choice but same click does not retry and remount restores old choice", async () => {
+    const backend = await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.textContent).toContain("Synthetic workspace persistence denied")
+    expect(backend.saved()).toBe("C:/fixture/A")
+    expect(backend.requests).toEqual(["C:/fixture/A", "C:/fixture/B"])
+    backend.recover()
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    expect(backend.requests).toEqual(["C:/fixture/A", "C:/fixture/B"])
+    expect(
+      [...container.querySelectorAll(".error-toast button")].map((b) => b.textContent?.trim()),
+    ).not.toContain("Повторить")
+    await act(async () => root.render(null))
+    await act(async () => root.render(<App />))
+    expect(element(".project-item.is-active").textContent).toContain("A")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("retries only the current failed workspace selection explicitly and restores it after remount", async () => {
+    const backend = await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    expect(element(".workspace-selection-warning").textContent).toContain("C:/fixture/B")
+    backend.recover()
+    await act(async () => element(".workspace-selection-warning button").click())
+    expect(backend.requests).toEqual(["C:/fixture/A", "C:/fixture/B", "C:/fixture/B"])
+    expect(backend.saved()).toBe("C:/fixture/B")
+    expect(container.querySelector(".workspace-selection-warning")).toBeNull()
+    await act(async () => root.render(null))
+    await act(async () => root.render(<App />))
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("does not replay a stale retry after selecting another project", async () => {
+    const backend = await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    const oldRetry = element(".workspace-selection-warning button")
+    backend.recover()
+    await act(async () => {
+      element('.project-item[aria-label^="C,"]').click()
+      oldRetry.click()
+    })
+    expect(backend.requests).toEqual(["C:/fixture/A", "C:/fixture/B", "C:/fixture/C"])
+    expect(container.querySelector(".workspace-selection-warning")).toBeNull()
+    expect(backend.saved()).toBe("C:/fixture/C")
+  })
+
+  it("keeps the retry notice on failure and coalesces pending duplicate retries", async () => {
+    const backend = await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    await act(async () => element(".workspace-selection-warning button").click())
+    expect(backend.requests).toHaveLength(3)
+    const pending = deferred<void>()
+    invokeMock.mockImplementation(async () => {
+      await pending.promise
+    })
+    await act(async () => {
+      const retry = element(".workspace-selection-warning button")
+      retry.click()
+      retry.click()
+    })
+    expect(invokeMock).toHaveBeenCalledTimes(4)
+    expect(element<HTMLButtonElement>(".workspace-selection-warning button").disabled).toBe(true)
+    await act(async () => pending.resolve())
+    expect(container.querySelector(".workspace-selection-warning")).toBeNull()
+  })
+
+  it("ignores an older failed retry when a newer project is selected", async () => {
+    await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    const pending = deferred<void>()
+    invokeMock
+      .mockImplementationOnce(async () => {
+        await pending.promise
+      })
+      .mockResolvedValue(undefined)
+    await act(async () => element(".workspace-selection-warning button").click())
+    await act(async () => element('.project-item[aria-label^="C,"]').click())
+    expect(container.querySelector(".workspace-selection-warning")).toBeNull()
+    await act(async () => pending.reject(new Error("Stale B failure")))
+    expect(container.textContent).not.toContain("Stale B failure")
+    expect(invokeMock).toHaveBeenLastCalledWith(
+      "save_workspace_selection",
+      {
+        path: "C:/fixture/C",
+      },
+      undefined,
+    )
+    expect(element(".project-item.is-active").textContent).toContain("C")
+  })
+
+  it("probe: switching away and back retries failed persistence without rollback or terminal", async () => {
+    const backend = await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    backend.recover()
+    await act(async () => element('.project-item[aria-label^="A,"]').click())
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    expect(backend.requests).toEqual([
+      "C:/fixture/A",
+      "C:/fixture/B",
+      "C:/fixture/A",
+      "C:/fixture/B",
+    ])
+    expect(backend.saved()).toBe("C:/fixture/B")
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("probe: generic refresh preserves selected B but does not retry failed selection save", async () => {
+    const backend = await selectionBackend()
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    backend.recover()
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([name]) => name === "single-instance",
+      )?.[1] as EventCallback<SingleInstanceEvent>
+    await act(async () => {
+      await receive({
+        event: "single-instance",
+        id: 1,
+        payload: { workspacePath: null, warning: null },
+      } as never)
+    })
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(backend.requests).toEqual(["C:/fixture/A", "C:/fixture/B"])
+    expect(backend.saved()).toBe("C:/fixture/A")
+  })
+
+  it("probe: in-flight selection writes serialize and skip superseded queued selection", async () => {
+    const actual = await vi.importActual<typeof api>("./api")
+    vi.mocked(api.saveWorkspaceSelection).mockImplementation(actual.saveWorkspaceSelection)
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A", "B", "C"))
+    const first = deferred<void>()
+    const writes: string[] = []
+    let persisted = ""
+    invokeMock.mockImplementation(async (command: string, args?: { path: string }) => {
+      if (command !== "save_workspace_selection") throw new Error("Unexpected command")
+      const path = args!.path
+      writes.push(path)
+      if (writes.length === 1) await first.promise
+      persisted = path
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    await act(async () => element('.project-item[aria-label^="C,"]').click())
+    expect(writes).toEqual(["C:/fixture/A"])
+    await act(async () => first.resolve())
+    expect(writes).toEqual(["C:/fixture/A", "C:/fixture/C"])
+    expect(persisted).toBe("C:/fixture/C")
+    expect(element(".project-item.is-active").textContent).toContain("C")
+  })
+
   it("restores the selected workspace after remount without opening a terminal", async () => {
     let remembered: string | null = null
     const projects = workspacePayload("A", "B")
