@@ -833598,6 +833598,16 @@
           "actor": "Omnividente"
         },
         "event_id": "7e59b16a961e0efed5d2953e90fac0e1a6eeb9b1d101f82b7997f6cbea5e67c9"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-28T21:12:31.386068Z",
+        "decision_id": "b02a1f149366382fec8f841051954e6ccfb4a5de815633c3862f77b88a2fdf17",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-28T21:12:28.990609Z"
+        },
+        "event_id": "20698e5260c0ed85365da2945051b776ad952bc182cf7255f065d9177807fdd6"
       }
     ]
   }
