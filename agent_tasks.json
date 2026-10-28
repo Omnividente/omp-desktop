@@ -821552,6 +821552,113 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "6820186a942116e88333c9d49f89a2484f9e86e29edde1ee18872a6d3228cd9d"
+      },
+      {
+        "type": "OwnerPartialNextCheckpointCompletion",
+        "at": "2026-10-28T15:50:50.085795Z",
+        "receipt_id": "2a9355ad8eb2864ce31cb64d94d83a3da48e2efdbc469bd1b872da18a2884dcc",
+        "decision_id": "1b2aae1f2ec6dc9d32fe03bfa259c1c47f39f4c9e33a0fb83be9f37834491e2f",
+        "executor_claim_id": "703b7a43fa424362015cfbebb490a7cb76e7bec2be1378e83e707db268638260",
+        "kind": "partial_controller_failure_observed",
+        "owner_trigger": {
+          "run_id": "40718501042",
+          "run_attempt": "1",
+          "event_name": "workflow_dispatch",
+          "control_sha": "2b7635f064ab2726cf32afc9e62d9ed67bc20e9f",
+          "repository": "Omnividente/omp-desktop",
+          "actor": "Omnividente",
+          "workflow": "autonomous_complete_partial_next.yml",
+          "ref": "refs/heads/main",
+          "expected_state_sha": "34146339e187ab96ccace9adcce1fd52c300c8c5",
+          "decision_id": "1b2aae1f2ec6dc9d32fe03bfa259c1c47f39f4c9e33a0fb83be9f37834491e2f"
+        },
+        "before_state_sha": "34146339e187ab96ccace9adcce1fd52c300c8c5",
+        "before_digest": "e995526c3261c91a7e71116edde481f48d6c4b9c6632836d90d0d0e4b58bd9dc",
+        "evidence": {
+          "status": "failed_with_partial_checkpoints",
+          "action": "stopped",
+          "reason": "controller_error",
+          "external_effects": "not_presumed_absent",
+          "before_state_sha": "58e819652431f7a8cda21b409a4bc18842c651de",
+          "after_state_sha": "34146339e187ab96ccace9adcce1fd52c300c8c5",
+          "before_digest": "8c27973986aec15a46000e7e4cb09fbf0d08547edfebf0ef317950f97e4ed11b",
+          "after_digest": "e995526c3261c91a7e71116edde481f48d6c4b9c6632836d90d0d0e4b58bd9dc",
+          "before_body_sha256": "427278b744c5dc745e5415f9f762a32bb8b884b5fe59fec426c9bdc6cd819cac",
+          "native_body_sha256": "8994876b53f3e346576fcc18dd393edea0f31eea011a2f135ccbb9197b48440d",
+          "delta": {
+            "polled_task_id": "research-workspace-navigation-ux-24",
+            "planned_task_id": "research-settings-models-behavior-24",
+            "changed_task_fields": [
+              "execution",
+              "status"
+            ],
+            "changed_execution_fields": [
+              "note",
+              "observed_at",
+              "outcome",
+              "report_error",
+              "report_repair",
+              "session_state",
+              "state"
+            ],
+            "controller_fields": [
+              "last_poll_at"
+            ],
+            "repair_status": "pending",
+            "repair_result": "sent",
+            "changed_task_sha256": "376572d55304217a7072596307f09c10c882b0348d316616af32d7e27135a7d4",
+            "added_task_sha256": "289230a459ef670c03b294a04d7a34867b2cbe55b4f2d6e8cfc27d601ade88f0"
+          },
+          "native_diagnostic": {
+            "task_id": "research-workspace-navigation-ux-24",
+            "session_id": "16382305157041851105",
+            "dispatch_key": "29b2ac3335c6eaddb6a93eac",
+            "attempts": 1,
+            "collected_at": "2026-10-27T21:37:23.598501Z",
+            "session_state": "COMPLETED",
+            "source": {
+              "activity_id": "sessions/16382305157041851105/activities/a81a70d887044c208ac370b8b34f0758",
+              "report_sha256": "6a61613bad913653a2dd3e8210a621193dd52e037f7d5ef8947b983e27f0f0cd",
+              "activity_created_at": "2026-10-27T21:25:04.523409Z",
+              "session_id": "16382305157041851105",
+              "dispatch_key": "29b2ac3335c6eaddb6a93eac"
+            },
+            "error_code": "research_invalid",
+            "research_parser": {
+              "status": "research_invalid",
+              "detail": "expected exactly one ordered research report block"
+            }
+          }
+        },
+        "proof": {
+          "producer": {
+            "run_id": "40588208170",
+            "run_attempt": "1",
+            "event_name": "workflow_dispatch",
+            "control_sha": "f7cf4cf1d283676e9fc8a11ec74d7d3b6803d3e7",
+            "repository": "Omnividente/omp-desktop",
+            "actor": "Omnividente"
+          },
+          "workflow": "autonomous_next_task.yml",
+          "ref": "refs/heads/main",
+          "artifact_id": "12772362959",
+          "artifact_name": "laboratory-result-40588208170-1",
+          "artifact_sha256": "e8b6a0782d958715a44678f4d20c7de7079e5bca91534c9b58ca80ec108f899c",
+          "report_sha256": "9ed76c431a1c172ebba5d90921794ffea909bfbb221904ed9fb57706f03151af"
+        },
+        "native_report": {
+          "action": "stopped",
+          "merge_mode": "manual",
+          "reason": "controller_error",
+          "attention": [
+            {
+              "reason": "attempt branch already exists at a different revision"
+            }
+          ],
+          "state_sha": "34146339e187ab96ccace9adcce1fd52c300c8c5"
+        },
+        "frontier_seq": 1082,
+        "event_id": "8c97a32181b2f3ccab027b2ce7fdd62a568b3a423821931189ba204903586e93"
       }
     ]
   }
