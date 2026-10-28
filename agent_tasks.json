@@ -247583,7 +247583,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-28T20:24:22.027581Z"
+        "observed_at": "2026-10-28T20:24:22.027581Z",
+        "released_attempt_ref": "autonomous/attempt-bf20d3b91df5eb65889c4eac"
       },
       "research_result": {
         "summary": "Investigated the SettingsRecoveryScreen bug where users are trapped on generic errors. Identified that `recoverSettingsWithDefaults` in `src/App.tsx` misses clearing `settingsRecovery` when a non-settings error happens. Created a temporary React test matching the scenario which confirmed that generic network errors during startWithDefaults leave the user trapped in the SettingsRecoveryScreen rather than viewing the main application error splash screen. Also observed the same omission in the `refresh` function catch block in `src/App.tsx`.",
