@@ -822982,6 +822982,16 @@
           "actor": "Omnividente"
         },
         "event_id": "afe19df83469162aeea26a5c7847a2d7f6816f54eead31786000bfa6bc39b570"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-28T19:39:03.527306Z",
+        "decision_id": "d8d36f31317c340b4a1b526f19da3e1a6bfa2a91b7eb19c17f7acc2361148031",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-28T19:39:01.109050Z"
+        },
+        "event_id": "9e668e3912e74b13bd3ba0b397acc717ac48daa30741f3201714369040ad987e"
       }
     ]
   }
