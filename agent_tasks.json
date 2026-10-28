@@ -822824,6 +822824,16 @@
           "source_workflow": "Autonomous Loop Switch"
         },
         "event_id": "a601dbe2528ad631b87f876b8c3b935eccb8471b899697efee29ad42841a469b"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-28T19:25:42.742758Z",
+        "decision_id": "730a0c0eee30ce70d1752ad6c0b9cae98a973131f87090548158ee3eea806c21",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-28T19:25:40.280468Z"
+        },
+        "event_id": "ac6b63d2fcc26393f390683bdd9b6b95ee708b53818c0f1ecaf2e405060ecf03"
       }
     ]
   }
