@@ -846841,6 +846841,16 @@
           "actor": "Omnividente"
         },
         "event_id": "29f43ad96deac5159120e237ab8d27d35126f283ac628ee033d3b3de51748b3b"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-28T23:08:44.138742Z",
+        "decision_id": "2e76f871616a8c9b12dd0687c3fee8f602f111abf43193bf152d8bd94bf93074",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-28T23:08:41.781053Z"
+        },
+        "event_id": "a77fb3af8f76f94b072faaa0b8b5e449ec012d0707acab76e6feffa3c15bbb2b"
       }
     ]
   }
