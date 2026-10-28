@@ -34,6 +34,8 @@ from select_task import select
 from jules_provenance import bind_proposal
 from validate_tasks import validate
 from proposal_backlog import decide
+from build_jules_request import build, dispatch_key
+from research_request import sha256_json
 
 NOW = datetime(2026, 9, 12, 12, 0, 0, tzinfo=timezone.utc)
 TASK_ID = "auto-clock-1"
@@ -95,6 +97,59 @@ def execution(data: dict, task_id: str = TASK_ID) -> dict:
 
 def status_of(data: dict, task_id: str = TASK_ID) -> str:
     return str(find_task(data, task_id).get("status"))
+
+
+class ImplementationReservationTest(unittest.TestCase):
+    def reserve_request(self, data, attempt):
+        source = find_task(data, TASK_ID)
+        key = dispatch_key(REPOSITORY, TASK_ID, attempt)
+        branch = "autonomous/attempt-" + key
+        request = build({field: value for field, value in source.items() if field != "execution"},
+                        template="{{TASK_JSON}}", repo=REPOSITORY, branch="autonomous/lab",
+                        starting_branch=branch, base_sha="a" * 40, attempt=attempt)
+        payload = {"request": request, "request_sha256": sha256_json(request)}
+        reserve(data, TASK_ID, key, base_sha="a" * 40, starting_branch=branch,
+                dispatch_request=payload, now=NOW)
+        return payload
+
+    def test_snapshot_binds_unchanged_and_retry_archives_exact_prior_identity(self):
+        data = manifest(task(focus=["diagnostics"], evidence={"source": "synthetic", "detail": "Clock did not advance"}))
+        payload = self.reserve_request(data, 1)
+        first = copy.deepcopy(execution(data))
+        payload["request"]["prompt"] = "caller cannot mutate durable request"
+        self.assertEqual(execution(data), first)
+        start(data, TASK_ID, session_id="7", dispatch_key=first["dispatch_key"], now=NOW)
+        complete(data, TASK_ID, outcome="failed", now=NOW)
+        self.assertEqual(execution(data)["dispatch_request"], first["dispatch_request"])
+        second = self.reserve_request(data, 2)
+        archived = execution(data)["dispatch_request_history"]
+        self.assertEqual(archived, [{field: value for field, value in dict(first, session_id="7").items()
+                                     if field in {"attempts", "session_id", "dispatch_key", "base_sha",
+                                                  "starting_branch", "dispatch_request"}}])
+        self.assertEqual(execution(data)["dispatch_request"], second)
+        self.assertEqual(validate(data), [])
+
+    def test_same_identity_cannot_replace_request_or_legacy_start_drop_it(self):
+        data = manifest(task(focus=["diagnostics"]))
+        self.reserve_request(data, 1)
+        original = copy.deepcopy(data)
+        block = execution(data)
+        changed = copy.deepcopy(block["dispatch_request"])
+        changed["request"]["title"] += " replacement"
+        changed["request_sha256"] = sha256_json(changed["request"])
+        with self.assertRaises(ValueError):
+            reserve(data, TASK_ID, block["dispatch_key"], base_sha=block["base_sha"],
+                    starting_branch=block["starting_branch"], dispatch_request=changed, now=NOW)
+        self.assertEqual(data, original)
+        start(data, TASK_ID, session_id="7", dispatch_key=block["dispatch_key"], now=NOW)
+        complete(data, TASK_ID, outcome="failed", now=NOW)
+        original = copy.deepcopy(data)
+        with self.assertRaises(ValueError):
+            start(data, TASK_ID, session_id="8", dispatch_key="legacy-replacement", now=NOW)
+        with self.assertRaises(ValueError):
+            reserve(data, TASK_ID, "legacy-replacement", base_sha="a" * 40,
+                    starting_branch="autonomous/attempt-legacy-replacement", now=NOW)
+        self.assertEqual(data, original)
 
 
 class StartTest(unittest.TestCase):

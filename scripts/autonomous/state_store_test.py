@@ -258,6 +258,80 @@ class StateStoreTests(unittest.TestCase):
         self.assertEqual(execution["attempts"], 2)
         self.assertEqual(execution["research_request_history"][0]["research_request"], original)
 
+    def test_implementation_payload_is_immutable_and_retry_archives_are_cas_preserved(self):
+        from datetime import datetime, timezone
+        from build_jules_request import build, dispatch_key
+        from research_request import sha256_json
+        from task_lifecycle import reserve, start, complete
+        from validate_tasks import validate
+
+        self.load()
+        data = json.loads(self.queue.read_bytes())
+        data["tasks"] = [{"id": "clock", "title": "Synthetic clock", "task_type": "bugfix", "status": "todo",
+                          "focus": ["diagnostics"],
+                          "priority": 40, "risk": "low", "evidence": {"source": "synthetic", "detail": "Clock stalled"},
+                          "proposal_decision": {"action": "approve", "actor": "owner", "note": "Synthetic approval",
+                                                "at": "2026-09-12T11:00:00Z"}}]
+        now = datetime(2026, 9, 12, 12, tzinfo=timezone.utc)
+
+        def reserve_attempt(attempt):
+            key = dispatch_key("owner/project", "clock", attempt)
+            branch = "autonomous/attempt-" + key
+            request = build({field: value for field, value in data["tasks"][0].items() if field != "execution"},
+                            template="{{TASK_JSON}}", repo="owner/project", branch="autonomous/lab",
+                            starting_branch=branch, base_sha=self.head.decode(), attempt=attempt)
+            reserve(data, "clock", key, base_sha=self.head.decode(), starting_branch=branch,
+                    dispatch_request={"request": request, "request_sha256": sha256_json(request)}, now=now)
+            return key
+
+        def publish(value):
+            self.queue.write_text(json.dumps(value), encoding="utf-8")
+            return save_state(self.repo, self.queue, self.revision)
+
+        key = reserve_attempt(1)
+        saved = publish(data)
+        for change in ("rewrite", "drop", "task_delete"):
+            with self.subTest(change=change):
+                forged = copy.deepcopy(data)
+                if change == "task_delete":
+                    forged["tasks"] = []
+                elif change == "drop":
+                    del forged["tasks"][0]["execution"]["dispatch_request"]
+                else:
+                    payload = forged["tasks"][0]["execution"]["dispatch_request"]
+                    payload["request"]["title"] += " rewritten"
+                    payload["request_sha256"] = sha256_json(payload["request"])
+                self.assertEqual(validate(forged), [])
+                with self.assertRaises(ValueError):
+                    publish(forged)
+                self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+        start(data, "clock", session_id="7", dispatch_key=key, now=now)
+        saved = publish(data)
+        forged = copy.deepcopy(data)
+        forged["tasks"][0]["execution"]["session_id"] = "8"
+        self.assertEqual(validate(forged), [])
+        with self.assertRaises(ValueError):
+            publish(forged)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+        first = copy.deepcopy(data["tasks"][0]["execution"])
+        complete(data, "clock", outcome="failed", now=now)
+        publish(data)
+        reserve_attempt(2)
+        saved = publish(data)
+        history = data["tasks"][0]["execution"]["dispatch_request_history"]
+        self.assertEqual(history[0]["dispatch_request"], first["dispatch_request"])
+        self.assertEqual(history[0]["session_id"], "7")
+        forged = copy.deepcopy(data)
+        payload = forged["tasks"][0]["execution"]["dispatch_request_history"][0]["dispatch_request"]
+        payload["request"]["title"] += " rewritten history"
+        payload["request_sha256"] = sha256_json(payload["request"])
+        self.assertEqual(validate(forged), [])
+        with self.assertRaises(ValueError):
+            publish(forged)
+        self.assertEqual(self.git(self.remote, "rev-parse", "autonomous/state").decode(), saved)
+        queue, _ = self.load("-implementation-reader")
+        self.assertEqual(json.loads(queue.read_bytes())["tasks"], data["tasks"])
+
     def test_concurrent_initialization_never_replaces_winner(self):
         self.load()
         other_queue, other_revision = self.load("-other")

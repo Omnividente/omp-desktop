@@ -33,6 +33,7 @@ from typing import Any, Mapping, Sequence
 from jules_dispatch import session_is_active
 from select_task import blocks_lane, select
 from research_request import ATTEMPT_FIELDS, CONTRACT_VERSION, validate_task_request
+from validate_tasks import DISPATCH_ATTEMPT_FIELDS, validate_dispatch_request
 
 DEFAULT_MAX_ATTEMPTS = 2
 DEFAULT_STALE_HOURS = 6
@@ -216,8 +217,8 @@ def _archive_feedback(block: dict) -> None:
 
 def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
             starting_branch: str, research_request: dict | None = None,
-            now: datetime | None = None) -> dict:
-    """Persist one attempt and, for research, its exact request before CreateSession."""
+            dispatch_request: dict | None = None, now: datetime | None = None) -> dict:
+    """Reserve immutable identity and available exact request before any ref/session effect."""
     task = find_task(manifest, task_id)
     if task is None:
         raise ValueError("task not found")
@@ -233,11 +234,17 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
             old = block.get("research_request")
             if old != research_request:
                 raise ValueError("research request conflicts with the stored attempt")
+        if dispatch_request is not None and block.get("dispatch_request") != dispatch_request:
+            raise ValueError("implementation request conflicts with the stored attempt")
         return {"changed": False, "reason": "already_reserved", "task_id": task_id,
                 "attempts": attempts_of(task)}
     if task.get("task_type") == "project_discovery":
         if not isinstance(research_request, dict) or research_request.get("contract_version") != CONTRACT_VERSION:
             raise ValueError("new research reservations require the controller request contract")
+        if dispatch_request is not None:
+            raise ValueError("research reservations use the research request contract")
+    elif "dispatch_request" in block and dispatch_request is None:
+        raise ValueError("implementation retries require a new exact request")
     selection = select(manifest, task_id=task["id"])
     if not selection["selected"]:
         raise ValueError("task is not available for reservation: " + selection["reason"])
@@ -246,20 +253,27 @@ def reserve(manifest: dict, task_id: str, dispatch_key: str, *, base_sha: str,
     if "research_request" in block:
         previous = {field: copy.deepcopy(block[field]) for field in ATTEMPT_FIELDS if field in block}
         block["research_request_history"] = [*block.get("research_request_history", []), previous]
+    if "dispatch_request" in block:
+        previous = {field: copy.deepcopy(block[field]) for field in DISPATCH_ATTEMPT_FIELDS if field in block}
+        block["dispatch_request_history"] = [*block.get("dispatch_request_history", []), previous]
     block.update(attempts=attempts_of(task) + 1, state="dispatching", session_id="",
                  dispatch_key=dispatch_key, base_sha=base_sha, starting_branch=starting_branch,
                  started_at=iso(now or utcnow()), finished_at="", pull_request=0,
                  outcome="", note="")
     if task.get("task_type") == "project_discovery":
         block["research_request"] = copy.deepcopy(research_request)
+        block.pop("dispatch_request", None)
     else:
         block.pop("research_request", None)
+        if dispatch_request is not None:
+            block["dispatch_request"] = copy.deepcopy(dispatch_request)
     block.pop("provenance", None)
     block.pop("session_state", None)
     block.pop("research_detached", None)
-    errors = validate_task_request(dict(task, status=STATUS_IN_PROGRESS, execution=block))
+    candidate = dict(task, status=STATUS_IN_PROGRESS, execution=block)
+    errors = validate_task_request(candidate) + validate_dispatch_request(candidate)
     if errors:
-        raise ValueError("invalid reserved research request: " + "; ".join(errors))
+        raise ValueError("invalid reserved request: " + "; ".join(errors))
     task.update(status=STATUS_IN_PROGRESS, execution=block)
     return {"changed": True, "reason": "reserved", "task_id": task_id,
             "status": STATUS_IN_PROGRESS, "attempts": block["attempts"]}
@@ -341,6 +355,8 @@ def start(
             and ((manifest.get("autonomous_loop_policy") or {}).get("research_contract") == CONTRACT_VERSION
                  or block.get("research_request"))):
         raise ValueError("research must reserve its request before binding a new attempt")
+    if block.get("dispatch_request"):
+        raise ValueError("implementation must reserve its request before binding a new attempt")
     if str(task.get("status") or "") != STATUS_TODO or block.get("outcome") == OUTCOME_CLOSED:
         raise ValueError("task is not available for a new attempt")
     max_attempts, _stale_hours = limits(manifest)
