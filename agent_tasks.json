@@ -247244,14 +247244,15 @@
         "report_repair": {
           "at": "2026-10-27T21:38:08.502565Z",
           "result": "sent",
-          "status": "pending",
+          "status": "expired",
           "source": {
             "activity_id": "sessions/16382305157041851105/activities/a81a70d887044c208ac370b8b34f0758",
             "report_sha256": "6a61613bad913653a2dd3e8210a621193dd52e037f7d5ef8947b983e27f0f0cd",
             "activity_created_at": "2026-10-27T21:25:04.523409Z",
             "session_id": "16382305157041851105",
             "dispatch_key": "29b2ac3335c6eaddb6a93eac"
-          }
+          },
+          "detail": "no valid repaired report within six hours; explicit inspection required"
         }
       }
     },
