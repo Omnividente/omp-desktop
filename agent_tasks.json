@@ -905253,6 +905253,16 @@
           "actor": "Omnividente"
         },
         "event_id": "f51d2456b0c8696275cd0b124b5facaac915a98fb9af2c63104ff218a567dd92"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T08:43:53.483509Z",
+        "decision_id": "e90d7d845aa7427a03eeb2840a95ccf489a3c8b469b3cb193aac62eae260c605",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T08:43:50.808668Z"
+        },
+        "event_id": "a02add9d6bca1d6b9af1fce9f562e44399e1f55f1d5c8ab71d2bb72f47352e15"
       }
     ]
   }
