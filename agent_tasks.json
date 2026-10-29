@@ -961318,6 +961318,16 @@
           "actor": "Omnividente"
         },
         "event_id": "8684606bd35a3b50c9e92bfe0ecb30ed4ddfc7d8d1917b7ae425e71ae41f4954"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T23:24:30.380412Z",
+        "decision_id": "6aa7d3c940f4dfce67afec05ef4e98f9211178ae2da4354e718868d8240b42bb",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T23:24:27.760750Z"
+        },
+        "event_id": "5b79aef9b84b3b08b388276ebfee99e9d66c5729f398cb9cd563b3510c81a396"
       }
     ]
   }
