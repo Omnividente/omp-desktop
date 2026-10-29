@@ -238,6 +238,13 @@ function App() {
   const workspaceSelectionRequestRef = useRef(0)
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
+  const [workspaceSaveRetry, setWorkspaceSaveRetry] = useState(0)
+  const [workspaceSaveFailure, setWorkspaceSaveFailure] = useState<{
+    path: string | null
+    message: string
+  } | null>(null)
+  const [workspaceSaveBusy, setWorkspaceSaveBusy] = useState(false)
+  const workspaceSaveRetryPendingRef = useRef(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const sessionSelectionRequestRef = useRef(0)
   const [search, setSearch] = useState("")
@@ -1123,22 +1130,60 @@ function App() {
   }, [payload, selectedWorkspaceKey])
 
   const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
+  const currentWorkspacePathRef = useRef(selectedWorkspacePath)
+  currentWorkspacePathRef.current = selectedWorkspacePath
   useEffect(() => {
     if (selectedWorkspacePath === undefined) return
     const request = ++workspaceSaveRequestRef.current
+    workspaceSaveRetryPendingRef.current = false
+    setWorkspaceSaveBusy(true)
+    setWorkspaceSaveFailure((failure) => (failure?.path === selectedWorkspacePath ? failure : null))
     // Serialize commits, not just responses; an older disk write must never win after a newer one.
     // Skip superseded queued selections and never apply bootstrap data from background persistence.
     workspaceSaveQueueRef.current = (workspaceSaveQueueRef.current ?? Promise.resolve())
       .then(async () => {
         if (!mountedRef.current || request !== workspaceSaveRequestRef.current) return
         await saveWorkspaceSelection(selectedWorkspacePath)
-      })
-      .catch((error) => {
-        if (mountedRef.current && request === workspaceSaveRequestRef.current) {
-          showError(errorMessage(error, langRef.current))
+        if (
+          mountedRef.current &&
+          request === workspaceSaveRequestRef.current &&
+          currentWorkspacePathRef.current === selectedWorkspacePath
+        ) {
+          setWorkspaceSaveFailure(null)
         }
       })
-  }, [selectedWorkspacePath, showError])
+      .catch((error) => {
+        if (
+          mountedRef.current &&
+          request === workspaceSaveRequestRef.current &&
+          currentWorkspacePathRef.current === selectedWorkspacePath
+        ) {
+          setWorkspaceSaveFailure({
+            path: selectedWorkspacePath,
+            message: errorMessage(error, langRef.current),
+          })
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current && request === workspaceSaveRequestRef.current) {
+          setWorkspaceSaveBusy(false)
+          workspaceSaveRetryPendingRef.current = false
+        }
+      })
+  }, [selectedWorkspacePath, workspaceSaveRetry])
+
+  function retryWorkspaceSelection() {
+    if (
+      !mountedRef.current ||
+      workspaceSaveBusy ||
+      workspaceSaveRetryPendingRef.current ||
+      !workspaceSaveFailure ||
+      workspaceSaveFailure.path !== currentWorkspacePathRef.current
+    )
+      return
+    workspaceSaveRetryPendingRef.current = true
+    setWorkspaceSaveRetry((revision) => revision + 1)
+  }
 
   useEffect(() => {
     let disposed = false
@@ -2236,6 +2281,26 @@ function App() {
                 <Icon name="refresh" size={14} /> {t(lang, "retry")}
               </button>
             )}
+          </div>
+        )}
+        {workspaceSaveFailure && workspaceSaveFailure.path === selectedWorkspacePath && (
+          <div
+            className="transcript-truncated app-notice workspace-selection-warning"
+            role="status"
+          >
+            <div className="app-notice-text">
+              <strong>{t(lang, "workspaceSelectionNotSaved")}</strong>
+              <span>{workspaceSaveFailure.path ?? t(lang, "noProject")}</span>
+              <span>{workspaceSaveFailure.message}</span>
+            </div>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={workspaceSaveBusy}
+              onClick={retryWorkspaceSelection}
+            >
+              <Icon name="refresh" size={14} /> {t(lang, "retry")}
+            </button>
           </div>
         )}
         {payload.sessionWarnings.length > 0 && (

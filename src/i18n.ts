@@ -7,6 +7,8 @@ export const UI_TEXT = {
     btnOpenFolder: "Открыть папку",
     startWork: "Начало работы",
     workspaceReady: "Рабочая папка готова",
+    workspaceSelectionNotSaved:
+      "Не удалось запомнить выбор проекта для следующего запуска. Текущий выбор не изменён.",
     showInExplorer: "Показать в проводнике",
     workspaceDesc:
       "Новый терминал наследует эту папку. История OMP остаётся в обычном формате JSONL.",
@@ -600,6 +602,8 @@ export const UI_TEXT = {
     btnOpenFolder: "Open folder",
     startWork: "Getting started",
     workspaceReady: "Workspace ready",
+    workspaceSelectionNotSaved:
+      "Could not remember the project selection for the next launch. The current selection is unchanged.",
     showInExplorer: "Show in explorer",
     workspaceDesc:
       "New terminal inherits this folder. OMP history remains in standard JSONL format.",
