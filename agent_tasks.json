@@ -940328,6 +940328,15 @@
         },
         "receipt_id": "643e9f99785d833ca8e10496fdbca97c04e954e67049ed7beaf0ab2d537c7250",
         "event_id": "4c47a6086bc366a02d8216f95f2e6b6b8f5b44b6c53f2a5b78e216e98a503de9"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T20:34:41.334770Z",
+        "decision_id": "97a222329c758ee5a4bda28012d54fe3263815c84ae30630e58e05ea00708a23",
+        "executor_claim_id": "644319bae5dbd71aebf4281978d28aee5f5330da9be60d743a55dae4623bedd7",
+        "receipt_id": "643e9f99785d833ca8e10496fdbca97c04e954e67049ed7beaf0ab2d537c7250",
+        "frontier_seq": 1240,
+        "event_id": "db227d557d6f43a18e3e32a29492b76a8d95eb5d73828f682099d1bdf99e4278"
       }
     ]
   }
