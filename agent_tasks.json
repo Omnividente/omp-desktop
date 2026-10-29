@@ -884014,6 +884014,16 @@
           "source_workflow": "Autonomous Replenish"
         },
         "event_id": "fad781b118ea25b173ed1ec1bf4fb0b0ccad311b3e4953b103bb150b1d5e3c9c"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T06:00:52.566090Z",
+        "decision_id": "98dc85243c2728f317253d43d10ff5214a24328bee460996cc3ef95cb817c8cf",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T06:00:50.284398Z"
+        },
+        "event_id": "e621e07bf59959f2cca38875645b5ef2898fda97dd8c85bfa62ca4e4bf72a874"
       }
     ]
   }
