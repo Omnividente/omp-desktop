@@ -181,10 +181,29 @@ export function ModelPicker({
     setOpen(false)
   }
 
+  const previousNavigation = useRef<{
+    entries: ModelEntry[]
+    open: boolean
+    query: string
+    value: string
+  } | null>(null)
+
   useEffect(() => {
+    const previous = previousNavigation.current
+    previousNavigation.current = { entries: filteredEntries, open, query, value }
     if (!open) return
     const selectedIndex = filteredEntries.findIndex((entry) => matchesBase(entry, selectedBase))
-    setActiveIndex(selectedIndex >= 0 ? selectedIndex : filteredEntries.length > 0 ? 0 : -1)
+    const fallbackIndex = selectedIndex >= 0 ? selectedIndex : filteredEntries.length > 0 ? 0 : -1
+    setActiveIndex((currentIndex) => {
+      if (previous?.open && previous.query === query && previous.value === value) {
+        const activeSelector = previous.entries[currentIndex]?.model.selector
+        const retainedIndex = filteredEntries.findIndex(
+          (entry) => entry.model.selector === activeSelector,
+        )
+        if (retainedIndex >= 0) return retainedIndex
+      }
+      return fallbackIndex
+    })
   }, [filteredEntries, open, query, selectedBase, value])
 
   const chooseActiveModel = () => {
