@@ -250512,6 +250512,127 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-diagnostics-resources-behavior-24",
+      "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-10-29T00:14:32Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "behavior",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 24,
+        "previous_reports": [
+          {
+            "summary": "Investigated resource health measurement, particularly `sample_resource_health`, and related logic. Verified that passing 1000 processes to `sample_resource_health` takes ~50ms in Rust, which is very fast, whereas testing 0 processes took ~0.45ms.  This confirms `sample_resource_health` is performant even with a large number of processes. Therefore, I will log these observations without generating new product tasks.",
+            "observations": [
+              {
+                "scenario": "Performance test of `sample_resource_health` function in `src-tauri/src/resource_health.rs` with many processes.",
+                "evidence": "Created a Rust test (`test_resource_health_perf.rs`) inside `src-tauri/src/resource_health.rs` that calls `sample_resource_health` with 1000 synthetic processes on an existing path. It measured the execution time. `sample_resource_health` took around 50ms with 1000 processes, compared to under 1ms with 0 processes. This scale is sufficient since typical desktop applications wouldn't span thousands of terminal processes simultaneously.",
+                "result": "The `sample_resource_health` function performs efficiently even with a large number of tracked processes."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-26T06:56:54.083614Z",
+            "source": {
+              "activity_id": "sessions/18182786476095839845/activities/84a61f6dc58a4efa9c9b69cc64da41d3",
+              "report_sha256": "637ff8deb80a36eee93ea085637fa077ff2543ddae0ed01c82504e0c3c8f1f4e",
+              "activity_created_at": "2026-10-26T06:44:26.564122Z",
+              "session_id": "18182786476095839845",
+              "dispatch_key": "6240bf445727e21b3364e624"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas `controlAvailable` correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs. However, all of these issues have been previously rejected or resolved by the owner for valid reasons, and my tests confirmed these rejections. The synthetic benchmarks and states used were inaccurate reflections of real app behavior.",
+            "observations": [
+              {
+                "scenario": "Keyboard focus trap logic inside IncidentCenter.tsx and ResourceHealthPanel.tsx.",
+                "evidence": "Ran a local test using `jsdom` (test_focus.cjs) that verified the inline `!element.hidden` check incorrectly identifies children of collapsed `<details>` tags as visible. However, inspecting IncidentCenter.tsx and ResourceHealthPanel.tsx showed that neither component renders focusable elements inside closed `<details>` tags in reality. ResourceHealthPanel has no `<details>` tags, and IncidentCenter's `<details>` tag only contains a non-focusable `<pre>` tag.",
+                "result": "The inline focus trap logic is technically flawed for `<details>` tags, but this does not manifest as a bug in the specific components because they do not contain hidden focusable targets."
+              },
+              {
+                "scenario": "enforceIncidentBound function dropping sole unresolved error incident under fallback saturation in src/runtimeIncidents.ts.",
+                "evidence": "Ran a local JavaScript execution (test_enforce.mjs) with 100 fallback incidents and 1 model error on the same terminal. After enforcing the bounds, the result length was 100 and the model error incident was the missing ID because it was the oldest incident and candidate pruning grouped everything on that terminal. However, per PR 95 and owner feedback, `applyRuntimeIncidentEvent` resolves the error when a fallback occurs, making this synthetic state impossible in reality.",
+                "result": "enforceIncidentBound does drop older error incidents under saturation in synthetic tests, but this state cannot happen in the actual app lifecycle due to earlier resolution logic."
+              },
+              {
+                "scenario": "Performance test of redact_text function in src-tauri/src/diagnostics.rs on a 100k line clean log.",
+                "evidence": "Ran a Rust performance test (test_redact.rs). The original implementation without early exits took ~813ms. While a fast-path would improve this, it risks missing sensitive information if not perfectly implemented to match all checks. The test confirms it takes time, but 813ms for a synthetic 100k line log does not prove an observed event-loop stall.",
+                "result": "Adding a fast-path to redact_text could improve performance on large log payloads, but the risk of leaking secrets and the synthetic nature of the benchmark do not justify the change."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-26T07:26:53.126399Z",
+            "source": {
+              "activity_id": "sessions/17462165219282111865/activities/b980e55dd9b84c8c900228cc11825fe7",
+              "report_sha256": "570502af11d68f0c15eab13c1ee3dc39e040d5c41ec4bea79496b40ec805758d",
+              "activity_created_at": "2026-10-26T07:19:23.850485Z",
+              "session_id": "17462165219282111865",
+              "dispatch_key": "74e2ffba27b03774d06f709c"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated Runtime incidents and resource health: Failure recovery and persistence. The prompt specifically noted that the canonical issue regarding enforceIncidentBound dropping sole unresolved errors under fallback saturation was already fixed by PR 95. Investigated other aspects of runtime incidents, runtime events, and resource health. Using a TypeScript execution (test_runtimeEvents.ts), tested suppressTransientProxyError's suppression state and confirmed that transient proxy errors are correctly suppressed exactly once, and a successful activity resets the state correctly. Performance tests on redact_text in diagnostics.rs confirm that there is overhead without a fast path (642ms vs 146ms for 100k lines), but earlier notes state this does not constitute an event-loop stall in practice and risks leaking secrets. Tested formatBytes formatting logic and confirmed its accuracy in resourceHealth.ts. Found no new anomalies and given historical context, I am submitting the valid read-only research state.",
+            "observations": [
+              {
+                "scenario": "Testing suppressTransientProxyError suppression lifecycle in src/runtimeEvents.ts",
+                "evidence": "Ran a synthetic TypeScript script (test_runtimeEvents.ts) with two successive `modelError` events from a proxy provider (`proxy-1`) and recorded `pending` state logic. The first error was suppressed (`suppressTransientProxyError` returned true) and added to pending. The second error was not suppressed (returned false) and preserved the pending state. A subsequent `activity: 'idle'` recovered the state and cleared pending.",
+                "result": "Transient proxy errors correctly suppress once and properly reset their state on recovery, matching the intended debounce behavior."
+              },
+              {
+                "scenario": "Performance testing of redact_text in src-tauri/src/diagnostics.rs on large logs",
+                "evidence": "Ran a Rust script (test_redact.rs and test_redact2.rs) profiling redact_text with 100,000 lines of clean text. The existing approach took ~642ms, whereas an early early-return string search took ~146ms. Owner context explicitly rejected this as an unobserved synthetic stall that risks leaking secrets.",
+                "result": "While there is a measurable difference on 100k lines, the existing implementation prioritizes complete secret scanning."
+              },
+              {
+                "scenario": "Evaluating formatBytes precision logic in src/resourceHealth.ts",
+                "evidence": "Ran test_app.ts passing `1500 * 1024 * 1024 * 1024` (1500 GiB) to formatBytes. Output was '1.46 TiB', confirming exponential formatting and correct precision bounds.",
+                "result": "formatBytes computes exact binary prefixes and dynamically sets precision accurately."
+              }
+            ],
+            "next_hypotheses": [
+              "Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?"
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T00:14:32.341903Z",
+            "source": {
+              "activity_id": "sessions/13565892755806712813/activities/a12a866ca1e84ecc880be5ebd54ae72c",
+              "report_sha256": "d568ab42ef209f2170dde66c70698596d8366c80242055d3043c8424ee92061c",
+              "activity_created_at": "2026-10-29T00:02:43.624283Z",
+              "session_id": "13565892755806712813",
+              "dispatch_key": "6dd168cdd1efaa1b4d25047e"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
