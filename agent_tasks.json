@@ -936690,6 +936690,16 @@
           "actor": "Omnividente"
         },
         "event_id": "99af46efc231bcb66eab4b2c5dbd7bdeab7e7dab1f931d79d8063f4491cf4fcd"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T19:21:47.118850Z",
+        "decision_id": "18e46dec245044492c325d37e3a8750f5933ca2b34300effca8eb001627cfe8b",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T19:21:44.516120Z"
+        },
+        "event_id": "97c6a251471f352e9c3101dd5e3e380d69d1f18ca34c52aebde860c658dea98d"
       }
     ]
   }
