@@ -866088,6 +866088,16 @@
           "actor": "Omnividente"
         },
         "event_id": "b5032c531f3ba21cc7492ff30394aef4be3d72901f50136fd3c12c2a2882378c"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T01:30:34.597284Z",
+        "decision_id": "1ac822b39d11c326b96059cf3482f83dad02d133d2eb2fd4b98d2a26e84da477",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T01:30:32.125138Z"
+        },
+        "event_id": "4d1f0f9c14256e7fd881db757e68bdf92308d7eb6f166afc8ac6d00b36bab035"
       }
     ]
   }
