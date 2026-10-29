@@ -942868,6 +942868,16 @@
           "actor": "Omnividente"
         },
         "event_id": "946231a5de7d35c853865d7862a083f3716f849ae42a19ebff723eaab842e3f2"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T20:53:34.111884Z",
+        "decision_id": "8043d1c5b1137769d5157a74072bb46314b6ed3afb38a960db899d8e584fa871",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T20:53:31.390427Z"
+        },
+        "event_id": "84b79f6da6894f2a0d6b4d2590fe48fdfa615bd01a8d10ee9231fd85646ffa98"
       }
     ]
   }
