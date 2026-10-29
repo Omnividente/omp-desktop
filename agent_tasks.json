@@ -957320,6 +957320,15 @@
         },
         "receipt_id": "63ad62bf3f6c92b5242a9f1286a673f36a337bd009ca163b01e8e8cf44d73684",
         "event_id": "02b0c9304907a959cec523d6614683acdb20368d415ffd1d5e3b4d82a88356f1"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T22:43:47.674524Z",
+        "decision_id": "f0d92cb58c1b89dcfb4646fa50391d97dd5cbc67d3dc812dcb714bef9f7f3d76",
+        "executor_claim_id": "5ef1217630d3c19215720d16b56092152ef86998bfc13d030aa546abd2282ba1",
+        "receipt_id": "63ad62bf3f6c92b5242a9f1286a673f36a337bd009ca163b01e8e8cf44d73684",
+        "frontier_seq": 1266,
+        "event_id": "383ad032b0979212269887b7625b2b99688ff91fef5a886539433c95b6d43060"
       }
     ]
   }
