@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act } from "react"
+import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import App from "./App"
@@ -11,6 +11,7 @@ import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
 import { t } from "./i18n"
 import type {
   BootstrapPayload,
+  ResourceHealthSnapshot,
   ImportBatchPayload,
   ImportSessionRequest,
   OmpConfigSnapshot,
@@ -1351,5 +1352,288 @@ describe("App lifecycle serialization", () => {
     await act(async () => initial.reject(new Error("Stale App load failed")))
     expect(element<HTMLSelectElement>(".session-model-select").value).toBe("provider/Saved")
     expect(container.textContent).not.toContain("Stale App load failed")
+  })
+  describe("resource sampling invalidations", () => {
+    let nextSample: (path: string | null) => Promise<ResourceHealthSnapshot>
+    const pending = new Set<() => void>()
+
+    function snapshot(severity: "ok" | "warning" | "critical" = "ok"): ResourceHealthSnapshot {
+      return {
+        sampledAt: Date.now(),
+        severity,
+        memory: {
+          availableBytes: 8 * 1024 ** 3,
+          totalBytes: 16 * 1024 ** 3,
+          usedSwapBytes: 0,
+          totalSwapBytes: 0,
+          availableSeverity: severity,
+          swapSeverity: "ok",
+          severity,
+        },
+        volumes: [
+          {
+            mountPath: "C:/",
+            availableBytes: 20 * 1024 ** 3,
+            totalBytes: 100 * 1024 ** 3,
+            purposes: ["sessions", "workspace"],
+            severity: "ok",
+          },
+        ],
+        unavailableVolumes: [],
+        processes: [{ source: "desktop", processId: 1, terminalId: null, residentBytes: 1024 }],
+      }
+    }
+    function holdSample() {
+      const request = deferred<ResourceHealthSnapshot>()
+      const release = () => request.resolve(snapshot())
+      pending.add(release)
+      return request
+    }
+    const sampleCalls = () =>
+      invokeMock.mock.calls.filter(([command]) => command === "sample_resource_health")
+    const summary = () => element(".resource-summary").textContent
+    async function advance(ms: number) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms)
+      })
+    }
+    async function visibility(state: DocumentVisibilityState) {
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue(state)
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"))
+      })
+    }
+    async function mountResources() {
+      await act(async () => root.render(<App />))
+      await advance(30_000)
+      await act(async () => element(".resource-health-trigger").click())
+      expect(summary()).toBe(t("ru", "resourceOk"))
+      invokeMock.mockClear()
+    }
+    async function selectProject(name: string) {
+      await act(async () => element(".resource-panel-header button").click())
+      await act(async () => element(`.project-item[aria-label^="${name},"]`).click())
+      await act(async () => element(".resource-health-trigger").click())
+    }
+
+    beforeEach(async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(new Date("2026-10-28T04:00:00Z"))
+      vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+      vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A", "B", "C"))
+      const actual = await vi.importActual<typeof api>("./api")
+      vi.mocked(api.sampleResourceHealth)
+        .mockReset()
+        .mockImplementation(actual.sampleResourceHealth)
+      nextSample = () => Promise.resolve(snapshot())
+      invokeMock.mockImplementation((command: string, args?: { workspacePath?: string | null }) => {
+        if (command === "sample_resource_health") return nextSample(args?.workspacePath ?? null)
+        throw new Error(`Unexpected resource fixture command: ${command}`)
+      })
+    })
+    afterEach(async () => {
+      await act(async () => {
+        for (const release of pending) release()
+      })
+      pending.clear()
+      vi.mocked(api.sampleResourceHealth)
+        .mockReset()
+        .mockRejectedValue(new Error("No resource sample in this fixture"))
+      vi.useRealTimers()
+    })
+
+    it.each([false, true])(
+      "samples bootstrap workspace without waiting for the timer (StrictMode=%s)",
+      async (strict) => {
+        const initial = holdSample()
+        nextSample = () => initial.promise
+        await act(async () =>
+          root.render(
+            strict ? (
+              <StrictMode>
+                <App />
+              </StrictMode>
+            ) : (
+              <App />
+            ),
+          ),
+        )
+        expect(sampleCalls()).toHaveLength(1)
+        expect(sampleCalls()[0][1]).toEqual({ workspacePath: null })
+        await act(async () => element(".resource-health-trigger").click())
+        expect(summary()).toBe(t("ru", "resourceLoading"))
+        nextSample = () => Promise.resolve(snapshot("critical"))
+        await act(async () => initial.resolve(snapshot("warning")))
+        expect(sampleCalls()).toHaveLength(2)
+        expect(sampleCalls()[1][1]).toEqual({ workspacePath: "C:/fixture/A" })
+        expect(summary()).toBe(t("ru", "resourceCritical"))
+      },
+    )
+
+    it("samples the current workspace immediately after an obsolete request settles", async () => {
+      await mountResources()
+      const old = holdSample()
+      const current = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await selectProject("B")
+      expect(summary()).toBe(t("ru", "resourceLoading"))
+      expect(sampleCalls()).toHaveLength(1)
+      nextSample = () => current.promise
+      await act(async () => old.resolve(snapshot("warning")))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(sampleCalls().at(-1)?.[1]).toEqual({ workspacePath: "C:/fixture/B" })
+      expect(summary()).toBe(t("ru", "resourceLoading"))
+      await act(async () => current.resolve(snapshot("critical")))
+      expect(summary()).toBe(t("ru", "resourceCritical"))
+    })
+
+    it("coalesces A to B to C into one current-workspace sample after an old rejection", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await selectProject("B")
+      await selectProject("C")
+      nextSample = () => Promise.resolve(snapshot("critical"))
+      await act(async () => old.reject(new Error("Obsolete A failed")))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(sampleCalls().at(-1)?.[1]).toEqual({ workspacePath: "C:/fixture/C" })
+      expect(summary()).toBe(t("ru", "resourceCritical"))
+      expect(container.textContent).not.toContain("Obsolete A failed")
+    })
+
+    it("does not run queued catch-up while hidden and samples the current workspace on return", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await selectProject("B")
+      await visibility("hidden")
+      nextSample = () => Promise.resolve(snapshot("critical"))
+      await act(async () => old.resolve(snapshot("warning")))
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(1)
+      await visibility("visible")
+      expect(sampleCalls()).toHaveLength(2)
+      expect(sampleCalls().at(-1)?.[1]).toEqual({ workspacePath: "C:/fixture/B" })
+      expect(summary()).toBe(t("ru", "resourceCritical"))
+    })
+
+    it("coalesces repeated visibility returns without overlapping or interval-induced catch-up", async () => {
+      await mountResources()
+      const old = holdSample()
+      const current = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await visibility("hidden")
+      await visibility("visible")
+      await visibility("hidden")
+      await visibility("visible")
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(1)
+      nextSample = () => current.promise
+      await act(async () => old.resolve(snapshot("warning")))
+      expect(sampleCalls()).toHaveLength(2)
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(2)
+      await act(async () => current.resolve(snapshot("critical")))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(summary()).toBe(t("ru", "resourceCritical"))
+    })
+
+    it("skips periodic ticks instead of creating a continuous refresh backlog", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(1)
+      nextSample = () => Promise.resolve(snapshot("critical"))
+      await act(async () => old.resolve(snapshot()))
+      expect(sampleCalls()).toHaveLength(1)
+      await advance(29_999)
+      expect(sampleCalls()).toHaveLength(1)
+      await advance(1)
+      expect(sampleCalls()).toHaveLength(2)
+    })
+
+    it("does not retry a rejected catch-up until another explicit invalidation or periodic tick", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await selectProject("B")
+      nextSample = () => Promise.reject(new Error("Current sample failed"))
+      await act(async () => old.resolve(snapshot()))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(summary()).toBe(t("ru", "resourceUnavailable"))
+      expect(container.textContent).toContain("Current sample failed")
+      await advance(1)
+      expect(sampleCalls()).toHaveLength(2)
+      nextSample = () => Promise.resolve(snapshot("critical"))
+      await visibility("hidden")
+      await visibility("visible")
+      expect(sampleCalls()).toHaveLength(3)
+      expect(summary()).toBe(t("ru", "resourceCritical"))
+    })
+
+    it("discards queued catch-up on unmount without accepting the late result", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await selectProject("B")
+      await act(async () => root.render(null))
+      nextSample = () => Promise.resolve(snapshot("critical"))
+      await act(async () => old.resolve(snapshot("warning")))
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(1)
+      expect(container.textContent).toBe("")
+    })
+
+    it("uses the latest language effect after a pending sample is superseded", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      const refreshed = workspacePayload("A", "B", "C")
+      refreshed.settings = { ...refreshed.settings, language: "en" }
+      vi.mocked(api.bootstrap).mockResolvedValue(refreshed)
+      await act(async () => element(".resource-panel-header button").click())
+      await act(async () => element(`[title="${t("ru", "refresh")}"]`).click())
+      await act(async () => element(".resource-health-trigger").click())
+      expect(summary()).toBe(t("en", "resourceLoading"))
+      nextSample = () => Promise.reject({ code: "resource_health_failed" })
+      await act(async () => old.resolve(snapshot("warning")))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(summary()).toBe(t("en", "resourceUnavailable"))
+      expect(container.textContent).toContain("Failed to check system resources")
+    })
+
+    it("keeps partial measurements intact when a queued refresh succeeds", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      await selectProject("B")
+      const partial = snapshot()
+      partial.severity = "warning"
+      partial.unavailableVolumes = [
+        { path: "C:/fixture/B", purpose: "workspace", error: "Synthetic missing path" },
+      ]
+      nextSample = () => Promise.resolve(partial)
+      await act(async () => old.resolve(snapshot()))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(summary()).toBe(t("ru", "resourceWarning"))
+      expect(element(".resource-health-badge").textContent).toBe("1")
+      expect(container.textContent).toContain(t("ru", "resourcePartial"))
+      expect(container.querySelectorAll(".resource-panel meter")).toHaveLength(2)
+      expect(container.querySelectorAll(".resource-process")).toHaveLength(1)
+      expect(container.querySelector(".resource-action")).toBeNull()
+      nextSample = () => Promise.resolve(snapshot())
+      await advance(30_000)
+      expect(summary()).toBe(t("ru", "resourceOk"))
+      expect(container.querySelector(".resource-health-badge")).toBeNull()
+    })
   })
 })
