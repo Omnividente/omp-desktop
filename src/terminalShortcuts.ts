@@ -32,7 +32,11 @@ export function terminalShortcutInput(
     return null
   }
 
-  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.code === "KeyZ") {
+  // Latin layouts may place Z on another physical key (QWERTZ/AZERTY).
+  // Fall back to physical undo only when the logical key is not an ASCII letter.
+  const logicalLetter = /^[a-z]$/i.test(event.key) ? event.key.toLowerCase() : null
+  const undoKey = logicalLetter !== null ? logicalLetter === "z" : event.code === "KeyZ"
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && undoKey) {
     return "\x1f"
   }
   if (event.metaKey) return null
@@ -67,14 +71,10 @@ export function terminalShortcutInput(
   }
 
   // xterm uses legacy keyCode; physical letters keep Ctrl chords available on
-  // non-Latin layouts. Leave its reliable ASCII encoding alone (including yank).
-  if (event.code.length === 4 && event.code.startsWith("Key")) {
+  // non-Latin layouts. Leave its logical ASCII encoding alone (including yank).
+  if (logicalLetter === null && event.code.length === 4 && event.code.startsWith("Key")) {
     const physicalLetter = event.code.charCodeAt(3)
     if (physicalLetter >= 65 && physicalLetter <= 90) {
-      const key = event.key.charCodeAt(0)
-      if (event.key.length === 1 && (key === physicalLetter || key === physicalLetter + 32)) {
-        return null
-      }
       return String.fromCharCode(physicalLetter - 64)
     }
   }
