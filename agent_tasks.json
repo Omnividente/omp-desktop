@@ -252576,7 +252576,7 @@
       "id": "research-sessions-persistence-behavior-25",
       "title": "Investigate Session lifecycle, import and persistence: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -252753,16 +252753,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "5018397841790946874",
         "dispatch_key": "52f7396a60737b1109e761fb",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-52f7396a60737b1109e761fb",
         "started_at": "2026-10-29T02:01:22.225548Z",
-        "finished_at": "",
+        "finished_at": "2026-10-29T02:31:47.213446Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -252935,13 +252935,131 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-29T02:14:18.497053Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-29T02:31:47.213446Z"
+      },
+      "research_result": {
+        "summary": "Investigated session import error localization and the empty state in the session list. Verified that `showError` in `App.tsx` directly renders failure messages without passing them through `errorMessage` during import failures, causing raw bracket codes (e.g. `[session_lease_active] Failed...`) to be displayed to the user. Additionally, verified that `parseBackendError` inside `api.ts` does not correctly handle errors when the bracket code is inside an object's `message` property rather than a plain string. Finally, verified that `SessionList.tsx` `.sidebar-empty` does not possess a `role=\"status\"` or `aria-live` attribute.",
+        "observations": [
+          {
+            "scenario": "errorMessage incorrectly handles object with message property containing a bracket code",
+            "evidence": "Ran a synthetic test `test_parse_backend_error.ts`. Passed `{ message: \"[session_lease_active] Failed...\" }` to `errorMessage(..., \"en\")`. Asserted that the output does not match the translated string, returning the raw bracket code.",
+            "result": "The message was not localized. The raw `[session_lease_active] Failed...` was returned instead because `parseBackendError` returns early when it receives an object without checking its message string for a bracket code."
+          },
+          {
+            "scenario": "App.tsx renders unlocalized failed import item messages directly",
+            "evidence": "Inspected `src/App.tsx` lines 1511 and 1570, which handle failures from `importSessions` or `importPendingOmp`. The `failures` are arrays of `ImportItemResult`, where `item.status === \"failed\"`. The message is displayed via `showError(failures.map((item) => item.message ?? item.sourcePath).join(\"\\n\"))` or `showError(failure.message ?? failure.sourcePath)`, entirely bypassing `errorMessage()`.",
+            "result": "Any backend error in a failed import result (which provides the error message as a string via `ImportItemResult.message` like `[session_lease_active] Failed...`) will bypass localization and be shown directly to the user."
+          },
+          {
+            "scenario": "SessionList empty state lacks aria-live attributes",
+            "evidence": "Ran synthetic jsdom test mounting `SessionList` empty state and querying for `.sidebar-empty` aria attributes.",
+            "result": "The `.sidebar-empty` element returned `null` for both `role` and `aria-live` attributes, failing to announce dynamically rendered content changes to screen reader users."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session renaming keyboard interactions in `CodexImportModal` lose focus during burst navigation.",
+          "Investigate if there are other places where raw backend errors are being directly rendered without being processed by `errorMessage`."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-29T02:31:47.213446Z",
+        "source": {
+          "activity_id": "sessions/5018397841790946874/activities/958d400243cd48b5bb3f7bfaed564029",
+          "report_sha256": "6fcc09eabe657f9ab73f733b982637bac97cb6a9b59cda3ea43ab67ddb0c5140",
+          "activity_created_at": "2026-10-29T02:22:10.877457Z",
+          "session_id": "5018397841790946874",
+          "dispatch_key": "52f7396a60737b1109e761fb"
+        },
+        "deferred_findings": [
+          {
+            "title": "Localize session import failures that contain bracket codes",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders `failures.map((item) => item.message ?? item.sourcePath).join('\\\\n')` and `failure.message ?? failure.sourcePath` without passing them through `errorMessage`. Even if it did, `parseBackendError` passing a failure item with a `message` property containing a bracket code does not currently resolve the bracket code (it only works for raw strings).\", \"reproduction\": {\"actual\": \"The UI shows `[session_lease_active] Failed...` directly. `parseBackendError({ message: \\\"[session_lease_active] Failed...\\\" })` does not parse the bracket code.\", \"expected\": \"The error is localized, e.g. `This session is already open in another OMP Desktop process`. `parseBackendError` extracts the bracket code from the object's `message`.\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`\", \"Attempt to render it in the UI via `App.tsx` session import flows.\", \"Observe that the message is raw and unlocalized.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx",
+              "src/api.ts"
+            ],
+            "acceptance": [
+              "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user instead of displaying the raw message.",
+              "The UI displays the correct error message via `errorMessage` in `App.tsx` for import failures.",
+              "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+            ]
+          },
+          {
+            "title": "Add role=status to SessionList empty state for screen reader announcements",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via synthetic jsdom test that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes (`role` or `aria-live`), meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The `.sidebar-empty` element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The `.sidebar-empty` element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\", \"Inspect its ARIA attributes.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionList.tsx"
+            ],
+            "acceptance": [
+              "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`",
+              "Screen readers announce the empty state text when it dynamically appears upon selecting an empty workspace or searching."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/5018397841790946874/activities/958d400243cd48b5bb3f7bfaed564029",
+          "report_sha256": "6fcc09eabe657f9ab73f733b982637bac97cb6a9b59cda3ea43ab67ddb0c5140",
+          "activity_created_at": "2026-10-29T02:22:10.877457Z",
+          "session_id": "5018397841790946874",
+          "dispatch_key": "52f7396a60737b1109e761fb"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b193976942c481df",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-049f8791f814ce6b"
+            },
+            {
+              "id": "discovery-a3b912ccc0b9c180",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-6e4108f1fe931764"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Localize session import failures that contain bracket codes",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders `failures.map((item) => item.message ?? item.sourcePath).join('\\\\n')` and `failure.message ?? failure.sourcePath` without passing them through `errorMessage`. Even if it did, `parseBackendError` passing a failure item with a `message` property containing a bracket code does not currently resolve the bracket code (it only works for raw strings).\", \"reproduction\": {\"actual\": \"The UI shows `[session_lease_active] Failed...` directly. `parseBackendError({ message: \\\"[session_lease_active] Failed...\\\" })` does not parse the bracket code.\", \"expected\": \"The error is localized, e.g. `This session is already open in another OMP Desktop process`. `parseBackendError` extracts the bracket code from the object's `message`.\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`\", \"Attempt to render it in the UI via `App.tsx` session import flows.\", \"Observe that the message is raw and unlocalized.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx",
+                "src/api.ts"
+              ],
+              "acceptance": [
+                "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user instead of displaying the raw message.",
+                "The UI displays the correct error message via `errorMessage` in `App.tsx` for import failures.",
+                "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+              ]
+            },
+            {
+              "title": "Add role=status to SessionList empty state for screen reader announcements",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via synthetic jsdom test that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes (`role` or `aria-live`), meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The `.sidebar-empty` element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The `.sidebar-empty` element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\", \"Inspect its ARIA attributes.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionList.tsx"
+              ],
+              "acceptance": [
+                "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`",
+                "Screen readers announce the empty state text when it dynamically appears upon selecting an empty workspace or searching."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-29T02:23:23.969841Z",
+    "last_poll_at": "2026-10-29T02:32:23.877036Z",
     "last_tick_at": "2026-10-29T02:23:39.130346Z",
     "run_id": "40805929646",
     "owner_recovery_requests": [
