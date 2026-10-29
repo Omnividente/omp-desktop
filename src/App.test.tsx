@@ -430,6 +430,79 @@ describe("App lifecycle serialization", () => {
     vi.restoreAllMocks()
   })
 
+  it.each([
+    ["click", false],
+    ["Enter", false],
+    [" ", false],
+    ["click", true],
+    ["Enter", true],
+    [" ", true],
+  ] as const)(
+    "keeps a distant searched session visible after %s selection (nested: %s)",
+    async (action, nested) => {
+      const sessions = Array.from({ length: 100 }, (_, index) => ({
+        ...bootstrap.sessions[0],
+        id: `session-${index}`,
+        title: index === 99 ? "Unique target" : `Ordinary session ${index}`,
+        filePath: `C:/fixture/sessions/${index}.jsonl`,
+        updatedAt: 100 - index,
+      }))
+      if (nested) {
+        sessions.push(
+          {
+            ...sessions[99],
+            id: "middle",
+            title: "Middle",
+            filePath: "C:/fixture/sessions/middle.jsonl",
+            parentSessionPath: sessions[99].filePath,
+            updatedAt: 2,
+          },
+          {
+            ...sessions[99],
+            id: "newest",
+            title: "Newest",
+            filePath: "C:/fixture/sessions/newest.jsonl",
+            parentSessionPath: "C:/fixture/sessions/middle.jsonl",
+            updatedAt: 3,
+          },
+        )
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue({ ...bootstrap, sessions })
+      await act(async () => root.render(<App />))
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          "Unique target",
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      expect(container.querySelectorAll(".session-select")).toHaveLength(nested ? 3 : 1)
+      const row = element<HTMLElement>('.session-select[aria-label="Unique target"]')
+      act(() => {
+        row.focus()
+        if (action === "click") row.click()
+        else row.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: action }))
+      })
+      expect(search.value).toBe("")
+      const list = element<HTMLElement>(".session-list")
+      const selected = element<HTMLElement>(".session-item.is-selected")
+      expect(list.scrollTop).toBeGreaterThan(0)
+      expect(selected.textContent).toContain("Unique target")
+      // The selected row must be inside the viewport, not merely overscanned.
+      const targetIndex = sessions.length - 1
+      expect(targetIndex * 57).toBeGreaterThanOrEqual(list.scrollTop)
+      expect((targetIndex + 1) * 57).toBeLessThanOrEqual(list.scrollTop + 480)
+      expect(container.querySelector(".session-item.is-selected")?.textContent).toContain(
+        "Unique target",
+      )
+      expect(document.activeElement).toBe(
+        container.querySelector(".session-item.is-selected .session-select"),
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it("restores the selected workspace after remount without opening a terminal", async () => {
     let remembered: string | null = null
     const projects = workspacePayload("A", "B")
