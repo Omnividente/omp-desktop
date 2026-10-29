@@ -960060,6 +960060,15 @@
         },
         "receipt_id": "199e01e0b824e988019ba7ad0cb469d09e87a2dc12ffeca157bf00a299dda41d",
         "event_id": "bf958bee2f7836b375caad3e5c7670c38e55cb0df81e0ebb652f5e799d247c64"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T23:15:15.271962Z",
+        "decision_id": "a7878ca049a3b0e6773c87276ed67d4b88ae17bf21d50c58555b79c3a8f743ef",
+        "executor_claim_id": "375727f1b57a272938df1af036eabff7de2afb1073485463a7386be98750b975",
+        "receipt_id": "199e01e0b824e988019ba7ad0cb469d09e87a2dc12ffeca157bf00a299dda41d",
+        "frontier_seq": 1270,
+        "event_id": "b22fe3312dc9ad3d9b6d86ebd8932aacfbf1d9eeeb2af725f4c2f93ee8c3755c"
       }
     ]
   }
