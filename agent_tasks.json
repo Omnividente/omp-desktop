@@ -250816,7 +250816,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T00:35:38.252431Z"
+        "observed_at": "2026-10-29T00:35:38.252431Z",
+        "released_attempt_ref": "autonomous/attempt-d89e1af2b86d1e0a5c366ddf"
       },
       "research_result": {
         "summary": "Investigated the behavior of `clearResolvedRuntimeIncidents` regarding incidents resolved with the `terminalEnded` reason. When a terminal ends, its incidents are marked as resolved with `resolutionReason: \"terminalEnded\"`. `clearResolvedRuntimeIncidents` currently filters to retain only `active` incidents. Thus, it aggressively removes all resolved incidents, including those resolved by `terminalEnded`. Retaining `terminalEnded` incidents might be desirable for terminal metadata retention, but the current strict `active` filter does not.",
