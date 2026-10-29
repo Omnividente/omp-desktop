@@ -254747,7 +254747,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T06:22:20.441229Z"
+        "observed_at": "2026-10-29T06:22:20.441229Z",
+        "released_attempt_ref": "autonomous/attempt-d6c49ac309fa7cadff7eaca2"
       },
       "research_result": {
         "summary": "Investigated the transcript loading and refresh behavior in useTranscript and TranscriptModal. During a same-path refresh, useTranscript unconditionally sets the transcript state to null before starting the network request. Furthermore, TranscriptModal unmounts the entire virtualized list of entries when transcriptLoading is true, replacing it with a loading spinner. This combination permanently destroys the existing visible list items and clears out context used by TranscriptModal for scroll state preservation when reloading the active session path.",
