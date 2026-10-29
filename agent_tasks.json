@@ -864794,6 +864794,35 @@
         "before_state_sha": "3391809e713f222f05347f766e16df8384338491",
         "before_digest": "6df6655a8e73b51ac0253098a2ba8867afb23dc051865c3716a87ed744bb543f",
         "event_id": "5a68f879d62ebec072dc8b0a4bb25caaf77f19e03a3fe7deb14ef592f203c841"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-29T01:21:15.096436Z",
+        "decision_id": "4900e890e50fc6200ba7015c2ae7ddb5989deed50ed9378ec8f421d350c74223",
+        "executor_claim_id": "aace16f9e4a346bb7d82398d59a8a96002e03dd17e17ac17b143488829585c27",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "1deb53f2525d19cf84da8228195a2f0dcd5b73c8",
+          "after_state_sha": "5213d5f1ec35e9ab2e49750bd841b5e28d6e422e",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-ux-24",
+              "session_id": "7067799686555564163",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-29T01:16:44Z"
+            },
+            {
+              "task_id": "research-sessions-persistence-ux-25",
+              "session_id": "4284347582471542660",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-29T01:16:44Z"
+            }
+          ],
+          "before_digest": "6df6655a8e73b51ac0253098a2ba8867afb23dc051865c3716a87ed744bb543f",
+          "after_digest": "1da6ed481df2c4eb810cc4845e6486da0ec9b8888c897c21a7a6e9c88b1b207c"
+        },
+        "receipt_id": "60fd175b78e21d0d3d8b1957dd7b9799018a2e272710c7bf7398dc2ae3143141",
+        "event_id": "565acff40262bfc7f6b4054b5027be780645c8f4d8556e9b869f2bc53a4f5da3"
       }
     ]
   }
