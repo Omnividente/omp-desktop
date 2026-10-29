@@ -252464,7 +252464,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T02:01:22.225548Z"
+        "observed_at": "2026-10-29T02:01:22.225548Z",
+        "released_attempt_ref": "autonomous/attempt-e4f1559c5de6fb1f5f8154cc"
       },
       "research_result": {
         "summary": "Investigated terminal input editing and shortcut handling. Verified that terminalShortcutInput incorrectly maps the physical KeyZ to undo ('\\x1f'), failing on non-QWERTY layouts like AZERTY, and maps physical KeyW to undo instead. Verified that createMouseSelectionEdit calculates deletion length based on Unicode code points instead of visual grapheme clusters, failing to accurately represent complex ZWJ emojis and overestimating the deletion length.",
