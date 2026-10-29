@@ -11,7 +11,7 @@ Thank you for helping improve OMP Desktop.
 
 ## Development setup
 
-Install Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.84 or newer, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then install the locked frontend dependencies:
+Install Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.95 or newer, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then install the locked frontend dependencies:
 
 ```bash
 npm ci
