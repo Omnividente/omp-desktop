@@ -258893,7 +258893,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T22:41:18.277589Z"
+        "observed_at": "2026-10-29T22:41:18.277589Z",
+        "released_attempt_ref": "autonomous/attempt-d0960118c4f3a4fe805f90a7"
       },
       "research_result": {
         "summary": "Investigated the SettingsRecoveryScreen bug where generic network errors trap the user. Identified that `recoverSettingsWithDefaults` and `refresh` in `src/App.tsx` miss clearing `settingsRecovery` when a non-settings error happens.",
