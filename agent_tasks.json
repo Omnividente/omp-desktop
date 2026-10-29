@@ -251613,14 +251613,15 @@
         "report_repair": {
           "at": "2026-10-29T01:17:19.391376Z",
           "result": "sent",
-          "status": "pending",
+          "status": "invalid",
           "source": {
-            "activity_id": "sessions/7067799686555564163/activities/37bc274884444ff09030d62ee13128fc",
-            "report_sha256": "5c60eb08362b7b5e529c9548fc72235c5a680489cc79b7a2a653acdbe2eb1035",
-            "activity_created_at": "2026-10-29T01:08:42.666589Z",
+            "activity_id": "sessions/7067799686555564163/activities/6191f7f8e492435494b673af1b133fbd",
+            "report_sha256": "2475a0c5c818a95a39bfd9d2c3645aa0a28b9c748b9241153bc4e4e6c7f698c9",
+            "activity_created_at": "2026-10-29T01:19:34.147671Z",
             "session_id": "7067799686555564163",
             "dispatch_key": "4d323620d3b83f731fd2fcdf"
-          }
+          },
+          "detail": "expected exactly one ordered research report block"
         }
       }
     },
@@ -252010,7 +252011,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-29T01:20:34.044423Z",
+    "last_poll_at": "2026-10-29T01:28:59.193884Z",
     "last_tick_at": "2026-10-29T01:20:50.321629Z",
     "run_id": "40799335176",
     "owner_recovery_requests": [
