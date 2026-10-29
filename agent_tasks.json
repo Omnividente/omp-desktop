@@ -256110,7 +256110,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T07:37:57.892860Z"
+        "observed_at": "2026-10-29T07:37:57.892860Z",
+        "released_attempt_ref": "autonomous/attempt-b18cb66f7ba444300611c3dc"
       },
       "research_result": {
         "summary": "Investigated same-path refresh behavior in useTranscript and TranscriptModal. During a same-path refresh, useTranscript unconditionally sets the transcript state to null before starting the network request. TranscriptModal currently unmounts the entire virtualized list of entries when transcriptLoading is true, discarding the scroll position and visible layout. Modifying load in useTranscript to retain the transcript if path === sessionPathRef.current and modifying TranscriptModal to conditionally render the loading spinner without unmounting the existing transcript state resolves the complete loss of UI state during same-path refreshes.",
