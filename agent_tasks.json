@@ -257314,7 +257314,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T08:59:16.870815Z"
+        "observed_at": "2026-10-29T08:59:16.870815Z",
+        "released_attempt_ref": "autonomous/attempt-3c4ff58f4c4de5a1ac1a7d41"
       },
       "research_result": {
         "summary": "Investigated the empty workspace state in WorkspaceHome to understand its interaction clarity. Verified that the empty state provides a clear 'btnOpenFolder' primary action and displays a keyboard shortcut hint.",
