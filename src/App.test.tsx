@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act } from "react"
+import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import App from "./App"
@@ -1211,23 +1211,150 @@ describe("App lifecycle serialization", () => {
     },
   )
 
-  it("applies a successful Save after closing Settings without reopening it", async () => {
-    const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
-    vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+  it.each(["ru", "en"] as const)(
+    "reports only committed Save changes inside the open %s dialog, including repeated saves",
+    async (language) => {
+      const initial = { ...bootstrap, settings: { ...bootstrap.settings, language } }
+      vi.mocked(api.bootstrap).mockResolvedValue(initial)
+      await act(async () =>
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        ),
+      )
+      await openAndChangeSettings()
+      const status = element(".settings-save-status")
+      expect(status.textContent).toBe("")
+      expect(status.getAttribute("role")).toBe("status")
+      expect(status.getAttribute("aria-atomic")).toBe("true")
+      for (const [submitted, newer] of [
+        [18, 20],
+        [20, 22],
+      ]) {
+        const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+        vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+        act(() => element(".settings-actions .primary").click())
+        expect(status.textContent).toBe(t(language, "saving"))
+        expect(container.querySelector(".notice-toast")).toBeNull()
+        const size = element<HTMLSelectElement>("#app-font-size")
+        act(() => {
+          size.focus()
+          size.value = String(newer)
+          size.dispatchEvent(new Event("change", { bubbles: true }))
+        })
+        expect(api.saveSettingsBundle).toHaveBeenLastCalledWith(
+          expect.objectContaining({ update: expect.objectContaining({ appFontSize: submitted }) }),
+        )
+        await act(async () =>
+          pending.resolve({
+            bootstrap: { ...initial, settings: { ...initial.settings, appFontSize: submitted } },
+            ompConfig: config("Saved"),
+          }),
+        )
+        expect(element(".settings-save-status")).toBe(status)
+        expect(status.textContent).toBe(
+          language === "ru"
+            ? "Отправленные изменения настроек сохранены. Более поздние правки не включены."
+            : "Submitted settings changes were saved. Later edits are not included.",
+        )
+        expect(size.value).toBe(String(newer))
+        expect(document.activeElement).toBe(size)
+        expect(element<HTMLButtonElement>(".settings-actions .primary").disabled).toBe(false)
+        expect(container.querySelector(".notice-toast")).toBeNull()
+      }
+      vi.mocked(api.saveSettingsBundle).mockRejectedValueOnce(new Error("Next Save failed"))
+      await act(async () => element(".settings-actions .primary").click())
+      expect(status.textContent).toBe("")
+      expect(element(".settings-save-error").textContent).toContain("Next Save failed")
+      expect(container.querySelector(".notice-toast")).toBeNull()
+      expect(api.saveSettingsBundle).toHaveBeenCalledTimes(3)
+    },
+  )
+
+  it.each(["close", "escape", "backdrop", "cancel", "incidents", "resources"] as const)(
+    "reports a committed Save once after Settings leaves through %s",
+    async (route) => {
+      const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+      vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+      await act(async () => root.render(<App />))
+      await openAndChangeSettings()
+      act(() => element(".settings-actions .primary").click())
+      await act(async () => {
+        if (route === "escape") {
+          element(".settings-panel").dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          )
+        } else if (route === "backdrop") {
+          element(".settings-backdrop").dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true }),
+          )
+        } else {
+          const selectors = {
+            close: ".settings-header button",
+            cancel: ".settings-actions .secondary",
+            incidents: ".incident-center-trigger",
+            resources: ".resource-health-trigger",
+          }
+          element(selectors[route]).click()
+        }
+      })
+      expect(container.querySelector(".notice-toast")).toBeNull()
+      await act(async () =>
+        pending.resolve({
+          bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, appFontSize: 18 } },
+          ompConfig: config("Saved"),
+        }),
+      )
+      expect(container.querySelector('[aria-labelledby="settings-title"]')).toBeNull()
+      expect(document.documentElement.style.fontSize).toBe("18px")
+      expect(container.querySelectorAll(".notice-toast")).toHaveLength(1)
+      expect(element(".notice-toast").textContent).toBe(
+        "Отправленные изменения настроек сохранены. Более поздние правки не включены.",
+      )
+      expect(element(".notice-toast").getAttribute("role")).toBe("status")
+      expect(api.saveSettingsBundle).toHaveBeenCalledTimes(1)
+      if (route === "close") {
+        await act(async () => element(".runtime-pill").click())
+        expect(element<HTMLSelectElement>("#app-font-size").value).toBe("18")
+        expect(element(".settings-save-status").textContent).toBe("")
+        expect(container.querySelectorAll(".notice-toast")).toHaveLength(1)
+      }
+    },
+  )
+
+  it("keeps a reopened draft and its pending Save distinct from an older successful Save", async () => {
+    const first = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+    const second = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+    vi.mocked(api.saveSettingsBundle)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
     await act(async () => root.render(<App />))
     await openAndChangeSettings()
     act(() => element(".settings-actions .primary").click())
     act(() => element(".settings-header button").click())
+    await openAndChangeSettings()
+    act(() => {
+      const size = element<HTMLSelectElement>("#app-font-size")
+      size.value = "20"
+      size.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    act(() => element(".settings-actions .primary").click())
     await act(async () =>
-      pending.resolve({
+      first.resolve({
         bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, appFontSize: 18 } },
-        ompConfig: config("Saved"),
+        ompConfig: config("First"),
       }),
     )
-    expect(container.querySelector(".settings-panel")).toBeNull()
+    expect(element<HTMLSelectElement>("#app-font-size").value).toBe("20")
+    expect(element(".settings-save-status").textContent).toBe(t("ru", "saving"))
+    expect(container.querySelectorAll(".notice-toast")).toHaveLength(1)
+    await act(async () => second.reject(new Error("Second Save failed")))
+    expect(element(".settings-save-status").textContent).toBe("")
+    expect(container.querySelectorAll(".notice-toast")).toHaveLength(1)
+    expect(element(".settings-save-error").textContent).toContain("Second Save failed")
     expect(document.documentElement.style.fontSize).toBe("18px")
-    await act(async () => element(".runtime-pill").click())
-    expect(element<HTMLSelectElement>("#app-font-size").value).toBe("18")
+    expect(api.saveSettingsBundle).toHaveBeenCalledTimes(2)
   })
 
   it.each(["save", "refresh"] as const)(
@@ -1268,11 +1395,12 @@ describe("App lifecycle serialization", () => {
           failureStage: "read",
         }),
       )
-      expect(container.querySelector(".settings-panel")).toBeNull()
+      expect(container.querySelector('[aria-labelledby="settings-title"]')).toBeNull()
       expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
         "Audit disk unavailable",
       )
       expect(container.querySelector(".error-toast")).toBeNull()
+      expect(container.querySelector(".notice-toast")).toBeNull()
       await act(async () => element(".settings-recovery-actions button:nth-child(2)").click())
       expect(container.querySelector(".settings-recovery-screen")).toBeNull()
       expect(element(".project-item.is-active").textContent).toContain("Fixture")

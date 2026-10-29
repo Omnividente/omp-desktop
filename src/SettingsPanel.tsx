@@ -44,6 +44,7 @@ interface SettingsPanelProps {
   onSaved: (payload: SettingsSavePayload) => void
   onConfigLoaded?: (snapshot: OmpConfigSnapshot) => void
   onError: (message: string) => void
+  onNotice?: (message: string) => void
 }
 
 const CONFIG_REFRESH_COOLDOWN_MS = 30_000
@@ -258,6 +259,7 @@ export function SettingsPanel({
   onSaved,
   onConfigLoaded,
   onError,
+  onNotice,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
   const panelRef = useRef<HTMLElement>(null)
@@ -269,6 +271,7 @@ export function SettingsPanel({
   const [language, setLanguage] = useState<Lang>(lang)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveSucceeded, setSaveSucceeded] = useState(false)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(initialOmpConfig)
@@ -781,6 +784,7 @@ export function SettingsPanel({
     setLoadingConfig(false)
     setSaving(true)
     setSaveError(null)
+    setSaveSucceeded(false)
     try {
       if (customProviderStarted && !customProviderReady) {
         throw new Error(t(language, "customProviderFieldsRequired"))
@@ -888,7 +892,12 @@ export function SettingsPanel({
         runtime.ompVersion === nextRuntime.ompVersion
       configRuntimeRef.current = nextRuntime
       onSaved(result)
-      if (disposedRef.current) return
+      if (disposedRef.current) {
+        // This result belongs to the submitted snapshot, not a reopened panel's draft.
+        const savedLanguage = result.bootstrap.settings.language === "en" ? "en" : "ru"
+        onNotice?.(t(savedLanguage, "settingsSaveSucceeded"))
+        return
+      }
       setConfigError(null)
       setLoadingConfig(false)
       if (result.ompConfig) {
@@ -915,6 +924,7 @@ export function SettingsPanel({
           return next
         })
       }
+      setSaveSucceeded(true)
     } catch (error) {
       const message = errorMessage(error, language, { includeDetails: true })
       if (!settingsUnavailableDetails(error)) onError(message)
@@ -2388,6 +2398,18 @@ export function SettingsPanel({
             {saveError}
           </div>
         )}
+
+        <div
+          className={`settings-save-status${saving || saveSucceeded ? " settings-state" : ""}`}
+          role="status"
+          aria-atomic="true"
+        >
+          {saving
+            ? t(language, "saving")
+            : saveSucceeded
+              ? t(language, "settingsSaveSucceeded")
+              : ""}
+        </div>
 
         <footer className="settings-actions">
           <button className="button secondary" onClick={onClose} type="button">

@@ -2412,6 +2412,7 @@ function App() {
           onClose={() => setSettingsOpenedAt(null)}
           onConfigLoaded={(snapshot) => acceptOmpConfig(snapshot, payload.runtime)}
           onError={showError}
+          onNotice={showNotice}
           onSaved={handleSettingsSaved}
           runtime={payload.runtime}
           settings={payload.settings}

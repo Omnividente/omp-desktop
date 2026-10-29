@@ -243,6 +243,8 @@ export const UI_TEXT = {
     cancel: "Отмена",
     save: "Сохранить",
     saving: "Сохраняем…",
+    settingsSaveSucceeded:
+      "Отправленные изменения настроек сохранены. Более поздние правки не включены.",
     browse: "Обзор",
     platform: "Платформа",
     configuration: "Конфигурация",
@@ -837,6 +839,7 @@ export const UI_TEXT = {
     cancel: "Cancel",
     save: "Save",
     saving: "Saving…",
+    settingsSaveSucceeded: "Submitted settings changes were saved. Later edits are not included.",
     browse: "Browse",
     platform: "Platform",
     configuration: "Configuration",
