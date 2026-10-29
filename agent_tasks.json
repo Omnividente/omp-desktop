@@ -927084,6 +927084,15 @@
         },
         "receipt_id": "4ed29985b2083e152528782788b7089b461eb0d11ae20b46b534c88d086212c4",
         "event_id": "e4efc9b1e6a1c2e03a36cebce6c71955d6ef8bb8fa93a8547f0fe89d1ec86ed8"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T16:17:11.587078Z",
+        "decision_id": "8578949e0fac404585cec576273240964efb9e51b7bb19a3ef38eb7a350e79d7",
+        "executor_claim_id": "512dcf446ff6e0d17f9233c2146a92def769142c5843325ce43417133cf628e7",
+        "receipt_id": "4ed29985b2083e152528782788b7089b461eb0d11ae20b46b534c88d086212c4",
+        "frontier_seq": 1228,
+        "event_id": "f7cf4377b719b148147a012d714404e798b4ff88d34e37f9a7085b464bed08a9"
       }
     ]
   }
