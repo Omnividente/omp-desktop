@@ -256912,7 +256912,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T08:20:17.636135Z"
+        "observed_at": "2026-10-29T08:20:17.636135Z",
+        "released_attempt_ref": "autonomous/attempt-f9455e330070d2b96f642844"
       },
       "research_result": {
         "summary": "Investigated workspace selection persistence failure retry.",
