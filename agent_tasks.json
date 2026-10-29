@@ -927024,6 +927024,16 @@
           "actor": "Omnividente"
         },
         "event_id": "ac7677fcb3156241eab30a0f28c1521ab0227a76a8a2a8e1757cadb64380c674"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T15:55:06.530952Z",
+        "decision_id": "8578949e0fac404585cec576273240964efb9e51b7bb19a3ef38eb7a350e79d7",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T15:55:03.960064Z"
+        },
+        "event_id": "faafbdd72e798fef98e2473da6a374001e102243eaedbed891fa6a4bf1274532"
       }
     ]
   }
