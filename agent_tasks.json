@@ -256508,7 +256508,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T07:58:59.784110Z"
+        "observed_at": "2026-10-29T07:58:59.784110Z",
+        "released_attempt_ref": "autonomous/attempt-6778bf4df90bfe6d0e640ea6"
       },
       "research_result": {
         "summary": "Investigated workspace navigation and project switching failure recovery. Confirmed that if saving a workspace selection to the backend fails (e.g., transient error), the React state is updated but the failure prevents retrying the save without switching to another workspace first, due to the dependency array in useEffect. Tested a solution where the previous selected workspace path is used as a fallback or selecting the current workspace again triggers a save, but a simpler task formulation focuses on addressing the core bug.",
