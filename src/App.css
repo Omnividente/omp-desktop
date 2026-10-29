@@ -4895,6 +4895,13 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   white-space: normal;
 }
 
+.settings-recovery-action-error {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .settings-recovery-actions {
   display: flex;
   grid-column: 1 / -1;

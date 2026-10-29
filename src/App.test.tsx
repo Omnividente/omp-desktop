@@ -430,6 +430,195 @@ describe("App lifecycle serialization", () => {
     vi.restoreAllMocks()
   })
 
+  it.each(["folder", "retry", "defaults"])(
+    "shows a generic %s failure inside the settings recovery screen",
+    async (operation) => {
+      const recovery = {
+        code: "settings_unavailable",
+        message: "Settings unavailable",
+        details: "Original read error",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      }
+      vi.mocked(api.bootstrap).mockRejectedValueOnce(recovery)
+      await act(async () => root.render(<App />))
+      expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
+        "Original read error",
+      )
+      const failure = new Error(`Synthetic ${operation} action failed`)
+      if (operation === "retry") vi.mocked(api.bootstrap).mockRejectedValueOnce(failure)
+      else invokeMock.mockRejectedValueOnce(failure)
+      const index = operation === "folder" ? 1 : operation === "retry" ? 2 : 3
+      await act(async () =>
+        element(`.settings-recovery-actions button:nth-child(${index})`).click(),
+      )
+      expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
+        failure.message,
+      )
+      expect(container.querySelector(".settings-recovery-card")?.textContent).toContain(
+        "Original read error",
+      )
+      expect(container.querySelector(".error-toast")).toBeNull()
+    },
+  )
+
+  async function mountSettingsRecovery() {
+    vi.mocked(api.bootstrap).mockRejectedValueOnce({
+      code: "settings_unavailable",
+      message: "Settings unavailable",
+      details: "Original read error",
+      settingsPath: "C:/fixture/settings.json",
+      backupPath: "C:/fixture/settings.backup.json",
+      failureStage: "read",
+    })
+    await act(async () => root.render(<App />))
+  }
+
+  it("reports a rejected recovery confirmation without sending defaults", async () => {
+    await mountSettingsRecovery()
+    vi.mocked(confirm).mockRejectedValueOnce(new Error("Dialog service unavailable"))
+    await act(async () => element(".settings-recovery-actions button:nth-child(3)").click())
+    expect(element('[role="alert"]').textContent).toContain("Dialog service unavailable")
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "start_with_defaults",
+      expect.anything(),
+      expect.anything(),
+    )
+    expect(element<HTMLButtonElement>(".settings-recovery-actions button").disabled).toBe(false)
+  })
+
+  it("locks recovery actions before awaiting confirmation and unlocks on cancel", async () => {
+    await mountSettingsRecovery()
+    const pending = deferred<boolean>()
+    vi.mocked(confirm).mockReturnValueOnce(pending.promise)
+    act(() => {
+      const defaults = element(".settings-recovery-actions button:nth-child(3)")
+      defaults.click()
+      defaults.click()
+      element(".settings-recovery-actions button:nth-child(1)").click()
+    })
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(
+      [...container.querySelectorAll<HTMLButtonElement>(".settings-recovery-actions button")].every(
+        (button) => button.disabled,
+      ),
+    ).toBe(true)
+    await act(async () => pending.resolve(false))
+    expect(
+      invokeMock.mock.calls.some(
+        ([command]) => command === "start_with_defaults" || command === "open_settings_folder",
+      ),
+    ).toBe(false)
+    expect(element<HTMLButtonElement>(".settings-recovery-actions button").disabled).toBe(false)
+  })
+
+  it("clears a recovery action error only on the next explicit action and exits cleanly", async () => {
+    await mountSettingsRecovery()
+    invokeMock.mockRejectedValueOnce(new Error("Folder service unavailable"))
+    await act(async () => element(".settings-recovery-actions button:nth-child(1)").click())
+    expect(element('[role="alert"]').textContent).toContain("Folder service unavailable")
+    const pending = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(pending.promise)
+    act(() => element(".settings-recovery-actions button:nth-child(2)").click())
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(container.textContent).toContain("Original read error")
+    await act(async () => pending.resolve(bootstrap))
+    expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+    expect(container.querySelector(".error-toast")).toBeNull()
+  })
+
+  it("does not send stale confirmed defaults after a newer successful refresh", async () => {
+    await mountSettingsRecovery()
+    const pending = deferred<boolean>()
+    vi.mocked(confirm).mockReturnValueOnce(pending.promise)
+    act(() => element(".settings-recovery-actions button:nth-child(3)").click())
+    const subscription = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "single-instance")!
+    const receive = subscription[1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receive({
+        event: "single-instance",
+        id: 9,
+        payload: { workspace: null, error: null },
+      }),
+    )
+    expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+    await act(async () => pending.resolve(true))
+    expect(invokeMock.mock.calls.some(([command]) => command === "start_with_defaults")).toBe(false)
+    expect(container.querySelector(".error-toast")).toBeNull()
+  })
+
+  it("ignores late folder errors after recovery exits", async () => {
+    await mountSettingsRecovery()
+    const pending = deferred<void>()
+    invokeMock.mockReturnValueOnce(pending.promise)
+    act(() => element(".settings-recovery-actions button:nth-child(1)").click())
+    const subscription = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "single-instance")!
+    const receive = subscription[1] as EventCallback<SingleInstanceEvent>
+    await act(async () =>
+      receive({
+        event: "single-instance",
+        id: 10,
+        payload: { workspace: null, error: null },
+      }),
+    )
+    await act(async () => pending.reject(new Error("Late folder failure")))
+    expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+    expect(container.querySelector(".error-toast")).toBeNull()
+    expect(container.textContent).not.toContain("Late folder failure")
+  })
+
+  it("keeps structured recovery details authoritative and allows the next explicit retry", async () => {
+    await mountSettingsRecovery()
+    invokeMock.mockRejectedValueOnce({
+      code: "settings_unavailable",
+      message: "Still unavailable",
+      details: "New backup error",
+      settingsPath: "C:/fixture/settings.json",
+      backupPath: "C:/fixture/new.backup.json",
+      failureStage: "backup_write",
+    })
+    await act(async () => element(".settings-recovery-actions button:nth-child(3)").click())
+    expect(container.textContent).toContain("New backup error")
+    expect(container.textContent).toContain("C:/fixture/new.backup.json")
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(element<HTMLButtonElement>(".settings-recovery-actions button").disabled).toBe(false)
+    await act(async () => element(".settings-recovery-actions button:nth-child(2)").click())
+    expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+    expect(container.querySelector(".error-toast")).toBeNull()
+  })
+
+  it("retains an action diagnostic during unsolicited refresh and shows its failure without a queued toast", async () => {
+    await mountSettingsRecovery()
+    invokeMock.mockRejectedValueOnce(new Error("Persistent folder diagnostic"))
+    await act(async () => element(".settings-recovery-actions button:nth-child(1)").click())
+    const pending = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(pending.promise)
+    const subscription = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "single-instance")!
+    const receive = subscription[1] as EventCallback<SingleInstanceEvent>
+    act(() => {
+      void receive({ event: "single-instance", id: 98, payload: { workspace: null, error: null } })
+    })
+    expect(element('[role="alert"]').textContent).toContain("Persistent folder diagnostic")
+    await act(async () => pending.reject(new Error("Unsolicited bootstrap error")))
+    expect(element('[role="alert"]').textContent).toContain("Persistent folder diagnostic")
+    expect(element('[role="alert"]').textContent).toContain("Unsolicited bootstrap error")
+    expect(container.textContent).toContain("Original read error")
+    expect(element('[role="alert"]').classList.contains("settings-recovery-action-error")).toBe(
+      true,
+    )
+    await act(async () => element(".settings-recovery-actions button:nth-child(2)").click())
+    expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+    expect(container.querySelector(".error-toast")).toBeNull()
+    expect(container.textContent).not.toContain("Unsolicited bootstrap error")
+  })
+
   it("restores the selected workspace after remount without opening a terminal", async () => {
     let remembered: string | null = null
     const projects = workspacePayload("A", "B")

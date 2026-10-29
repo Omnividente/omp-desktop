@@ -278,7 +278,18 @@ function App() {
   const settingsOpen = settingsOpenedAt !== null
   const [startupError, setStartupError] = useState<string | null>(null)
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
+  const settingsRecoveryRef = useRef<SettingsUnavailableDetails | null>(null)
   const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
+  const [settingsRecoveryActionError, setSettingsRecoveryActionError] = useState<string | null>(
+    null,
+  )
+  const [settingsRecoveryRefreshError, setSettingsRecoveryRefreshError] = useState<string | null>(
+    null,
+  )
+  const settingsRecoveryActionRef = useRef<{
+    request: number
+    active: number | null
+  }>({ request: 0, active: null })
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const sessionRenameRequestRef = useRef(0)
@@ -449,10 +460,14 @@ function App() {
   useEffect(
     () =>
       subscribeSettingsUnavailable((recovery) => {
+        ++settingsRecoveryActionRef.current.request
+        setSettingsRecoveryActionError(null)
+        setSettingsRecoveryRefreshError(null)
+        settingsRecoveryRef.current = recovery
         setSettingsRecovery(recovery)
         setStartupError(recovery.message)
         setRefreshing(false)
-        setSettingsRecoveryBusy(false)
+        setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
       }),
     [],
   )
@@ -575,7 +590,12 @@ function App() {
     (next: BootstrapPayload, preferredWorkspace?: string) => {
       ++payloadRevisionRef.current
       setPayload(next)
+      settingsRecoveryRef.current = null
       setSettingsRecovery(null)
+      ++settingsRecoveryActionRef.current.request
+      setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
+      setSettingsRecoveryActionError(null)
+      setSettingsRecoveryRefreshError(null)
       setTabs((current) =>
         current.map((tab) => {
           const session = next.sessions.find((candidate) =>
@@ -742,6 +762,8 @@ function App() {
   }, [])
 
   const refresh = useCallback(async () => {
+    ++settingsRecoveryActionRef.current.request
+    setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
     const request = ++refreshRequestRef.current
     const revision = payloadRevisionRef.current
     const current = () =>
@@ -756,49 +778,67 @@ function App() {
       if (!current()) return
       const recovery = settingsUnavailableDetails(error)
       if (recovery) {
+        setSettingsRecoveryActionError(null)
+        setSettingsRecoveryRefreshError(null)
+        settingsRecoveryRef.current = recovery
         setSettingsRecovery(recovery)
         setStartupError(recovery.message)
       } else {
         const message = errorMessage(error, langRef.current)
         setStartupError(message)
-        showError(message)
+        if (settingsRecoveryRef.current) setSettingsRecoveryRefreshError(message)
+        else showError(message)
       }
     } finally {
       if (mountedRef.current && request === refreshRequestRef.current) setRefreshing(false)
     }
   }, [applyPayload, showError])
 
-  const openSettingsRecoveryFolder = useCallback(async () => {
-    if (!settingsRecovery) return
-    try {
-      await openSettingsFolder()
-    } catch (error) {
-      showError(errorMessage(error, lang))
-    }
-  }, [lang, settingsRecovery, showError])
-
-  const recoverSettingsWithDefaults = useCallback(async () => {
-    if (!settingsRecovery || settingsRecoveryBusy) return
-    const accepted = await confirm(t(lang, "startWithDefaultsConfirm"), {
-      title: t(lang, "startWithDefaultsConfirmTitle"),
-      kind: "warning",
-    })
-    if (!accepted) return
-    setSettingsRecoveryBusy(true)
-    try {
-      applyPayload(await startWithDefaults())
-    } catch (error) {
-      const recovery = settingsUnavailableDetails(error)
-      if (recovery) {
-        setSettingsRecovery(recovery)
-        setStartupError(recovery.message)
-      } else {
-        showError(errorMessage(error, lang))
+  const runSettingsRecoveryAction = useCallback(
+    async (action: "folder" | "retry" | "defaults") => {
+      if (!settingsRecovery || settingsRecoveryActionRef.current.active !== null) return
+      const request = ++settingsRecoveryActionRef.current.request
+      ++refreshRequestRef.current
+      setRefreshing(false)
+      settingsRecoveryActionRef.current.active = request
+      const current = () =>
+        mountedRef.current && request === settingsRecoveryActionRef.current.request
+      setSettingsRecoveryBusy(true)
+      setSettingsRecoveryActionError(null)
+      setSettingsRecoveryRefreshError(null)
+      try {
+        if (action === "folder") {
+          await openSettingsFolder()
+          return
+        }
+        if (action === "defaults") {
+          const accepted = await confirm(t(lang, "startWithDefaultsConfirm"), {
+            title: t(lang, "startWithDefaultsConfirmTitle"),
+            kind: "warning",
+          })
+          if (!accepted || !current()) return
+        }
+        const next = await (action === "retry" ? loadBootstrap() : startWithDefaults())
+        if (current()) applyPayload(next)
+      } catch (error) {
+        if (!current()) return
+        const recovery = settingsUnavailableDetails(error)
+        if (recovery) {
+          settingsRecoveryRef.current = recovery
+          setSettingsRecovery(recovery)
+          setStartupError(recovery.message)
+        } else {
+          setSettingsRecoveryActionError(errorMessage(error, lang))
+        }
+      } finally {
+        if (settingsRecoveryActionRef.current.active === request) {
+          settingsRecoveryActionRef.current.active = null
+          if (mountedRef.current) setSettingsRecoveryBusy(false)
+        }
       }
-    } finally {
-      setSettingsRecoveryBusy(false)
-    }
-  }, [applyPayload, lang, settingsRecovery, settingsRecoveryBusy, showError])
+    },
+    [applyPayload, lang, settingsRecovery],
+  )
 
   useEffect(() => {
     void refresh()
@@ -2155,11 +2195,15 @@ function App() {
     return (
       <SettingsRecoveryScreen
         busy={settingsRecoveryBusy || refreshing}
+        actionError={
+          [settingsRecoveryActionError, settingsRecoveryRefreshError].filter(Boolean).join("\n") ||
+          null
+        }
         language={lang}
         recovery={settingsRecovery}
-        onOpenFolder={() => void openSettingsRecoveryFolder()}
-        onRetry={() => void refresh()}
-        onStartWithDefaults={() => void recoverSettingsWithDefaults()}
+        onOpenFolder={() => void runSettingsRecoveryAction("folder")}
+        onRetry={() => void runSettingsRecoveryAction("retry")}
+        onStartWithDefaults={() => void runSettingsRecoveryAction("defaults")}
       />
     )
   }
