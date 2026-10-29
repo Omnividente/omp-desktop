@@ -256589,7 +256589,7 @@
       "id": "research-workspace-navigation-performance-25",
       "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -256730,16 +256730,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "9113655409402565672",
         "dispatch_key": "f9455e330070d2b96f642844",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-f9455e330070d2b96f642844",
         "started_at": "2026-10-29T07:58:59.784110Z",
-        "finished_at": "",
+        "finished_at": "2026-10-29T08:20:17.636135Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -256911,13 +256911,86 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-29T08:11:15.501614Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-29T08:20:17.636135Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace selection persistence failure retry.",
+        "observations": [
+          {
+            "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+            "evidence": "Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+            "result": "A failed workspace selection persistence cannot be retried simply by clicking the same workspace again; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if pagination or a 'show more' incremental loading approach in `ProjectRail` could provide a simpler alternative to full virtualization that avoids focus complexity while still bounding rendering work.",
+          "Evaluate if the `SessionList` virtualization correctly handles dynamic row heights for sessions with very long names or deep nesting levels, and if layout thrashing occurs during rapid scrolling."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-29T08:20:17.636135Z",
+        "source": {
+          "activity_id": "sessions/9113655409402565672/activities/cabe8c65a2ae4c4b87112378ea70786d",
+          "report_sha256": "4aa49109c340b2d9d2e785ae6cd92e859726760d33107c28c9d9b47382df5c23",
+          "activity_created_at": "2026-10-29T08:12:16.191943Z",
+          "session_id": "9113655409402565672",
+          "dispatch_key": "f9455e330070d2b96f642844"
+        },
+        "deferred_findings": [
+          {
+            "title": "Enable retry for workspace selection persistence failure",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-da432379453e9196; not established as a duplicate. {\"detail\": \"Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.\", \"reproduction\": {\"actual\": \"No save attempt is made, state remains same\", \"expected\": \"Another save attempt is made\", \"steps\": [\"Simulate transient error on saveWorkspaceSelection\", \"Select a workspace\", \"Click the selected workspace again\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "Clicking the currently selected workspace after a persistence failure should trigger another save attempt."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/9113655409402565672/activities/cabe8c65a2ae4c4b87112378ea70786d",
+          "report_sha256": "4aa49109c340b2d9d2e785ae6cd92e859726760d33107c28c9d9b47382df5c23",
+          "activity_created_at": "2026-10-29T08:12:16.191943Z",
+          "session_id": "9113655409402565672",
+          "dispatch_key": "f9455e330070d2b96f642844"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-c368d2590e1b5916",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-da432379453e9196"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Enable retry for workspace selection persistence failure",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-da432379453e9196; not established as a duplicate. {\"detail\": \"Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.\", \"reproduction\": {\"actual\": \"No save attempt is made, state remains same\", \"expected\": \"Another save attempt is made\", \"steps\": [\"Simulate transient error on saveWorkspaceSelection\", \"Select a workspace\", \"Click the selected workspace again\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "Clicking the currently selected workspace after a persistence failure should trigger another save attempt."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-29T08:11:52.691349Z",
+    "last_poll_at": "2026-10-29T08:20:53.886707Z",
     "last_tick_at": "2026-10-29T08:12:09.274906Z",
     "run_id": "40840259438",
     "owner_recovery_requests": [
