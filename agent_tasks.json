@@ -879958,6 +879958,16 @@
           "actor": "Omnividente"
         },
         "event_id": "81d336bf35b7f381c4dfdb916d62910e0269b95f12e919ad8f450335d5aad64a"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T03:13:46.637959Z",
+        "decision_id": "5178c895bdbcb87bb046797abb7af10e247ae5bacc3d5a68882a35c47fbaa199",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T03:13:44.166699Z"
+        },
+        "event_id": "b90966d0fc357d6d6aa2407f2c33983432029b8b80080a5dda05576984d6a0e3"
       }
     ]
   }
