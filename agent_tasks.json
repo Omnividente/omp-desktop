@@ -922728,6 +922728,16 @@
           "actor": "Omnividente"
         },
         "event_id": "c1862cfdf294e7e9f4095fca1de1ad39f5704b752073b90241250287f5331a54"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T14:23:04.865261Z",
+        "decision_id": "32c7f944ba2745111cd370bbe9be1e581a48fe0afed41ae5768fa85d65037551",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T14:23:02.357101Z"
+        },
+        "event_id": "4dda9864c3682e02ccf65cc28402cfe592e8f52cc205c02f502e621d5496e748"
       }
     ]
   }
