@@ -893168,6 +893168,16 @@
           "actor": "Omnividente"
         },
         "event_id": "85ebfc4cb54abb47f1a1fc26db135d3246e0df70bb97d8d30ca2e090c55c4a05"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T07:13:59.270752Z",
+        "decision_id": "3a684b53daba138e8d4c12031c76c712f34309a40beb00e57e971b75c88eabef",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T07:13:56.721260Z"
+        },
+        "event_id": "e1cc66d97ad7a8c766700bcf89ca955f7d859c831b423fc6735852b0f9d3d4b1"
       }
     ]
   }
