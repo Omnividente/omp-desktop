@@ -949578,6 +949578,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "c05a3e81cf503b0360dfb56ad9b00bb98a3669a854dfa0e7027b7951e5a744cc"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-29T21:45:19.388459Z",
+        "decision_id": "c5a98aca0e589da5e61d25d95d2005e1dcac389ce5eaf81d732ca0566ec31d19",
+        "executor_claim_id": "b2df66565aab475cd67c091eba4c9cc0e08e9c628f49255237a0e71f0612bc1a",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "bf4b608eb912c61d26f5367fc2e431793025ac0e",
+          "after_state_sha": "858ea6a2d6a66b959747a1123b2a19dcedafe114",
+          "poll_observations": [
+            {
+              "task_id": "research-settings-models-reliability-25",
+              "session_id": "10237140369201780439",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-29T21:44:05Z"
+            }
+          ],
+          "before_digest": "f9716487f0a29895a6e09ba3b7ab89c2b21e31e034a0705178d7731dba3cc488",
+          "after_digest": "21483b29b0ea38f04efd6aaefda57129cbe526ea1556e51d64bfee1279732d1a"
+        },
+        "receipt_id": "b226544de34e00ae70c5724fe4f6fe29fc37a46989e717466468df82b3d2e07f",
+        "event_id": "a0916222952cff4ec1d6898076f82d6b1b6f357129811d6293d5818f694f34fd"
       }
     ]
   }
