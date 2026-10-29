@@ -917358,6 +917358,16 @@
           "actor": "Omnividente"
         },
         "event_id": "3c363c56260bf60f8f5980df7ec55c743d9839e5311a51c28fd38902e7c6fe0d"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T12:27:53.058361Z",
+        "decision_id": "6aa860b9b5cdf0611656dea79e40e0ed5d055d7b5c8dde606dbc91a1ed3a279b",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T12:27:50.465165Z"
+        },
+        "event_id": "307fd0bc835003e4c16962ef4c760e2eb62d5ed7e6354ea971c69f546b153d25"
       }
     ]
   }
