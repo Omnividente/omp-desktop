@@ -915210,6 +915210,16 @@
           "actor": "Omnividente"
         },
         "event_id": "600475dd7060b25b152448099bd26a89b00c8186de72824cdd89fe43ca135a60"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T11:42:07.264300Z",
+        "decision_id": "55c3043a73e246b33db5f4080b519d9a8cfe09a2571270ebbc604846c1969c63",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T11:42:04.764145Z"
+        },
+        "event_id": "6992c9f08e8a3bbeaafb9684a7b69f0823a857b851618489f3d5ef73597c3c92"
       }
     ]
   }
