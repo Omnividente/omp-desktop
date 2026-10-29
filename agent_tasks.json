@@ -250517,7 +250517,7 @@
       "id": "research-diagnostics-resources-behavior-24",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -250635,16 +250635,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "10984350297606310874",
         "dispatch_key": "d89e1af2b86d1e0a5c366ddf",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-d89e1af2b86d1e0a5c366ddf",
         "started_at": "2026-10-29T00:14:32.341903Z",
-        "finished_at": "",
+        "finished_at": "2026-10-29T00:35:38.252431Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -250815,13 +250815,99 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-29T00:27:16.793109Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-29T00:35:38.252431Z"
+      },
+      "research_result": {
+        "summary": "Investigated the behavior of `clearResolvedRuntimeIncidents` regarding incidents resolved with the `terminalEnded` reason. When a terminal ends, its incidents are marked as resolved with `resolutionReason: \"terminalEnded\"`. `clearResolvedRuntimeIncidents` currently filters to retain only `active` incidents. Thus, it aggressively removes all resolved incidents, including those resolved by `terminalEnded`. Retaining `terminalEnded` incidents might be desirable for terminal metadata retention, but the current strict `active` filter does not.",
+        "observations": [
+          {
+            "scenario": "Hypothesis: Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?",
+            "evidence": "Executed synthetic TypeScript tests checking `endRuntimeIncidentTerminal` followed by `clearResolvedRuntimeIncidents`. The state is populated with an active incident. `endRuntimeIncidentTerminal` updates the incident to `status: \"resolved\"` and `resolutionReason: \"terminalEnded\"`. Subsequent call to `clearResolvedRuntimeIncidents` drops this incident entirely because it filters strictly for `incident.status === \"active\"`.",
+            "result": "`clearResolvedRuntimeIncidents` indiscriminately removes all resolved incidents, discarding the `terminalEnded` state even if that terminal's metadata is still relevant."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [
+          "discovery-f9b6cb727c2f67a7"
+        ],
+        "completed_at": "2026-10-29T00:35:38.252431Z",
+        "source": {
+          "activity_id": "sessions/10984350297606310874/activities/94ba109c50a64f47a54a83b8ac81a4df",
+          "report_sha256": "ed5a53f912e4d9dc3a9d2380e0cd45147562034828229933584aa51bd1900e66",
+          "activity_created_at": "2026-10-29T00:26:53.004559Z",
+          "session_id": "10984350297606310874",
+          "dispatch_key": "d89e1af2b86d1e0a5c366ddf"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/10984350297606310874/activities/94ba109c50a64f47a54a83b8ac81a4df",
+          "report_sha256": "ed5a53f912e4d9dc3a9d2380e0cd45147562034828229933584aa51bd1900e66",
+          "activity_created_at": "2026-10-29T00:26:53.004559Z",
+          "session_id": "10984350297606310874",
+          "dispatch_key": "d89e1af2b86d1e0a5c366ddf"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-f9b6cb727c2f67a7"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-f9b6cb727c2f67a7",
+      "title": "Retain terminalEnded incidents in clearResolvedRuntimeIncidents",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 20,
+      "risk": "low",
+      "focus": [
+        "quality",
+        "compat"
+      ],
+      "created_at": "2026-10-29T00:35:38.252431Z",
+      "acceptance": [
+        "clearResolvedRuntimeIncidents should retain incidents with resolutionReason === 'terminalEnded'",
+        "Tests are added to ensure clearResolvedRuntimeIncidents preserves terminalEnded incidents"
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "clearResolvedRuntimeIncidents drops incidents resolved with 'terminalEnded' due to strict status === 'active' filtering.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create state with an incident.",
+            "Call endRuntimeIncidentTerminal to resolve it with terminalEnded.",
+            "Call clearResolvedRuntimeIncidents."
+          ],
+          "expected": "The incident remains in state to preserve terminal metadata.",
+          "actual": "The incident is dropped from the incidents array."
+        }
+      },
+      "target_paths": [
+        "src/runtimeIncidents.ts"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-24",
+        "activity_id": "sessions/10984350297606310874/activities/94ba109c50a64f47a54a83b8ac81a4df",
+        "report_sha256": "ed5a53f912e4d9dc3a9d2380e0cd45147562034828229933584aa51bd1900e66",
+        "activity_created_at": "2026-10-29T00:26:53.004559Z",
+        "session_id": "10984350297606310874",
+        "dispatch_key": "d89e1af2b86d1e0a5c366ddf"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-29T00:27:45.643224Z",
+    "last_poll_at": "2026-10-29T00:36:08.561456Z",
     "last_tick_at": "2026-10-29T00:27:57.917572Z",
     "run_id": "40794085793",
     "owner_recovery_requests": [
