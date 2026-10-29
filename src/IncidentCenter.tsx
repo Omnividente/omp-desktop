@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { errorMessage, saveTerminalCapture } from "./api"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import {
@@ -6,7 +7,7 @@ import {
   type RuntimeIncident,
   type RuntimeIncidentResolutionReason,
 } from "./runtimeIncidents"
-import type { TerminalTab } from "./types"
+import type { TerminalCapture, TerminalTab } from "./types"
 
 interface IncidentCenterProps {
   incidents: RuntimeIncident[]
@@ -19,6 +20,10 @@ interface IncidentCenterProps {
 }
 
 type IncidentFilter = "active" | "all"
+type CaptureState =
+  | { status: "saving" }
+  | { status: "saved"; capture: TerminalCapture }
+  | { status: "failed"; message: string }
 const DIALOG_FOCUSABLE_SELECTOR =
   'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -32,6 +37,7 @@ export function IncidentCenter({
   onFocusTerminal,
 }: IncidentCenterProps) {
   const [filter, setFilter] = useState<IncidentFilter>("active")
+  const [captures, setCaptures] = useState<Record<string, CaptureState>>({})
   const initialFocusRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const restoreTriggerFocusRef = useRef(true)
@@ -135,6 +141,18 @@ export function IncidentCenter({
     onClearResolved()
     window.requestAnimationFrame(() => initialFocusRef.current?.focus())
   }
+  const saveCapture = async (terminalId: string) => {
+    setCaptures((current) => ({ ...current, [terminalId]: { status: "saving" } }))
+    try {
+      const capture = await saveTerminalCapture(terminalId)
+      setCaptures((current) => ({ ...current, [terminalId]: { status: "saved", capture } }))
+    } catch (error) {
+      setCaptures((current) => ({
+        ...current,
+        [terminalId]: { status: "failed", message: errorMessage(error, language) },
+      }))
+    }
+  }
 
   return (
     <div className="settings-backdrop" onMouseDown={onClose} role="presentation">
@@ -217,6 +235,7 @@ export function IncidentCenter({
             <div className="incident-list">
               {visibleIncidents.map((incident) => {
                 const tab = tabById.get(incident.terminalId)
+                const capture = captures[incident.terminalId]
                 const reasonIsLong =
                   incident.reason !== null &&
                   (incident.reason.includes("\n") || incident.reason.length > 180)
@@ -304,20 +323,53 @@ export function IncidentCenter({
                           : t(language, "incidentStatusActive")}
                       </span>
                       {tab ? (
-                        <button
-                          className="button secondary incident-open-terminal"
-                          onClick={() => focusTerminal(incident.terminalId)}
-                          type="button"
-                        >
-                          <Icon name="terminal" size={13} />
-                          {t(language, "incidentOpenTerminal")}
-                        </button>
+                        <div className="incident-row-actions">
+                          <button
+                            className="button secondary incident-save-capture"
+                            disabled={capture?.status === "saving"}
+                            onClick={() => void saveCapture(incident.terminalId)}
+                            type="button"
+                          >
+                            <Icon name="download" size={13} />
+                            {t(
+                              language,
+                              capture?.status === "saving"
+                                ? "incidentCaptureSaving"
+                                : "incidentCaptureSave",
+                            )}
+                          </button>
+                          <button
+                            className="button secondary incident-open-terminal"
+                            onClick={() => focusTerminal(incident.terminalId)}
+                            type="button"
+                          >
+                            <Icon name="terminal" size={13} />
+                            {t(language, "incidentOpenTerminal")}
+                          </button>
+                        </div>
                       ) : (
                         <span className="incident-terminal-closed">
                           {t(language, "incidentTerminalClosed")}
                         </span>
                       )}
                     </footer>
+
+                    {capture?.status === "saved" && (
+                      <p
+                        aria-live="polite"
+                        className="incident-capture-result"
+                        title={capture.capture.path}
+                      >
+                        {t(language, "incidentCaptureSaved")
+                          .replace("{size}", formatCaptureSize(capture.capture.bytes))
+                          .replace("{path}", capture.capture.path)}
+                      </p>
+                    )}
+                    {capture?.status === "failed" && (
+                      <p aria-live="polite" className="incident-capture-result is-failed">
+                        {capture.message}
+                      </p>
+                    )}
                   </article>
                 )
               })}
@@ -342,6 +394,12 @@ function resolutionLabel(reason: RuntimeIncidentResolutionReason, language: Lang
     terminalEnded: "incidentTerminalEnded",
   } as const
   return t(language, labels[reason])
+}
+
+function formatCaptureSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
 }
 
 function formatTimestamp(timestamp: number, language: Lang): string {
