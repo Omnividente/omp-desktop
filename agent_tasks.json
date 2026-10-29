@@ -928098,6 +928098,16 @@
           "actor": "Omnividente"
         },
         "event_id": "d08ce11694535c2ab1e24b512334ae52e4ff5694673d3c542f9bb94b13f28d4b"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T16:18:23.345734Z",
+        "decision_id": "1c2ac63d913ce29c1c31c8f2699a6f79e21b607bb0e7d06335cf20b097f6b910",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T16:18:20.648216Z"
+        },
+        "event_id": "ef2ac7a24848f47437a5d92ca4242dfb6047b930d68f162181a81e7b5cfae654"
       }
     ]
   }
