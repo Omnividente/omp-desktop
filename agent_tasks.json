@@ -252006,7 +252006,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T01:38:40.764855Z"
+        "observed_at": "2026-10-29T01:38:40.764855Z",
+        "released_attempt_ref": "autonomous/attempt-822519dcf162eebe0fc2e778"
       },
       "research_result": {
         "summary": "Investigated session import error localization handling. Confirmed that `parseBackendError` inside `api.ts` does not correctly handle errors when the bracket code is inside an object's message property rather than a plain string, and that `App.tsx` directly renders `item.message` for failed imports without running it through `errorMessage`.",
