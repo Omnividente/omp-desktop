@@ -922788,6 +922788,15 @@
         },
         "receipt_id": "6069b7911fd2c3e5490761e1ebe5dceee4350466a80bf3e3e9897bba50682945",
         "event_id": "250736cdc4b66798f7c19b21410a97bdae42987d267b2692a09f48e8fd4c9e28"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T14:45:05.251433Z",
+        "decision_id": "32c7f944ba2745111cd370bbe9be1e581a48fe0afed41ae5768fa85d65037551",
+        "executor_claim_id": "1c149da0fa5d35da1e837c4e32d08852a29dd77bb86a228e87793a7837e79eff",
+        "receipt_id": "6069b7911fd2c3e5490761e1ebe5dceee4350466a80bf3e3e9897bba50682945",
+        "frontier_seq": 1224,
+        "event_id": "80806c97f667d7d81b8644fdf9c77248b580ffefdfcef1d7ad4aaa77105b9b20"
       }
     ]
   }
