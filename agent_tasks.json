@@ -254346,7 +254346,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T06:01:31.412739Z"
+        "observed_at": "2026-10-29T06:01:31.412739Z",
+        "released_attempt_ref": "autonomous/attempt-4d13daf14a6695e3db6a9cd3"
       },
       "research_result": {
         "summary": "Investigated workspace navigation behavior on failure to persist selected workspace. Confirmed that if saving a workspace selection to the backend fails (e.g. transient IO error), the frontend state is updated but the persistence failure prevents retrying the save without first switching to another workspace and back.",
