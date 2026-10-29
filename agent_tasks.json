@@ -958853,6 +958853,15 @@
         },
         "receipt_id": "801d30afdbd4b1ecafc5c546a857b6e0f10dc73bfc7489f320c7fd73ff0e7fdd",
         "event_id": "f2d7a6d69b408e303698226ffc128552b63e6d298a17aeb2e91c34fac773332c"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T23:06:03.872048Z",
+        "decision_id": "d72562a1bf14287456f3d38e275c91f959bf4d5caac749979a04c4ddfaa70595",
+        "executor_claim_id": "bdaab8356e3abdf59b69bb6d094f5421862678762ec9621bc33c9a3cfc93aac8",
+        "receipt_id": "801d30afdbd4b1ecafc5c546a857b6e0f10dc73bfc7489f320c7fd73ff0e7fdd",
+        "frontier_seq": 1268,
+        "event_id": "87c92c3a584b3201352fde96cbb4e5268a69324c85757974f3160daf12615884"
       }
     ]
   }
