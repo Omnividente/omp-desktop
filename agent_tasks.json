@@ -949528,6 +949528,16 @@
           "actor": "Omnividente"
         },
         "event_id": "53b3656b6ef55ef9d91f6cd0d602f7f09aa8c6834dbb42347e371ea1db9030cf"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T21:43:27.362127Z",
+        "decision_id": "c5a98aca0e589da5e61d25d95d2005e1dcac389ce5eaf81d732ca0566ec31d19",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T21:43:24.681918Z"
+        },
+        "event_id": "494ab6fc4f38da2e7e6a3eee60eb9923e21a28d6ecedbd4dab339d01bca653c0"
       }
     ]
   }
