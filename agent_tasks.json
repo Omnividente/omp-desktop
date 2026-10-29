@@ -250134,7 +250134,7 @@
       "id": "research-diagnostics-resources-reliability-24",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -250295,16 +250295,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "13565892755806712813",
         "dispatch_key": "6dd168cdd1efaa1b4d25047e",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-6dd168cdd1efaa1b4d25047e",
         "started_at": "2026-10-28T23:44:32.673050Z",
-        "finished_at": "",
+        "finished_at": "2026-10-29T00:14:32.341903Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -250475,13 +250475,46 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-28T23:57:42.425825Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-29T00:14:32.341903Z"
+      },
+      "research_result": {
+        "summary": "Investigated Runtime incidents and resource health: Failure recovery and persistence. The prompt specifically noted that the canonical issue regarding enforceIncidentBound dropping sole unresolved errors under fallback saturation was already fixed by PR 95. Investigated other aspects of runtime incidents, runtime events, and resource health. Using a TypeScript execution (test_runtimeEvents.ts), tested suppressTransientProxyError's suppression state and confirmed that transient proxy errors are correctly suppressed exactly once, and a successful activity resets the state correctly. Performance tests on redact_text in diagnostics.rs confirm that there is overhead without a fast path (642ms vs 146ms for 100k lines), but earlier notes state this does not constitute an event-loop stall in practice and risks leaking secrets. Tested formatBytes formatting logic and confirmed its accuracy in resourceHealth.ts. Found no new anomalies and given historical context, I am submitting the valid read-only research state.",
+        "observations": [
+          {
+            "scenario": "Testing suppressTransientProxyError suppression lifecycle in src/runtimeEvents.ts",
+            "evidence": "Ran a synthetic TypeScript script (test_runtimeEvents.ts) with two successive `modelError` events from a proxy provider (`proxy-1`) and recorded `pending` state logic. The first error was suppressed (`suppressTransientProxyError` returned true) and added to pending. The second error was not suppressed (returned false) and preserved the pending state. A subsequent `activity: 'idle'` recovered the state and cleared pending.",
+            "result": "Transient proxy errors correctly suppress once and properly reset their state on recovery, matching the intended debounce behavior."
+          },
+          {
+            "scenario": "Performance testing of redact_text in src-tauri/src/diagnostics.rs on large logs",
+            "evidence": "Ran a Rust script (test_redact.rs and test_redact2.rs) profiling redact_text with 100,000 lines of clean text. The existing approach took ~642ms, whereas an early early-return string search took ~146ms. Owner context explicitly rejected this as an unobserved synthetic stall that risks leaking secrets.",
+            "result": "While there is a measurable difference on 100k lines, the existing implementation prioritizes complete secret scanning."
+          },
+          {
+            "scenario": "Evaluating formatBytes precision logic in src/resourceHealth.ts",
+            "evidence": "Ran test_app.ts passing `1500 * 1024 * 1024 * 1024` (1500 GiB) to formatBytes. Output was '1.46 TiB', confirming exponential formatting and correct precision bounds.",
+            "result": "formatBytes computes exact binary prefixes and dynamically sets precision accurately."
+          }
+        ],
+        "next_hypotheses": [
+          "Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?"
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-29T00:14:32.341903Z",
+        "source": {
+          "activity_id": "sessions/13565892755806712813/activities/a12a866ca1e84ecc880be5ebd54ae72c",
+          "report_sha256": "d568ab42ef209f2170dde66c70698596d8366c80242055d3043c8424ee92061c",
+          "activity_created_at": "2026-10-29T00:02:43.624283Z",
+          "session_id": "13565892755806712813",
+          "dispatch_key": "6dd168cdd1efaa1b4d25047e"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-29T00:06:28.229703Z",
+    "last_poll_at": "2026-10-29T00:15:01.209901Z",
     "last_tick_at": "2026-10-29T00:06:43.368947Z",
     "run_id": "40791718840",
     "owner_recovery_requests": [
