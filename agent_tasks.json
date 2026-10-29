@@ -251629,7 +251629,7 @@
       "id": "research-sessions-persistence-ux-25",
       "title": "Investigate Session lifecycle, import and persistence: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -251823,16 +251823,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4284347582471542660",
         "dispatch_key": "822519dcf162eebe0fc2e778",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-822519dcf162eebe0fc2e778",
         "started_at": "2026-10-29T01:16:44.757353Z",
-        "finished_at": "",
+        "finished_at": "2026-10-29T01:38:40.764855Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -252005,13 +252005,97 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-29T01:28:26.760326Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-29T01:38:40.764855Z"
+      },
+      "research_result": {
+        "summary": "Investigated session import error localization handling. Confirmed that `parseBackendError` inside `api.ts` does not correctly handle errors when the bracket code is inside an object's message property rather than a plain string, and that `App.tsx` directly renders `item.message` for failed imports without running it through `errorMessage`.",
+        "observations": [
+          {
+            "scenario": "errorMessage incorrectly handles object with message property containing a bracket code",
+            "evidence": "Ran a synthetic test testing `{ message: \"[session_lease_active] Failed...\" }` to `errorMessage(..., \"en\")`.",
+            "result": "The message was not localized. The raw `[session_lease_active] Failed...` was returned instead because `parseBackendError` returns early when it receives an object without checking its message string for a bracket code."
+          },
+          {
+            "scenario": "App.tsx renders unlocalized failed import item messages directly",
+            "evidence": "Inspected `src/App.tsx` lines 1511 and 1570, which handle failures from `importSessions` or `importPendingOmp`.",
+            "result": "Any backend error in a failed import result (which provides the error message as a string via `ImportItemResult.message` like `[session_lease_active] Failed...`) will bypass localization and be shown directly to the user."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session renaming keyboard interactions in `CodexImportModal` lose focus during burst navigation.",
+          "Investigate if there are other places where raw backend errors are being directly rendered without being processed by `errorMessage`."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-29T01:38:40.764855Z",
+        "source": {
+          "activity_id": "sessions/4284347582471542660/activities/0ad62892da1d4771ba2062f5eb06604c",
+          "report_sha256": "9e68a56b5e750aad1bdf806b52d553ae458ed9b52eeb2b262386c6b3cd55b2fa",
+          "activity_created_at": "2026-10-29T01:31:42.237465Z",
+          "session_id": "4284347582471542660",
+          "dispatch_key": "822519dcf162eebe0fc2e778"
+        },
+        "deferred_findings": [
+          {
+            "title": "Localize session import failures that contain bracket codes",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders `failures.map((item) => item.message ?? item.sourcePath).join('\\\\n')` without passing it through `errorMessage`. Even if it did, `parseBackendError` passing a failure item with a `message` property containing a bracket code does not currently resolve the bracket code (it only works for raw strings).\", \"reproduction\": {\"actual\": \"The UI shows `[session_lease_active] Failed...` directly.\", \"expected\": \"The error is localized, e.g. `This session is already open in another OMP Desktop process`\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`\", \"Attempt to render it in the UI.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx",
+              "src/api.ts"
+            ],
+            "acceptance": [
+              "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user instead of displaying the raw message.",
+              "The UI displays the correct error message via `errorMessage` in `App.tsx`",
+              "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/4284347582471542660/activities/0ad62892da1d4771ba2062f5eb06604c",
+          "report_sha256": "9e68a56b5e750aad1bdf806b52d553ae458ed9b52eeb2b262386c6b3cd55b2fa",
+          "activity_created_at": "2026-10-29T01:31:42.237465Z",
+          "session_id": "4284347582471542660",
+          "dispatch_key": "822519dcf162eebe0fc2e778"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b193976942c481df",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-049f8791f814ce6b"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Localize session import failures that contain bracket codes",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders `failures.map((item) => item.message ?? item.sourcePath).join('\\\\n')` without passing it through `errorMessage`. Even if it did, `parseBackendError` passing a failure item with a `message` property containing a bracket code does not currently resolve the bracket code (it only works for raw strings).\", \"reproduction\": {\"actual\": \"The UI shows `[session_lease_active] Failed...` directly.\", \"expected\": \"The error is localized, e.g. `This session is already open in another OMP Desktop process`\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`\", \"Attempt to render it in the UI.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx",
+                "src/api.ts"
+              ],
+              "acceptance": [
+                "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user instead of displaying the raw message.",
+                "The UI displays the correct error message via `errorMessage` in `App.tsx`",
+                "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-29T01:29:14.804392Z",
+    "last_poll_at": "2026-10-29T01:39:16.426010Z",
     "last_tick_at": "2026-10-29T01:20:50.321629Z",
     "run_id": "40799335176",
     "owner_recovery_requests": [
