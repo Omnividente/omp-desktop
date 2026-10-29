@@ -877112,6 +877112,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "4f7b67991195781740c3537074f54e40d08687e445a236fd829c8a9f103710eb"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-29T02:55:07.822812Z",
+        "decision_id": "7156953b3117811060268a268c54d115bbdaf061590034389daa3dc507db8d4a",
+        "executor_claim_id": "89a4a43caab3ced3ca3f8a76eea094db55f66db3face35058fb8a5995b4500c6",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "eab06be58bd4381cf420d1bb639e0cb6b2a93f31",
+          "after_state_sha": "b17c579ab24a010bbc61873c8bd36d5206ccfdd1",
+          "poll_observations": [
+            {
+              "task_id": "research-terminal-input-reliability-25",
+              "session_id": "4761295338814923873",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-29T02:53:53Z"
+            }
+          ],
+          "before_digest": "888d81ed3bc805e3d7465adb3bfe67e8a0e524534172ad90de0231f48dd8e41c",
+          "after_digest": "888d81ed3bc805e3d7465adb3bfe67e8a0e524534172ad90de0231f48dd8e41c"
+        },
+        "receipt_id": "87c6f95dc25623d012f03308e75b3848c64fe8151b62f14ec46f0d029afa5284",
+        "event_id": "5565273a74038e65d957446e936f40c8356bc66f0bb974ba73637e78ce0db9d9"
       }
     ]
   }
