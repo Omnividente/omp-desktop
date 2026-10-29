@@ -949601,6 +949601,15 @@
         },
         "receipt_id": "b226544de34e00ae70c5724fe4f6fe29fc37a46989e717466468df82b3d2e07f",
         "event_id": "a0916222952cff4ec1d6898076f82d6b1b6f357129811d6293d5818f694f34fd"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-29T21:45:47.235015Z",
+        "decision_id": "c5a98aca0e589da5e61d25d95d2005e1dcac389ce5eaf81d732ca0566ec31d19",
+        "executor_claim_id": "b2df66565aab475cd67c091eba4c9cc0e08e9c628f49255237a0e71f0612bc1a",
+        "receipt_id": "b226544de34e00ae70c5724fe4f6fe29fc37a46989e717466468df82b3d2e07f",
+        "frontier_seq": 1254,
+        "event_id": "50d5b1561b88de792931ede5194c4cf9fe5e2f96989c178a9faa5accd237eb04"
       }
     ]
   }
