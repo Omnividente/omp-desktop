@@ -860343,6 +860343,16 @@
           "actor": "Omnividente"
         },
         "event_id": "10f7c0caa44804faa0edc2a9b63bd5a70e01e1941de4b8778ba95f9b3141c988"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T00:46:38.999819Z",
+        "decision_id": "8920226412a9b5b7ce8e4e342e8a501f9e63b962c37dd1347ffe490d7e93e55d",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T00:46:36.550263Z"
+        },
+        "event_id": "cc29bd679de772a82e342a4989444c364fdd49e0b78059334db0d01805524d36"
       }
     ]
   }
