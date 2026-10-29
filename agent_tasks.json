@@ -253430,7 +253430,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T03:02:31.860758Z"
+        "observed_at": "2026-10-29T03:02:31.860758Z",
+        "released_attempt_ref": "autonomous/attempt-58c4aceadc938fab1308f694"
       },
       "research_result": {
         "summary": "Investigated terminal input editing and shortcut handling. Verified that terminalShortcutInput incorrectly maps logical Ctrl+Z ('z', physical 'KeyW') to Ctrl+W instead of undo ('\\x1f') on non-QWERTY layouts like AZERTY. Verified that createMouseSelectionEdit calculates deletion length based on Unicode code points instead of visual grapheme clusters, failing to accurately represent complex ZWJ emojis and overestimating the deletion length. A solution using Intl.Segmenter correctly calculates length without unbounded array allocations.",
