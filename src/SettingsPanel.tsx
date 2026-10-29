@@ -80,6 +80,26 @@ function providerEnvDraft(keys: string[], current: Record<string, string> = {}) 
   return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
 }
 
+type SubmittedConfigDraft = Pick<
+  OmpConfigSnapshot,
+  "advisorEnabled" | "autoResume" | "defaultThinkingLevel" | "proxyProviders" | "disabledProviders"
+> & { removedCustomProviders: string[]; proxyDisableRevisions: ReadonlyMap<string, number> }
+
+function reconcileProviderList(
+  current: string[],
+  submitted: string[],
+  committed: string[],
+  editedProviders?: ReadonlySet<string>,
+) {
+  return [...new Set([...committed, ...current])]
+    .filter((provider) =>
+      editedProviders?.has(provider) || current.includes(provider) !== submitted.includes(provider)
+        ? current.includes(provider)
+        : committed.includes(provider),
+    )
+    .sort()
+}
+
 type SettingsSection = "general" | "behavior" | "operations" | "models" | "providers"
 
 type OperationalDraft = { value: string; reset: boolean }
@@ -303,6 +323,7 @@ export function SettingsPanel({
   const [proxyProviders, setProxyProviders] = useState<string[]>(
     initialOmpConfig?.proxyProviders ?? [],
   )
+  const proxyDisableRevisionsRef = useRef(new Map<string, number>())
   const [disabledProviders, setDisabledProviders] = useState<string[]>(
     initialOmpConfig?.disabledProviders ?? [],
   )
@@ -338,7 +359,16 @@ export function SettingsPanel({
       selectors,
     }))
 
-  const acceptConfig = (snapshot: OmpConfigSnapshot | null) => {
+  const acceptConfig = (snapshot: OmpConfigSnapshot | null, submitted?: SubmittedConfigDraft) => {
+    const disabledSinceSubmission = submitted
+      ? new Set(
+          [...proxyDisableRevisionsRef.current]
+            .filter(
+              ([provider, revision]) => revision !== submitted.proxyDisableRevisions.get(provider),
+            )
+            .map(([provider]) => provider),
+        )
+      : undefined
     setOmpConfig(snapshot)
     setOperationDrafts({})
     const drafts: Record<string, string> = {}
@@ -346,14 +376,46 @@ export function SettingsPanel({
     setRoleDrafts(drafts)
     setAgentDrafts({})
     setOpenRole(null)
-    setAdvisorEnabled(snapshot?.advisorEnabled ?? false)
-    setAutoResume(snapshot?.autoResume ?? false)
-    setThinkingLevel(snapshot?.defaultThinkingLevel ?? "medium")
+    // A save advances the baseline, but controls that remain editable may have newer drafts.
+    setAdvisorEnabled((current) =>
+      submitted && current !== submitted.advisorEnabled
+        ? current
+        : (snapshot?.advisorEnabled ?? false),
+    )
+    setAutoResume((current) =>
+      submitted && current !== submitted.autoResume ? current : (snapshot?.autoResume ?? false),
+    )
+    setThinkingLevel((current) =>
+      submitted && current !== submitted.defaultThinkingLevel
+        ? current
+        : (snapshot?.defaultThinkingLevel ?? "medium"),
+    )
     setModelFallbackEnabled(snapshot?.modelFallbackEnabled ?? true)
     setFallbackChains(fallbackDraftsFromSnapshot(snapshot?.fallbackChains ?? {}))
-    setProxyProviders(snapshot?.proxyProviders ?? [])
-    setDisabledProviders(snapshot?.disabledProviders ?? [])
-    setRemovedCustomProviders([])
+    setProxyProviders((current) =>
+      submitted
+        ? reconcileProviderList(
+            current,
+            submitted.proxyProviders,
+            snapshot?.proxyProviders ?? [],
+            disabledSinceSubmission,
+          )
+        : (snapshot?.proxyProviders ?? []),
+    )
+    setDisabledProviders((current) =>
+      submitted
+        ? reconcileProviderList(
+            current,
+            submitted.disabledProviders,
+            snapshot?.disabledProviders ?? [],
+          )
+        : (snapshot?.disabledProviders ?? []),
+    )
+    setRemovedCustomProviders((current) =>
+      submitted
+        ? current.filter((provider) => !submitted.removedCustomProviders.includes(provider))
+        : [],
+    )
     setClockNow(Date.now())
   }
 
@@ -667,8 +729,15 @@ export function SettingsPanel({
       if (enabled) return current.filter((candidate) => candidate !== provider)
       return current.includes(provider) ? current : [...current, provider].sort()
     })
-    if (!enabled)
+    if (!enabled) {
+      // Disabling clears proxy mode even if this panel's draft already shows it as off.
+      const revisions = proxyDisableRevisionsRef.current
+      proxyDisableRevisionsRef.current = new Map(revisions).set(
+        provider,
+        (revisions.get(provider) ?? 0) + 1,
+      )
       setProxyProviders((current) => current.filter((candidate) => candidate !== provider))
+    }
   }
 
   const removeCustomProvider = async (provider: string) => {
@@ -776,6 +845,7 @@ export function SettingsPanel({
   ])
 
   const save = async () => {
+    const proxyDisableRevisions = proxyDisableRevisionsRef.current
     const reloadConfigOnFailure = loadingConfig && ompConfig === null
     const generation = invalidateConfig()
     setLoadingConfig(false)
@@ -892,8 +962,22 @@ export function SettingsPanel({
       setConfigError(null)
       setLoadingConfig(false)
       if (result.ompConfig) {
-        if (includeOmpConfig || !sameRuntime || !ompConfig) acceptConfig(result.ompConfig)
-        else acceptCatalog(result.ompConfig)
+        if (includeOmpConfig || !sameRuntime || !ompConfig) {
+          acceptConfig(
+            result.ompConfig,
+            includeOmpConfig && sameRuntime
+              ? {
+                  advisorEnabled,
+                  autoResume,
+                  defaultThinkingLevel: thinkingLevel,
+                  proxyProviders,
+                  disabledProviders,
+                  removedCustomProviders,
+                  proxyDisableRevisions,
+                }
+              : undefined,
+          )
+        } else acceptCatalog(result.ompConfig)
         if (customProviderReady) {
           setCustomProviderId((current) => (current === customProviderId ? "" : current))
           setCustomProviderUrl((current) => (current === customProviderUrl ? "" : current))
