@@ -931320,6 +931320,16 @@
           "actor": "Omnividente"
         },
         "event_id": "075dd38d352e74ad2d5a7bc8a45a22f9b7c6f84c61b0669461df11ee0d8acc88"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T17:26:58.687688Z",
+        "decision_id": "181b375a1d1142e14bb82543f83e5a901671ffff079adda8fd7c13978717d36f",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T17:26:56.396711Z"
+        },
+        "event_id": "46365431e05cd8047aa1cbab2110639559bef393db8bb7d68ea700b5fb3775d7"
       }
     ]
   }
