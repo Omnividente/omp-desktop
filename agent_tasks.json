@@ -255686,8 +255686,8 @@
   ],
   "controller": {
     "last_poll_at": "2026-10-29T06:58:55.962500Z",
-    "last_tick_at": "2026-10-29T06:50:22.482252Z",
-    "run_id": "40830962076",
+    "last_tick_at": "2026-10-29T06:59:09.067739Z",
+    "run_id": "40832391133",
     "owner_recovery_requests": [
       {
         "inputs": {
