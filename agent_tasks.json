@@ -861980,6 +861980,35 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "7b7a4c556b22c3fa4c86f8962d8209d0c1a7130d2cb015a4783214227b978776"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-29T01:00:37.365667Z",
+        "decision_id": "455c3db102a9c80433070955a783cce65b9b7608c33285c8ce7a6fda9339739e",
+        "executor_claim_id": "85a9d2d0c6fc5ca1a04754c2b41e1163c71e144f230fc78dff6e317f8ee289ac",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "910104815519b2a273357915c0c39d054e37197f",
+          "after_state_sha": "520519303d8bd354e9c4ea25dc8fa04dcd45f3bf",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-performance-24",
+              "session_id": "6330513908119098762",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-29T00:55:42Z"
+            },
+            {
+              "task_id": "research-diagnostics-resources-ux-24",
+              "session_id": "7067799686555564163",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-29T00:55:42Z"
+            }
+          ],
+          "before_digest": "2609b553d6fb4b1a619d5b82975dd38824f25e9bae3de7f4d57828ec3dbe56d9",
+          "after_digest": "f938d5804d0d555b486899a6c4de1f8d282ddb0e525c8d5b0c7a4e8057fe87dc"
+        },
+        "receipt_id": "686e243dabdb75d52e4adf900e82acef98c228cea95392157b7e7b065abfb145",
+        "event_id": "8b4e3ae2398edb3f81f4e7d782e9f2a8f66fd3fcee2794f3158940e61ed69cab"
       }
     ]
   }
