@@ -254027,6 +254027,141 @@
           "detail": "2 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-behavior-25",
+      "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-29T03:23:02Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "behavior",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 25,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation focus behavior specifically when 'open folder' / workspace creation fails. Found that focus is not currently restored to the initiating button upon failure.",
+            "observations": [
+              {
+                "scenario": "Simulated failed addWorkspace action in App.tsx (Open Folder).",
+                "evidence": "Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open.",
+                "result": "Focus remains lost (defaults to document.body) if the workspace creation or folder selection fails."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-27T17:09:09.048461Z",
+            "source": {
+              "activity_id": "sessions/9179484144791724333/activities/4f09bbb01596406da0e0ea49dc2f3864",
+              "report_sha256": "ebbcb123d1665d664b82e96c4a5077ce92fe084c8b2a0687bea7772b92ea551e",
+              "activity_created_at": "2026-10-27T16:54:18.838621Z",
+              "session_id": "9179484144791724333",
+              "dispatch_key": "286f17edd4af5af5c9b54c32"
+            },
+            "deferred_findings": [
+              {
+                "title": "Restore focus to initiating button on workspace creation failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-64584f2ace44c556; not established as a duplicate. {\"detail\": \"Observed that openFolder in src/App.tsx catches errors from addWorkspace but does not track or restore document.activeElement before calling dialog.open. This causes focus to be lost (defaults to document.body) if the workspace creation or folder selection fails.\", \"reproduction\": {\"actual\": \"Focus is lost to document.body\", \"expected\": \"Focus returns to the 'Open Folder' button\", \"steps\": [\"Select a folder using 'Open Folder'\", \"Simulate an error during addWorkspace\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Focus returns to the button that triggered openFolder when workspace creation fails."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching failure recovery. Found that if saving a workspace selection to the backend fails (e.g., transient IO error), the frontend state is updated but the persistence failure prevents retrying the save without first switching to another workspace and back.",
+            "observations": [
+              {
+                "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+                "evidence": "Observed in src/App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. throws a transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry the operation, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+                "result": "A failed workspace selection persistence cannot be easily retried; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [
+              "discovery-da432379453e9196"
+            ],
+            "completed_at": "2026-10-27T20:02:27.057823Z",
+            "source": {
+              "activity_id": "sessions/11324067306791790629/activities/ec55ea09bc454237827b1ef4b94960e3",
+              "report_sha256": "9e54195b7bfd26651dca6f8b792b1babba1a91a154c5371f8db4406e7c0c8cc0",
+              "activity_created_at": "2026-10-27T19:30:43.522399Z",
+              "session_id": "11324067306791790629",
+              "dispatch_key": "3b09b56f894095abd16e0af6"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching performance using synthetic benchmarks on pinned commit 6a758209c42d1f35893f33bfb3fab3585de6e224. Measured rendering latency and interaction times for large inputs.",
+            "observations": [
+              {
+                "scenario": "Measured `ProjectRail` rendering with a synthetic input of 1000 workspaces.",
+                "evidence": "Executed `render(<ProjectRail .../>)` in a Vitest jsdom environment. `ProjectRail` maps over the entire `workspaces` array (e.g., `workspaces.map((workspace) => ...)`), instantiating a full set of React DOM elements for every entry without virtualization.",
+                "result": "Initial rendering of `ProjectRail` with 1000 workspaces took ~1950ms. Re-rendering upon switching the selected workspace took ~680ms."
+              },
+              {
+                "scenario": "Measured `SessionList` rendering and filtering with a synthetic input of 1000 sessions.",
+                "evidence": "Executed `render(<SessionList .../>)` in a Vitest jsdom environment. `SessionList` uses `useVirtualList` to render only a visible window of sessions.",
+                "result": "Initial rendering of `SessionList` with 1000 sessions took ~200ms. Re-rendering upon filtering the list to a single session took ~20ms. The bounded work successfully prevents extreme latency."
+              },
+              {
+                "scenario": "Measured `App` component workspace switching latency.",
+                "evidence": "Rendered `<App />` with a mock bootstrap payload containing 1000 workspaces and simulated a click event on the 1000th workspace item in `ProjectRail`.",
+                "result": "The `App` component is responsive to workspace switching (click handling within the mocked environment completes in a few milliseconds), but the underlying `ProjectRail` component's lack of virtualization limits the total application responsiveness when scaling to extreme numbers of workspaces."
+              },
+              {
+                "scenario": "Revisited prior owner decision regarding `ProjectRail` virtualization.",
+                "evidence": "Consulted the `AUTONOMOUS_DECISION_CONTEXT` which includes a rejection (context_id 5bae7b3af85b9060000b291387cd571ea8e7a9851acc5d7f11e6f7bc285b792f) for adding virtualization to `ProjectRail`. The rationale states: 'No demonstrated native bottleneck justifies workspace virtualization and its focus complexity; synthetic extreme-size benchmark alone is insufficient.'",
+                "result": "Confirmed that the observed `ProjectRail` latency at 1000 workspaces is known and deemed an acceptable tradeoff against the complexity of virtualized focus management, as real-world workspace counts do not reach this synthetic scale."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if pagination or a 'show more' incremental loading approach in `ProjectRail` could provide a simpler alternative to full virtualization that avoids focus complexity while still bounding rendering work.",
+              "Evaluate if the `SessionList` virtualization correctly handles dynamic row heights for sessions with very long names or deep nesting levels, and if layout thrashing occurs during rapid scrolling."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-27T20:40:40.688331Z",
+            "source": {
+              "activity_id": "sessions/2137841368406577484/activities/96edb193058147048696a9d323bbc3fe",
+              "report_sha256": "dcc0bce5cc751fddda41c0840eb7069fdb1643f379b68790928a4a10e1ef0935",
+              "activity_created_at": "2026-10-27T20:33:01.703660Z",
+              "session_id": "2137841368406577484",
+              "dispatch_key": "f8fff64441019685b2fa7f9b"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
