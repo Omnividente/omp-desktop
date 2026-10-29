@@ -255,7 +255,7 @@ sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 
 ## Development
 
-Requirements: Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.84+, OMP, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
+Requirements: Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.95+, OMP, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 npm ci
