@@ -877062,6 +877062,16 @@
           "actor": "Omnividente"
         },
         "event_id": "c10d3f455af5cbd9dedfb5708d4116ccec93bc20b8a1403eb70769fc87aa5d4b"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-29T02:53:13.566160Z",
+        "decision_id": "7156953b3117811060268a268c54d115bbdaf061590034389daa3dc507db8d4a",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-29T02:53:10.849815Z"
+        },
+        "event_id": "689114a0a38ee19ec663007d99282f3127b533df460073901dc81d6231db35d4"
       }
     ]
   }
