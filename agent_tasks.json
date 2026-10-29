@@ -867679,6 +867679,35 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "17e84b4b0ec4b05013d3c29921ad99074a85b7b5ecc7da07ef684449eaa314f4"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-29T01:45:01.341196Z",
+        "decision_id": "904d707e31d595c5e6269c4edabf5f14d9925efeda83bec3b167b4f38d6fffde",
+        "executor_claim_id": "ea52cfb643416886585d965ebc83d2ebeaf2f35786256a1e7ca6a8a8f88b61b3",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "1a9fc5a36bea38dce4369ebdb7a48bf17298b374",
+          "after_state_sha": "3cc119aaae8a0768a71d348459b9f49206c88473",
+          "poll_observations": [
+            {
+              "task_id": "research-sessions-persistence-ux-25",
+              "session_id": "4284347582471542660",
+              "session_state": "COMPLETED",
+              "observed_at": "2026-10-29T01:38:40Z"
+            },
+            {
+              "task_id": "research-terminal-input-behavior-25",
+              "session_id": "6696375593200312639",
+              "session_state": "QUEUED",
+              "observed_at": "2026-10-29T01:38:40Z"
+            }
+          ],
+          "before_digest": "dc629a4bb593c7f44e12a702ad140fd06672e0e1063f819e27d980b3482f2e0d",
+          "after_digest": "46a56ca6e3c041c3ad48b02b7ec7f503727f1bf0fa840c07086759e96194fff4"
+        },
+        "receipt_id": "d9837f9624c5d36243aa1902249ef3c7a6b32e2895d6754d93d6775e572ba10a",
+        "event_id": "6f316ad11d3abb8fa0f0cef4828e697e1ae1e2e96ab3d98efd790a67fc01b9e2"
       }
     ]
   }
