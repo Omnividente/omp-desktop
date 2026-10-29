@@ -1175,15 +1175,15 @@ describe("App lifecycle serialization", () => {
     },
   )
 
-  it.each(["close", "escape", "backdrop", "cancel", "incidents", "resources"] as const)(
-    "shows a late Save failure after Settings leaves through %s",
+  it.each(["close", "escape", "backdrop"] as const)(
+    "keeps pending Settings open after accidental %s and preserves a failed draft",
     async (route) => {
       const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
       vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
       await act(async () => root.render(<App />))
       await openAndChangeSettings()
       act(() => element(".settings-actions .primary").click())
-      await act(async () => {
+      act(() => {
         if (route === "escape") {
           element(".settings-panel").dispatchEvent(
             new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
@@ -1193,14 +1193,35 @@ describe("App lifecycle serialization", () => {
             new MouseEvent("mousedown", { bubbles: true }),
           )
         } else {
-          const selectors = {
-            close: ".settings-header button",
-            cancel: ".settings-actions .secondary",
-            incidents: ".incident-center-trigger",
-            resources: ".resource-health-trigger",
-          }
-          element(selectors[route]).click()
+          element(".settings-header button").click()
         }
+      })
+      expect(container.querySelector('[aria-labelledby="settings-title"]')).not.toBeNull()
+      await act(async () => pending.reject(new Error("Pending draft save failed")))
+      expect(element<HTMLSelectElement>("#app-font-size").value).toBe("18")
+      expect(container.querySelector(".settings-save-error")?.textContent).toContain(
+        "Pending draft save failed",
+      )
+      expect(container.querySelector('[role="alertdialog"]')).toBeNull()
+      expect(api.saveSettingsBundle).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each(["cancel", "incidents", "resources"] as const)(
+    "shows a late Save failure after Settings leaves through %s",
+    async (route) => {
+      const pending = deferred<Awaited<ReturnType<typeof api.saveSettingsBundle>>>()
+      vi.mocked(api.saveSettingsBundle).mockReturnValueOnce(pending.promise)
+      await act(async () => root.render(<App />))
+      await openAndChangeSettings()
+      act(() => element(".settings-actions .primary").click())
+      await act(async () => {
+        const selectors = {
+          cancel: ".settings-actions .secondary",
+          incidents: ".incident-center-trigger",
+          resources: ".resource-health-trigger",
+        }
+        element(selectors[route]).click()
       })
       expect(container.querySelector('[aria-labelledby="settings-title"]')).toBeNull()
       await act(async () => pending.reject(new Error("Audit Save failure after unmount")))
@@ -1217,7 +1238,7 @@ describe("App lifecycle serialization", () => {
     await act(async () => root.render(<App />))
     await openAndChangeSettings()
     act(() => element(".settings-actions .primary").click())
-    act(() => element(".settings-header button").click())
+    act(() => element(".settings-actions .secondary").click())
     await act(async () =>
       pending.resolve({
         bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, appFontSize: 18 } },

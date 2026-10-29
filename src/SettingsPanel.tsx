@@ -36,6 +36,72 @@ import type {
   RuntimeInfo,
 } from "./types"
 
+function SettingsDiscardConfirmation({
+  language,
+  onKeepEditing,
+  onDiscard,
+}: {
+  language: Lang
+  onKeepEditing: () => void
+  onDiscard: () => void
+}) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const keepEditingRef = useRef<HTMLButtonElement>(null)
+  const handleKeyDown = useModalFocus(dialogRef, onKeepEditing)
+  useLayoutEffect(() => {
+    keepEditingRef.current?.focus({ preventScroll: true })
+  }, [])
+  return (
+    <div
+      className="settings-backdrop"
+      style={{ alignItems: "center", justifyContent: "center" }}
+      role="presentation"
+      onMouseDown={(event) => {
+        event.stopPropagation()
+        onKeepEditing()
+      }}
+    >
+      <section
+        className="settings-panel"
+        style={{
+          width: "min(440px, calc(100vw - 32px))",
+          height: "auto",
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
+        }}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="settings-discard-title"
+        aria-describedby="settings-discard-description"
+        ref={dialogRef}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="settings-header">
+          <div>
+            <h2 id="settings-discard-title">{t(language, "settingsDiscardTitle")}</h2>
+            <p id="settings-discard-description">{t(language, "settingsDiscardDescription")}</p>
+          </div>
+        </header>
+        <footer className="settings-actions">
+          <button
+            className="button primary"
+            type="button"
+            ref={keepEditingRef}
+            onClick={onKeepEditing}
+          >
+            {t(language, "settingsKeepEditing")}
+          </button>
+          <button className="button secondary" type="button" onClick={onDiscard}>
+            {t(language, "settingsDiscardChanges")}
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
 interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
@@ -262,7 +328,8 @@ export function SettingsPanel({
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
   const panelRef = useRef<HTMLElement>(null)
 
-  const handleModalKeyDown = useModalFocus(panelRef, onClose)
+  const [discardOpen, setDiscardOpen] = useState(false)
+  const dismissTriggerRef = useRef<HTMLElement | null>(null)
 
   const [executable, setExecutable] = useState(settings.ompExecutable ?? "")
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
@@ -324,6 +391,7 @@ export function SettingsPanel({
   const providerEnvKeysRef = useRef(settings.providerEnvKeys)
   const [newKeyName, setNewKeyName] = useState("OPENAI_API_KEY")
   const [newKeyValue, setNewKeyValue] = useState("")
+  const [addedKeyName, setAddedKeyName] = useState("OPENAI_API_KEY")
   const [activeSection, setActiveSection] = useState<SettingsSection>("general")
   const [operationDrafts, setOperationDrafts] = useState<Record<string, OperationalDraft>>({})
   const [operationSearch, setOperationSearch] = useState("")
@@ -654,6 +722,7 @@ export function SettingsPanel({
     }
     setProviderEnv((current) => ({ ...current, [key]: value }))
     setNewKeyValue("")
+    setAddedKeyName(key)
   }
 
   const setProviderProxyMode = (provider: string, enabled: boolean) => {
@@ -774,6 +843,33 @@ export function SettingsPanel({
     terminalFontSize,
     thinkingLevel,
   ])
+
+  // Save eligibility does not include a provider-key entry until Add is pressed.
+  // Protect that meaningful input too, without changing the save payload or button.
+  const hasUnsavedDraft =
+    hasChanges ||
+    newKeyValue.trim() !== "" ||
+    (newKeyName.trim() !== "" && newKeyName.trim() !== addedKeyName)
+  const requestDismiss = () => {
+    // An in-flight write is not cancelled by closing. Never queue a close for its ACK.
+    if (saving || discardOpen) return
+    if (!hasUnsavedDraft) {
+      onClose()
+      return
+    }
+    dismissTriggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setDiscardOpen(true)
+  }
+  // Keep the original opener for this entire panel lifetime. The confirmation is
+  // a sibling, so its events never reach this hidden/inert section's handler.
+  const handleModalKeyDown = useModalFocus(panelRef, requestDismiss)
+  useLayoutEffect(() => {
+    if (discardOpen) return
+    const trigger = dismissTriggerRef.current
+    dismissTriggerRef.current = null
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+  }, [discardOpen])
 
   const save = async () => {
     const reloadConfigOnFailure = loadingConfig && ompConfig === null
@@ -956,10 +1052,13 @@ export function SettingsPanel({
   return (
     <div
       className={`settings-backdrop${runtime.platform === "linux" ? " is-linux" : ""}`}
-      onMouseDown={onClose}
+      onMouseDown={requestDismiss}
       role="presentation"
     >
       <section
+        hidden={discardOpen}
+        inert={discardOpen}
+        style={discardOpen ? { display: "none" } : undefined}
         aria-labelledby="settings-title"
         aria-modal="true"
         className="settings-panel"
@@ -976,7 +1075,7 @@ export function SettingsPanel({
           </div>
           <button
             className="icon-button"
-            onClick={onClose}
+            onClick={requestDismiss}
             title={t(language, "close")}
             type="button"
           >
@@ -2403,6 +2502,15 @@ export function SettingsPanel({
           </button>
         </footer>
       </section>
+      {discardOpen && (
+        <SettingsDiscardConfirmation
+          language={language}
+          onKeepEditing={() => setDiscardOpen(false)}
+          onDiscard={() => {
+            if (!saving) onClose()
+          }}
+        />
+      )}
     </div>
   )
 }

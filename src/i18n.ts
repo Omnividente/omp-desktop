@@ -241,6 +241,11 @@ export const UI_TEXT = {
     notificationFailureBody: "Сессия «{title}» завершена с кодом {code}.",
     language: "Язык интерфейса",
     cancel: "Отмена",
+    settingsDiscardTitle: "Отбросить несохранённые изменения?",
+    settingsDiscardDescription:
+      "Правки настроек не сохранены. Можно продолжить редактирование или закрыть панель без сохранения.",
+    settingsKeepEditing: "Продолжить редактирование",
+    settingsDiscardChanges: "Отбросить изменения",
     save: "Сохранить",
     saving: "Сохраняем…",
     browse: "Обзор",
@@ -835,6 +840,11 @@ export const UI_TEXT = {
     notificationFailureBody: "Session “{title}” exited with code {code}.",
     language: "Interface language",
     cancel: "Cancel",
+    settingsDiscardTitle: "Discard unsaved changes?",
+    settingsDiscardDescription:
+      "Your settings edits have not been saved. Keep editing or close the panel without saving.",
+    settingsKeepEditing: "Keep editing",
+    settingsDiscardChanges: "Discard changes",
     save: "Save",
     saving: "Saving…",
     browse: "Browse",
