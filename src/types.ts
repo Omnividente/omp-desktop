@@ -145,7 +145,13 @@ export interface SessionScanWarning {
   message: string
 }
 
+export interface StartupWorkspaceWarning {
+  requestedPath: string
+  message: string
+}
+
 export interface BootstrapPayload {
+  startupWorkspaceWarning?: StartupWorkspaceWarning | null
   settings: AppSettings
   runtime: RuntimeInfo
   workspaces: WorkspaceSummary[]

@@ -13,6 +13,7 @@ mod secrets;
 mod session_lease;
 mod sessions;
 mod settings;
+mod startup_workspace;
 mod terminal;
 mod update;
 #[cfg(feature = "updater-e2e")]
@@ -23,6 +24,7 @@ use models::{
     AppError, AppSettings, BootstrapPayload, CodexSessionSummary, ImportBatchPayload,
     ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, ResourceHealthSnapshot,
     SessionTranscript, SettingsPatch, SettingsSavePayload, SettingsSaveRequest, SettingsUpdate,
+    StartupWorkspaceWarning,
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
@@ -31,6 +33,7 @@ use settings::{
     start_with_defaults_prepared, update_provider_secrets, with_settings_transaction,
     SettingsState, SettingsTransaction,
 };
+use startup_workspace::{Resolution, StartupWorkspaceIntent};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -39,7 +42,14 @@ use terminal::TerminalState;
 
 const SINGLE_INSTANCE_EVENT: &str = "single-instance";
 
-struct StartupWorkspace(Mutex<Option<String>>);
+struct StartupWorkspace(Mutex<StartupWorkspaceIntent>);
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum StartupWorkspaceAction {
+    Retry,
+    Continue,
+}
 
 fn startup_workspace(args: &[String]) -> Option<String> {
     for (index, arg) in args.iter().enumerate().skip(1) {
@@ -311,24 +321,70 @@ fn load_workspace_bootstrap(app: &AppHandle) -> Result<BootstrapPayload, String>
         .0
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (bootstrap, warning) = requested.load(
+        |path| apply_startup_workspace(app, path),
+        || load_prior_workspace_bootstrap(app),
+    )?;
+    Ok(with_startup_workspace_warning(bootstrap, warning))
+}
+
+fn apply_startup_workspace(app: &AppHandle, path: &str) -> Result<BootstrapPayload, String> {
     let settings = app.state::<SettingsState>();
-    let bootstrap = if let Some(path) = requested
-        .as_ref()
-        .filter(|path| PathBuf::from(path.as_str()).is_dir())
-    {
-        with_settings_transaction(app, &settings, |transaction| {
-            let snapshot = transaction.candidate_mut();
-            add_workspace_to_settings(snapshot, path)?;
-            snapshot.last_workspace = Some(path.clone());
-            commit_workspace_settings(app, transaction)
-        })?
-    } else {
-        let snapshot = settings_snapshot(app, &settings)?;
-        build_bootstrap(app, &snapshot)?
-    };
-    // Consume only after success, so settings recovery can retry the explicit launch intent.
-    *requested = None;
-    Ok(bootstrap)
+    with_settings_transaction(app, &settings, |transaction| {
+        let snapshot = transaction.candidate_mut();
+        add_workspace_to_settings(snapshot, path)?;
+        snapshot.last_workspace = Some(path.to_owned());
+        commit_workspace_settings(app, transaction)
+    })
+}
+
+fn load_prior_workspace_bootstrap(app: &AppHandle) -> Result<BootstrapPayload, String> {
+    let settings = app.state::<SettingsState>();
+    let snapshot = settings_snapshot(app, &settings)?;
+    build_bootstrap(app, &snapshot)
+}
+
+fn with_startup_workspace_warning(
+    mut bootstrap: BootstrapPayload,
+    warning: Option<startup_workspace::Warning>,
+) -> BootstrapPayload {
+    bootstrap.startup_workspace_warning = warning.map(|warning| StartupWorkspaceWarning {
+        requested_path: warning.requested_path,
+        message: models::sanitize_error_text(&warning.message),
+    });
+    bootstrap
+}
+
+#[tauri::command]
+async fn resolve_startup_workspace(
+    requested_path: String,
+    action: StartupWorkspaceAction,
+    app: AppHandle,
+) -> Result<BootstrapPayload, AppError> {
+    run_blocking(
+        "восстановления проекта запуска",
+        "startup_workspace_resolution_failed",
+        "Не удалось обработать проект запуска",
+        move || {
+            let startup = app.state::<StartupWorkspace>();
+            let mut requested = startup
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let resolution = match action {
+                StartupWorkspaceAction::Retry => Resolution::Retry,
+                StartupWorkspaceAction::Continue => Resolution::Continue,
+            };
+            let (bootstrap, warning) = requested.resolve(
+                &requested_path,
+                resolution,
+                |path| apply_startup_workspace(&app, path),
+                || load_prior_workspace_bootstrap(&app),
+            )?;
+            Ok(with_startup_workspace_warning(bootstrap, warning))
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -362,17 +418,18 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
         "workspace_add_failed",
         "Не удалось добавить проект",
         move || {
-            // A forwarded launch or folder pick supersedes a not-yet-consumed initial argument.
+            // Only a successful forwarded launch or folder pick supersedes the initial argument.
             let startup = app.state::<StartupWorkspace>();
             let mut requested = startup
                 .0
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *requested = None;
-            let state = app.state::<SettingsState>();
-            with_settings_transaction(&app, &state, |transaction| {
-                add_workspace_to_settings(transaction.candidate_mut(), &path)?;
-                commit_workspace_settings(&app, transaction)
+            requested.supersede(|| {
+                let state = app.state::<SettingsState>();
+                with_settings_transaction(&app, &state, |transaction| {
+                    add_workspace_to_settings(transaction.candidate_mut(), &path)?;
+                    commit_workspace_settings(&app, transaction)
+                })
             })
         },
     )
@@ -404,6 +461,16 @@ async fn save_workspace_selection(path: Option<String>, app: AppHandle) -> Resul
         "workspace_selection_save_failed",
         "Не удалось запомнить выбранный проект",
         move || {
+            // A queued frontend fallback selection is not acknowledgement of a launch failure.
+            // Keep the same startup -> settings lock order as bootstrap and folder selection.
+            let startup = app.state::<StartupWorkspace>();
+            let requested = startup
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if requested.is_pending() {
+                return Ok(());
+            }
             let state = app.state::<SettingsState>();
             with_settings_transaction(&app, &state, |transaction| {
                 let snapshot = transaction.candidate_mut();
@@ -658,7 +725,7 @@ async fn start_with_defaults(app: AppHandle) -> Result<BootstrapPayload, AppErro
                 .0
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .is_some();
+                .is_pending();
             if startup_pending {
                 load_workspace_bootstrap(&app)
             } else {
@@ -942,8 +1009,8 @@ pub fn run() {
             }
             app.manage(SettingsState::new_uninitialized());
             app.manage(omp_bridge::ModelCatalogState::default());
-            app.manage(StartupWorkspace(Mutex::new(startup_workspace(
-                &std::env::args().collect::<Vec<_>>(),
+            app.manage(StartupWorkspace(Mutex::new(StartupWorkspaceIntent::new(
+                startup_workspace(&std::env::args().collect::<Vec<_>>()),
             ))));
             app.manage(TerminalState::default());
             #[cfg(feature = "updater-e2e")]
@@ -952,6 +1019,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            resolve_startup_workspace,
             open_settings_folder,
             add_workspace,
             rename_workspace,

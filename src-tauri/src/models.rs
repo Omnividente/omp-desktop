@@ -432,12 +432,21 @@ pub struct SessionScanWarning {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StartupWorkspaceWarning {
+    pub requested_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BootstrapPayload {
     pub settings: AppSettings,
     pub runtime: RuntimeInfo,
     pub workspaces: Vec<WorkspaceSummary>,
     pub sessions: Vec<SessionSummary>,
     pub session_warnings: Vec<SessionScanWarning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_workspace_warning: Option<StartupWorkspaceWarning>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -737,6 +746,55 @@ mod tests {
         AppError, AppSettings, RailMode, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY,
         MAX_APP_ERROR_DETAILS_CHARS,
     };
+
+    #[test]
+    fn startup_workspace_warning_has_explicit_camel_case_wire_fields() {
+        let warning = super::StartupWorkspaceWarning {
+            requested_path: "/fixture/missing-project".to_owned(),
+            message: "Unavailable".to_owned(),
+        };
+        assert_eq!(
+            serde_json::to_value(warning).unwrap(),
+            serde_json::json!({
+                "requestedPath": "/fixture/missing-project",
+                "message": "Unavailable",
+            })
+        );
+    }
+
+    #[test]
+    fn startup_workspace_warning_is_absent_from_ordinary_bootstrap_payloads() {
+        let mut bootstrap = super::BootstrapPayload {
+            settings: AppSettings::default(),
+            runtime: super::RuntimeInfo {
+                platform: "linux".to_owned(),
+                arch: "x86_64".to_owned(),
+                omp_available: false,
+                omp_executable: "omp".to_owned(),
+                omp_version: None,
+                session_root: "/fixture/sessions".to_owned(),
+                language: "en".to_owned(),
+            },
+            workspaces: Vec::new(),
+            sessions: Vec::new(),
+            session_warnings: Vec::new(),
+            startup_workspace_warning: None,
+        };
+        assert!(serde_json::to_value(&bootstrap)
+            .unwrap()
+            .get("startupWorkspaceWarning")
+            .is_none());
+        bootstrap.startup_workspace_warning = Some(super::StartupWorkspaceWarning {
+            requested_path: "/fixture/missing-project".to_owned(),
+            message: "Unavailable".to_owned(),
+        });
+        let value = serde_json::to_value(&bootstrap).unwrap();
+        assert_eq!(
+            value["startupWorkspaceWarning"]["requestedPath"],
+            "/fixture/missing-project"
+        );
+        assert!(value["settings"].get("startupWorkspaceWarning").is_none());
+    }
 
     #[test]
     fn app_settings_never_serialize_provider_secret_values() {

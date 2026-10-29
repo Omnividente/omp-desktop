@@ -1,3 +1,6 @@
+import { createPortal } from "react-dom"
+import { StartupWorkspaceRecovery } from "./StartupWorkspaceRecovery"
+import type { StartupWorkspaceWarning } from "./types"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { getVersion } from "@tauri-apps/api/app"
@@ -11,6 +14,7 @@ import {
 } from "@tauri-apps/plugin-notification"
 import {
   addWorkspace,
+  resolveStartupWorkspace,
   bootstrap as loadBootstrap,
   backendErrorCode,
   checkOmpUpdate,
@@ -277,6 +281,17 @@ function App() {
   const [settingsOpenedAt, setSettingsOpenedAt] = useState<number | null>(null)
   const settingsOpen = settingsOpenedAt !== null
   const [startupError, setStartupError] = useState<string | null>(null)
+  const [startupWorkspaceWarning, setStartupWorkspaceWarning] =
+    useState<StartupWorkspaceWarning | null>(null)
+  const startupWorkspaceWarningRef = useRef<StartupWorkspaceWarning | null>(null)
+  const [startupWorkspaceBusy, setStartupWorkspaceBusy] = useState(false)
+  const startupWorkspaceBusyRef = useRef(false)
+  const [startupWorkspaceError, setStartupWorkspaceError] = useState<string | null>(null)
+  const acceptStartupWorkspaceWarning = useCallback((warning: StartupWorkspaceWarning | null) => {
+    startupWorkspaceWarningRef.current = warning
+    setStartupWorkspaceWarning(warning)
+  }, [])
+
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
   const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
@@ -575,6 +590,8 @@ function App() {
     (next: BootstrapPayload, preferredWorkspace?: string) => {
       ++payloadRevisionRef.current
       setPayload(next)
+      // Ordinary mutations may omit this add-only field; they cannot dismiss the launch intent.
+      if (next.startupWorkspaceWarning) acceptStartupWorkspaceWarning(next.startupWorkspaceWarning)
       setSettingsRecovery(null)
       setTabs((current) =>
         current.map((tab) => {
@@ -616,7 +633,7 @@ function App() {
         current && next.sessions.some((session) => session.id === current) ? current : null,
       )
     },
-    [showNotice],
+    [acceptStartupWorkspaceWarning, showNotice],
   )
 
   const handleSettingsSaved = useCallback(
@@ -751,7 +768,10 @@ function App() {
     setRefreshing(true)
     try {
       const next = await loadBootstrap()
-      if (current()) applyPayload(next)
+      if (current()) {
+        acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+        applyPayload(next)
+      }
     } catch (error) {
       if (!current()) return
       const recovery = settingsUnavailableDetails(error)
@@ -766,7 +786,7 @@ function App() {
     } finally {
       if (mountedRef.current && request === refreshRequestRef.current) setRefreshing(false)
     }
-  }, [applyPayload, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, showError])
 
   const openSettingsRecoveryFolder = useCallback(async () => {
     if (!settingsRecovery) return
@@ -786,7 +806,9 @@ function App() {
     if (!accepted) return
     setSettingsRecoveryBusy(true)
     try {
-      applyPayload(await startWithDefaults())
+      const next = await startWithDefaults()
+      acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+      applyPayload(next)
     } catch (error) {
       const recovery = settingsUnavailableDetails(error)
       if (recovery) {
@@ -798,7 +820,14 @@ function App() {
     } finally {
       setSettingsRecoveryBusy(false)
     }
-  }, [applyPayload, lang, settingsRecovery, settingsRecoveryBusy, showError])
+  }, [
+    acceptStartupWorkspaceWarning,
+    applyPayload,
+    lang,
+    settingsRecovery,
+    settingsRecoveryBusy,
+    showError,
+  ])
 
   useEffect(() => {
     void refresh()
@@ -833,6 +862,7 @@ function App() {
             return
           }
           const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+          acceptStartupWorkspaceWarning(null)
           applyPayload(next, selectRequested ? requested : undefined)
           if (selectRequested) {
             setSelectedSessionId(null)
@@ -869,7 +899,7 @@ function App() {
       disposed = true
       stop?.()
     }
-  }, [applyPayload, refresh, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, refresh, showError])
   useEffect(() => {
     let disposed = false
     let runtimeFrame: number | null = null
@@ -1124,8 +1154,8 @@ function App() {
 
   const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
   useEffect(() => {
-    if (selectedWorkspacePath === undefined) return
     const request = ++workspaceSaveRequestRef.current
+    if (selectedWorkspacePath === undefined || startupWorkspaceWarning) return
     // Serialize commits, not just responses; an older disk write must never win after a newer one.
     // Skip superseded queued selections and never apply bootstrap data from background persistence.
     workspaceSaveQueueRef.current = (workspaceSaveQueueRef.current ?? Promise.resolve())
@@ -1138,7 +1168,7 @@ function App() {
           showError(errorMessage(error, langRef.current))
         }
       })
-  }, [selectedWorkspacePath, showError])
+  }, [selectedWorkspacePath, startupWorkspaceWarning, showError])
 
   useEffect(() => {
     let disposed = false
@@ -1268,6 +1298,13 @@ function App() {
   )
 
   const openFolder = useCallback(async () => {
+    if (startupWorkspaceBusyRef.current) return
+    const recovering = startupWorkspaceWarningRef.current !== null
+    if (recovering) {
+      startupWorkspaceBusyRef.current = true
+      setStartupWorkspaceBusy(true)
+      setStartupWorkspaceError(null)
+    }
     try {
       const selected = await open({
         directory: true,
@@ -1278,15 +1315,59 @@ function App() {
       const selectionRequest = ++workspaceSelectionRequestRef.current
       const next = await addWorkspace(selected)
       const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+      acceptStartupWorkspaceWarning(null)
       applyPayload(next, selectRequested ? selected : undefined)
       if (selectRequested) {
         setSelectedSessionId(null)
         setSearch("")
       }
     } catch (error) {
-      showError(errorMessage(error, lang))
+      const message = errorMessage(error, lang)
+      if (recovering) setStartupWorkspaceError(message)
+      else showError(message)
+    } finally {
+      if (recovering) {
+        startupWorkspaceBusyRef.current = false
+        setStartupWorkspaceBusy(false)
+      }
     }
-  }, [applyPayload, lang, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, lang, showError])
+
+  const resolveStartup = useCallback(
+    async (action: "retry" | "continue") => {
+      const warning = startupWorkspaceWarningRef.current
+      if (!warning || startupWorkspaceBusyRef.current) return
+      startupWorkspaceBusyRef.current = true
+      setStartupWorkspaceBusy(true)
+      setStartupWorkspaceError(null)
+      const selectionRequest = ++workspaceSelectionRequestRef.current
+      ++payloadRevisionRef.current
+      try {
+        const next = await resolveStartupWorkspace(warning.requestedPath, action)
+        if (!mountedRef.current) return
+        // An acknowledgement owns only this failed launch intent, not newer navigation.
+        if (startupWorkspaceWarningRef.current?.requestedPath === warning.requestedPath) {
+          acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+        }
+        if (selectionRequest !== workspaceSelectionRequestRef.current) {
+          void refresh()
+          return
+        }
+        const selectRequested =
+          action === "retry" &&
+          !next.startupWorkspaceWarning &&
+          selectionRequest === workspaceSelectionRequestRef.current
+        applyPayload(next, selectRequested ? warning.requestedPath : undefined)
+      } catch (error) {
+        if (mountedRef.current && selectionRequest === workspaceSelectionRequestRef.current)
+          setStartupWorkspaceError(errorMessage(error, lang))
+      } finally {
+        startupWorkspaceBusyRef.current = false
+        if (mountedRef.current) setStartupWorkspaceBusy(false)
+      }
+    },
+    [acceptStartupWorkspaceWarning, applyPayload, lang, refresh],
+  )
 
   const reveal = useCallback(
     (path: string) => {
@@ -1297,7 +1378,13 @@ function App() {
 
   const launchSession = useCallback(
     async (session?: SessionLaunchTarget, initialInput?: string) => {
-      if (!payload || launchingRef.current || isInstallingClientUpdate()) return
+      if (
+        !payload ||
+        startupWorkspaceWarningRef.current ||
+        launchingRef.current ||
+        isInstallingClientUpdate()
+      )
+        return
       const cwd = session?.cwd ?? selectedWorkspace?.path
       if (!cwd) {
         showError(t(lang, "requireProjectDir"))
@@ -2096,7 +2183,7 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return
+      if (event.defaultPrevented || event.isComposing || startupWorkspaceWarningRef.current) return
       if (
         incidentCenterOpen ||
         resourceHealthOpen ||
@@ -2189,6 +2276,7 @@ function App() {
 
   return (
     <div
+      inert={startupWorkspaceWarning !== null}
       className={`app-shell${payload.runtime.platform === "linux" ? " is-linux" : ""}`}
       style={{ fontFamily: payload.settings.appFontFamily }}
     >
@@ -2511,6 +2599,20 @@ function App() {
 
         <ToastContainer language={lang} onDismiss={dismissToast} toasts={toastState.items} />
       </div>
+      {startupWorkspaceWarning &&
+        createPortal(
+          <StartupWorkspaceRecovery
+            warning={startupWorkspaceWarning}
+            fallbackPath={selectedWorkspace?.path ?? null}
+            language={lang}
+            busy={startupWorkspaceBusy}
+            error={startupWorkspaceError}
+            onRetry={() => void resolveStartup("retry")}
+            onContinue={() => void resolveStartup("continue")}
+            onChoose={() => void openFolder()}
+          />,
+          document.body,
+        )}
     </div>
   )
 }

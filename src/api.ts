@@ -68,6 +68,13 @@ export function bootstrap(): Promise<BootstrapPayload> {
   return invokeBootstrap("bootstrap")
 }
 
+export function resolveStartupWorkspace(
+  requestedPath: string,
+  action: "retry" | "continue",
+): Promise<BootstrapPayload> {
+  return invokeBootstrap("resolve_startup_workspace", { requestedPath, action })
+}
+
 export function startWithDefaults(): Promise<BootstrapPayload> {
   return invokeBootstrap("start_with_defaults")
 }

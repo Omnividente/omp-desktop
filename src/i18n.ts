@@ -93,6 +93,14 @@ export const UI_TEXT = {
     updateDismissSession: "Не напоминать в этой сессии",
     loading: "Ищем проекты и сессии…",
     loadError: "Не удалось загрузить данные OMP",
+    startupWorkspaceTitle: "Не удалось открыть запрошенный проект",
+    startupWorkspaceDescription:
+      "Указанная при запуске папка недоступна. Выберите, где продолжить; история и существующие терминалы сохранены.",
+    startupWorkspaceRequested: "Запрошенный проект",
+    startupWorkspaceFallback: "Проект для продолжения",
+    startupWorkspaceEmpty: "Без выбранного проекта",
+    startupWorkspaceChoose: "Выбрать другую папку",
+    startupWorkspaceContinue: "Продолжить здесь",
     settingsRecovered:
       "Повреждённый settings.json сохранён в {path}; применены настройки по умолчанию.",
     settingsRecoveryTitle: "Настройки недоступны",
@@ -687,6 +695,14 @@ export const UI_TEXT = {
     updateDismissSession: "Do not remind me in this session",
     loading: "Searching for projects and sessions…",
     loadError: "Failed to load OMP data",
+    startupWorkspaceTitle: "Could not open the requested project",
+    startupWorkspaceDescription:
+      "The folder requested at launch is unavailable. Choose where to continue; history and existing terminals are preserved.",
+    startupWorkspaceRequested: "Requested project",
+    startupWorkspaceFallback: "Project to continue in",
+    startupWorkspaceEmpty: "No project selected",
+    startupWorkspaceChoose: "Choose another folder",
+    startupWorkspaceContinue: "Continue here",
     settingsRecovered:
       "The invalid settings.json was saved to {path}; default settings were applied.",
     settingsRecoveryTitle: "Settings unavailable",
