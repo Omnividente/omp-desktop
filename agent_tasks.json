@@ -256584,6 +256584,150 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-workspace-navigation-performance-25",
+      "title": "Investigate Workspace navigation and project switching: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-29T07:58:59Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "performance",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 25,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation and project switching performance using synthetic benchmarks on pinned commit 6a758209c42d1f35893f33bfb3fab3585de6e224. Measured rendering latency and interaction times for large inputs.",
+            "observations": [
+              {
+                "scenario": "Measured `ProjectRail` rendering with a synthetic input of 1000 workspaces.",
+                "evidence": "Executed `render(<ProjectRail .../>)` in a Vitest jsdom environment. `ProjectRail` maps over the entire `workspaces` array (e.g., `workspaces.map((workspace) => ...)`), instantiating a full set of React DOM elements for every entry without virtualization.",
+                "result": "Initial rendering of `ProjectRail` with 1000 workspaces took ~1950ms. Re-rendering upon switching the selected workspace took ~680ms."
+              },
+              {
+                "scenario": "Measured `SessionList` rendering and filtering with a synthetic input of 1000 sessions.",
+                "evidence": "Executed `render(<SessionList .../>)` in a Vitest jsdom environment. `SessionList` uses `useVirtualList` to render only a visible window of sessions.",
+                "result": "Initial rendering of `SessionList` with 1000 sessions took ~200ms. Re-rendering upon filtering the list to a single session took ~20ms. The bounded work successfully prevents extreme latency."
+              },
+              {
+                "scenario": "Measured `App` component workspace switching latency.",
+                "evidence": "Rendered `<App />` with a mock bootstrap payload containing 1000 workspaces and simulated a click event on the 1000th workspace item in `ProjectRail`.",
+                "result": "The `App` component is responsive to workspace switching (click handling within the mocked environment completes in a few milliseconds), but the underlying `ProjectRail` component's lack of virtualization limits the total application responsiveness when scaling to extreme numbers of workspaces."
+              },
+              {
+                "scenario": "Revisited prior owner decision regarding `ProjectRail` virtualization.",
+                "evidence": "Consulted the `AUTONOMOUS_DECISION_CONTEXT` which includes a rejection (context_id 5bae7b3af85b9060000b291387cd571ea8e7a9851acc5d7f11e6f7bc285b792f) for adding virtualization to `ProjectRail`. The rationale states: 'No demonstrated native bottleneck justifies workspace virtualization and its focus complexity; synthetic extreme-size benchmark alone is insufficient.'",
+                "result": "Confirmed that the observed `ProjectRail` latency at 1000 workspaces is known and deemed an acceptable tradeoff against the complexity of virtualized focus management, as real-world workspace counts do not reach this synthetic scale."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if pagination or a 'show more' incremental loading approach in `ProjectRail` could provide a simpler alternative to full virtualization that avoids focus complexity while still bounding rendering work.",
+              "Evaluate if the `SessionList` virtualization correctly handles dynamic row heights for sessions with very long names or deep nesting levels, and if layout thrashing occurs during rapid scrolling."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-27T20:40:40.688331Z",
+            "source": {
+              "activity_id": "sessions/2137841368406577484/activities/96edb193058147048696a9d323bbc3fe",
+              "report_sha256": "dcc0bce5cc751fddda41c0840eb7069fdb1643f379b68790928a4a10e1ef0935",
+              "activity_created_at": "2026-10-27T20:33:01.703660Z",
+              "session_id": "2137841368406577484",
+              "dispatch_key": "f8fff64441019685b2fa7f9b"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated workspace navigation behavior on failure to persist selected workspace. Confirmed that if saving a workspace selection to the backend fails (e.g. transient IO error), the frontend state is updated but the persistence failure prevents retrying the save without first switching to another workspace and back.",
+            "observations": [
+              {
+                "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+                "evidence": "Executed a test rendering <App /> with a mocked transient error in saveWorkspaceSelection. Switched workspace, observed saveWorkspaceSelection call and rejection. Clicked the same workspace again to retry.",
+                "result": "The state did not change, the useEffect was not triggered, and the retry was ignored."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T06:01:31.412739Z",
+            "source": {
+              "activity_id": "sessions/6764019455538001676/activities/e8667d23261e406a922dbfc1360e3c9e",
+              "report_sha256": "67a618c10b16c3e5b523c228567a61988e3d28fa95e4f2243df449386daaa886",
+              "activity_created_at": "2026-10-29T03:39:15.674185Z",
+              "session_id": "6764019455538001676",
+              "dispatch_key": "4d13daf14a6695e3db6a9cd3"
+            },
+            "deferred_findings": [
+              {
+                "title": "Enable retry for workspace selection persistence failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-da432379453e9196; not established as a duplicate. {\"detail\": \"Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.\", \"reproduction\": {\"actual\": \"No save attempt is made, state remains same\", \"expected\": \"Another save attempt is made\", \"steps\": [\"Simulate transient error on saveWorkspaceSelection\", \"Select a different workspace\", \"Click the newly selected workspace again\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Clicking the currently selected workspace after a persistence failure should trigger another save attempt."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated workspace navigation and project switching failure recovery. Confirmed that if saving a workspace selection to the backend fails (e.g., transient error), the React state is updated but the failure prevents retrying the save without switching to another workspace first, due to the dependency array in useEffect. Tested a solution where the previous selected workspace path is used as a fallback or selecting the current workspace again triggers a save, but a simpler task formulation focuses on addressing the core bug.",
+            "observations": [
+              {
+                "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+                "evidence": "Observed in src/App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects, the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry the operation, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+                "result": "A failed workspace selection persistence cannot be retried simply by clicking the same workspace again; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T07:58:59.784110Z",
+            "source": {
+              "activity_id": "sessions/9289622408124274165/activities/4eb5d12f3e3e4a3b99fb074383b8feaf",
+              "report_sha256": "fbe01d198b2f03ad028bf935200654744521c97686417592bf77ac2e05ae8546",
+              "activity_created_at": "2026-10-29T07:50:03.151413Z",
+              "session_id": "9289622408124274165",
+              "dispatch_key": "6778bf4df90bfe6d0e640ea6"
+            },
+            "deferred_findings": [
+              {
+                "title": "Enable retry for workspace selection persistence failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-da432379453e9196; not established as a duplicate. {\"detail\": \"Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.\", \"reproduction\": {\"actual\": \"No save attempt is made, state remains same\", \"expected\": \"Another save attempt is made\", \"steps\": [\"Simulate transient error on saveWorkspaceSelection\", \"Select a workspace\", \"Click the selected workspace again\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Clicking the currently selected workspace after a persistence failure should trigger another save attempt."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
