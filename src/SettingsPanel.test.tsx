@@ -1597,3 +1597,297 @@ describe("SettingsPanel keyboard lifecycle", () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
+
+describe("unsaved dismissal guard", () => {
+  let host: HTMLDivElement
+  let root: Root
+  let closed: Mock
+  let saved: Mock
+  async function mount(nextSettings = settings) {
+    await act(async () =>
+      root.render(
+        <SettingsPanel
+          settings={nextSettings}
+          runtime={runtime}
+          initialOmpConfig={ompConfig}
+          onClose={closed}
+          onSaved={saved}
+          onError={vi.fn()}
+        />,
+      ),
+    )
+  }
+  function edit(selector = "#omp-executable", value = "synthetic-custom-omp") {
+    act(() => {
+      const input = host.querySelector<HTMLInputElement>(selector)!
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+  function press(target: Element, key: string, extra: KeyboardEventInit = {}) {
+    act(() =>
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          ...extra,
+        }),
+      ),
+    )
+  }
+  const dialog = () => host.querySelector<HTMLElement>('[role="alertdialog"]')
+  const input = () => host.querySelector<HTMLInputElement>("#omp-executable")!
+  async function dismiss(route: string) {
+    await act(async () => {
+      if (route === "backdrop")
+        host
+          .querySelector(".settings-backdrop")!
+          .dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+      if (route === "header")
+        host.querySelector<HTMLButtonElement>(".settings-header button")!.click()
+      if (route === "escape")
+        input().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+    })
+  }
+  beforeEach(async () => {
+    confirmMock.mockReset()
+    loadOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
+    saveSettingsBundleMock.mockReset()
+    host = document.createElement("div")
+    document.body.append(host)
+    root = createRoot(host)
+    closed = vi.fn(() => root.render(null))
+    saved = vi.fn()
+    await mount()
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+  })
+  it.each([false, true])(
+    "does not treat an added key name as unsaved; next new name=%s",
+    async (newName) => {
+      act(() => host.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      edit(".provider-add-row input:first-child", "CUSTOM_SYNTHETIC_KEY")
+      edit(".provider-add-row input[type=password]", "synthetic-value")
+      act(() => host.querySelector<HTMLButtonElement>(".provider-add-row button")!.click())
+      const nextSettings = { ...settings, providerEnvKeys: ["CUSTOM_SYNTHETIC_KEY"] }
+      saveSettingsBundleMock.mockResolvedValue({
+        bootstrap: {
+          settings: nextSettings,
+          runtime,
+          workspaces: [],
+          sessions: [],
+          sessionWarnings: [],
+        },
+        ompConfig,
+      })
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+      )
+      await mount(nextSettings)
+      expect(host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+        true,
+      )
+      if (newName) edit(".provider-add-row input:first-child", "ANOTHER_SYNTHETIC_KEY")
+      await dismiss("header")
+      if (newName) {
+        expect(dialog()).not.toBeNull()
+        expect(closed).not.toHaveBeenCalled()
+      } else {
+        expect(dialog()).toBeNull()
+        expect(closed).toHaveBeenCalledTimes(1)
+      }
+    },
+  )
+  it.each(["discard", "keep-cancel", "keep-discard"] as const)(
+    "restores the original external opener after %s",
+    async (route) => {
+      act(() => root.unmount())
+      const opener = document.createElement("button")
+      document.body.append(opener)
+      opener.focus()
+      root = createRoot(host)
+      await mount()
+      edit()
+      await dismiss("escape")
+      if (route !== "discard") {
+        await act(async () => dialog()!.querySelector<HTMLButtonElement>(".primary")!.click())
+        if (route === "keep-cancel") {
+          await act(async () =>
+            host
+              .querySelector<HTMLButtonElement>(
+                '.settings-panel[role="dialog"] .settings-actions .secondary',
+              )!
+              .click(),
+          )
+        } else {
+          await dismiss("escape")
+        }
+      }
+      if (route !== "keep-cancel") {
+        await act(async () => dialog()!.querySelector<HTMLButtonElement>(".secondary")!.click())
+      }
+      expect(document.activeElement).toBe(opener)
+      opener.remove()
+    },
+  )
+  for (const route of ["backdrop", "header", "escape"]) {
+    it(`keeps dirty draft after accidental ${route} until explicit discard`, async () => {
+      edit()
+      input().focus()
+      await dismiss(route)
+      expect(closed).not.toHaveBeenCalled()
+      expect(dialog()).not.toBeNull()
+      expect(document.activeElement?.textContent).toBe("Продолжить редактирование")
+      expect(host.querySelector<HTMLElement>('.settings-panel[role="dialog"]')!.style.display).toBe(
+        "none",
+      )
+      expect(host.querySelector('.settings-panel[role="dialog"]')?.hasAttribute("inert")).toBe(true)
+      expect(confirmMock).not.toHaveBeenCalled()
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".primary")!.click())
+      expect(dialog()).toBeNull()
+      expect(input().value).toBe("synthetic-custom-omp")
+      expect(document.activeElement).toBe(input())
+      await dismiss(route)
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".secondary")!.click())
+      expect(closed).toHaveBeenCalledTimes(1)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      await mount()
+      expect(input().value).toBe(settings.ompExecutable ?? "")
+    })
+  }
+  it("uses Escape/backdrop as Keep editing and traps confirmation focus", async () => {
+    edit()
+    input().focus()
+    await dismiss("escape")
+    const keep = dialog()!.querySelector<HTMLButtonElement>(".primary")!
+    const discard = dialog()!.querySelector<HTMLButtonElement>(".secondary")!
+    press(keep, "Tab", { shiftKey: true })
+    expect(document.activeElement).toBe(discard)
+    press(discard, "Tab")
+    expect(document.activeElement).toBe(keep)
+    press(keep, "Escape")
+    expect(dialog()).toBeNull()
+    expect(closed).not.toHaveBeenCalled()
+    await dismiss("header")
+    await act(async () =>
+      dialog()!.parentElement!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })),
+    )
+    expect(dialog()).toBeNull()
+    expect(input().value).toBe("synthetic-custom-omp")
+  })
+  it("leaves section navigation and nested select/IME Escape owned by their controls", async () => {
+    edit()
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-behavior")!.click())
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+    expect(input().value).toBe("synthetic-custom-omp")
+    press(host.querySelector("select")!, "Escape")
+    press(input(), "Escape", { isComposing: true })
+    press(input(), "Escape", { keyCode: 229 })
+    expect(dialog()).toBeNull()
+    expect(closed).not.toHaveBeenCalled()
+  })
+  it("closes clean and harmless normalized whitespace without confirmation", async () => {
+    edit("#omp-executable", "  ")
+    await dismiss("header")
+    expect(closed).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBeNull()
+  })
+  it("preserves explicit Cancel as intentional discard", async () => {
+    edit()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .secondary")!.click(),
+    )
+    expect(closed).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBeNull()
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+  it("protects unadded provider key input without enabling or sending Save", async () => {
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    edit(".provider-add-row input[type=password]", "synthetic-only-key")
+    expect(host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(true)
+    await dismiss("header")
+    expect(dialog()).not.toBeNull()
+    expect(closed).not.toHaveBeenCalled()
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(dialog()!.textContent).not.toContain("synthetic-only-key")
+  })
+  it("protects a custom key name draft before Add", async () => {
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    edit(".provider-add-row input:first-child", "CUSTOM_SYNTHETIC_KEY")
+    await dismiss("header")
+    expect(dialog()).not.toBeNull()
+  })
+  it("blocks accidental close during pending Save without queuing dismissal", async () => {
+    let resolve!: (v: SettingsSavePayload) => void
+    saveSettingsBundleMock.mockImplementation(
+      () =>
+        new Promise<SettingsSavePayload>((r) => {
+          resolve = r
+        }),
+    )
+    edit()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    for (const route of ["backdrop", "header", "escape"]) await dismiss(route)
+    expect(closed).not.toHaveBeenCalled()
+    expect(dialog()).toBeNull()
+    expect(host.textContent).toContain("Сохраняем…")
+    await act(async () =>
+      resolve({
+        bootstrap: {
+          settings: { ...settings, ompExecutable: "synthetic-custom-omp" },
+          runtime,
+          workspaces: [],
+          sessions: [],
+          sessionWarnings: [],
+        },
+        ompConfig,
+      }),
+    )
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(closed).not.toHaveBeenCalled()
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+  })
+  it("still permits explicit Cancel during a never-settling Save and delivers later ACK", async () => {
+    let resolve!: (v: SettingsSavePayload) => void
+    saveSettingsBundleMock.mockImplementation(
+      () =>
+        new Promise<SettingsSavePayload>((r) => {
+          resolve = r
+        }),
+    )
+    edit()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .secondary")!.click(),
+    )
+    expect(closed).toHaveBeenCalledTimes(1)
+    await act(async () =>
+      resolve({
+        bootstrap: {
+          settings,
+          runtime,
+          workspaces: [],
+          sessions: [],
+          sessionWarnings: [],
+        },
+        ompConfig,
+      }),
+    )
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+  })
+})
