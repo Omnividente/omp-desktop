@@ -13,12 +13,15 @@ import { t } from "./i18n"
 import { SessionRow } from "./SessionRow"
 import { useVirtualList } from "./useVirtualList"
 import {
+  type FlattenedSessionTreeItem,
   buildSessionTree,
   filterSessionTree,
   flattenSessionTree,
   sessionGroupExpansionIds,
   tabMatchesSession,
 } from "./uiUtils"
+
+const sessionItemKey = (item: FlattenedSessionTreeItem): string => item.session.id
 
 export interface SessionListProps {
   lang: Lang
@@ -191,7 +194,7 @@ export function SessionList({
   const { virtualItems, totalHeight } = useVirtualList(flattenedSessions, listRef, {
     estimatedRowHeight: 57,
     overscan: 8,
-    getItemKey: (item) => item.session.id,
+    getItemKey: sessionItemKey,
   })
   const lastVirtualItem = virtualItems.at(-1)
 
