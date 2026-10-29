@@ -250476,7 +250476,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-29T00:14:32.341903Z"
+        "observed_at": "2026-10-29T00:14:32.341903Z",
+        "released_attempt_ref": "autonomous/attempt-6dd168cdd1efaa1b4d25047e"
       },
       "research_result": {
         "summary": "Investigated Runtime incidents and resource health: Failure recovery and persistence. The prompt specifically noted that the canonical issue regarding enforceIncidentBound dropping sole unresolved errors under fallback saturation was already fixed by PR 95. Investigated other aspects of runtime incidents, runtime events, and resource health. Using a TypeScript execution (test_runtimeEvents.ts), tested suppressTransientProxyError's suppression state and confirmed that transient proxy errors are correctly suppressed exactly once, and a successful activity resets the state correctly. Performance tests on redact_text in diagnostics.rs confirm that there is overhead without a fast path (642ms vs 146ms for 100k lines), but earlier notes state this does not constitute an event-loop stall in practice and risks leaking secrets. Tested formatBytes formatting logic and confirmed its accuracy in resourceHealth.ts. Found no new anomalies and given historical context, I am submitting the valid read-only research state.",
