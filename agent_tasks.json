@@ -263927,12 +263927,14 @@
               ]
             }
           ]
-        }
+        },
+        "session_state": "QUEUED",
+        "observed_at": "2026-10-30T03:39:43.255028Z"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T03:40:15.747076Z",
+    "last_poll_at": "2026-10-30T03:44:16.815097Z",
     "last_tick_at": "2026-10-30T03:31:41.377085Z",
     "run_id": "40997692487",
     "owner_recovery_requests": [
