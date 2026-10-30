@@ -266545,7 +266545,8 @@
             "activity_created_at": "2026-10-30T08:46:57.853464Z",
             "activity_sha256": "964da144e5a2fb9ce0561249c3591144ee358dd44aece7672e21a2b4b4aaf00b"
           }
-        }
+        },
+        "released_attempt_ref": "autonomous/attempt-4bc616b66983cf1467094b88"
       },
       "research_result": {
         "summary": "Investigated Transcript rendering performance and discovered a significant bottleneck in TranscriptModal.tsx where the full Markdown AST is eagerly evaluated for all visible entries (e.g., thousands of messages) to provide plain text for TranscriptSearch, blocking the main thread for over 300ms on 5,000 items.",
