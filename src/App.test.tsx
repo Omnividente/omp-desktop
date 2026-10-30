@@ -11,6 +11,7 @@ import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
 import { t } from "./i18n"
 import type {
   BootstrapPayload,
+  SettingsSavePayload,
   ImportBatchPayload,
   ImportSessionRequest,
   OmpConfigSnapshot,
@@ -129,6 +130,7 @@ const bootstrap: BootstrapPayload = {
     proxyProviders: [],
     railMode: "expanded",
     language: "ru",
+    desktopTheme: "dark",
     appFontFamily: "Inter",
     appFontSize: 16,
     terminalFontFamily: "monospace",
@@ -428,6 +430,126 @@ describe("App lifecycle serialization", () => {
     })
     container.remove()
     vi.restoreAllMocks()
+  })
+
+  function chooseDesktopTheme(value: "dark" | "light" | "system") {
+    act(() => {
+      const select = element<HTMLSelectElement>("#desktop-theme-select")
+      select.value = value
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+  }
+
+  it("applies the saved Desktop theme only after successful Save, without terminal commands", async () => {
+    const pending = deferred<SettingsSavePayload>()
+    vi.mocked(api.saveSettingsBundle).mockReturnValue(pending.promise)
+    await act(async () => root.render(<App />))
+    expect(document.documentElement.dataset.desktopTheme).toBe("dark")
+    await act(async () => element(".runtime-pill").click())
+    chooseDesktopTheme("light")
+    expect(document.documentElement.dataset.desktopTheme).toBe("dark")
+    await act(async () => element(".settings-actions .primary").click())
+    expect(document.documentElement.dataset.desktopTheme).toBe("dark")
+    expect(api.saveSettingsBundle).toHaveBeenCalledWith({
+      update: {
+        ompExecutable: null,
+        sessionRoot: null,
+        language: "ru",
+        desktopTheme: "light",
+        appFontFamily: "Inter",
+        appFontSize: 16,
+        terminalFontFamily: "monospace",
+        terminalFontSize: 14,
+      },
+      ompConfig: null,
+    })
+    await act(async () =>
+      pending.resolve({
+        bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, desktopTheme: "light" } },
+        ompConfig: null,
+      }),
+    )
+    expect(document.documentElement.dataset.desktopTheme).toBe("light")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(api.switchTerminal).not.toHaveBeenCalled()
+    expect(api.setTerminalPrimaryProviderPin).not.toHaveBeenCalled()
+  })
+
+  it("keeps the applied theme after failed Save and discards a cancelled draft", async () => {
+    vi.mocked(api.saveSettingsBundle).mockRejectedValue(new Error("Synthetic save failure"))
+    await act(async () => root.render(<App />))
+    await act(async () => element(".runtime-pill").click())
+    chooseDesktopTheme("light")
+    await act(async () => element(".settings-actions .primary").click())
+    expect(container.querySelector(".settings-save-error")?.textContent).toContain(
+      "Synthetic save failure",
+    )
+    expect(document.documentElement.dataset.desktopTheme).toBe("dark")
+    await act(async () => element(".settings-actions .secondary").click())
+    await act(async () => element(".runtime-pill").click())
+    expect(element<HTMLSelectElement>("#desktop-theme-select").value).toBe("dark")
+    expect(api.saveSettingsBundle).toHaveBeenCalledTimes(1)
+  })
+
+  it("OS changes update System appearance without settings or terminal API writes", async () => {
+    let dark = false
+    const listeners = new Set<() => void>()
+    const query = {
+      get matches() {
+        return dark
+      },
+      addEventListener: (_name: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_name: string, listener: () => void) => listeners.delete(listener),
+    }
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => query),
+    )
+    try {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, desktopTheme: "system" },
+      })
+      await act(async () => root.render(<App />))
+      expect(document.documentElement.dataset.desktopTheme).toBe("light")
+      const invokeCount = invokeMock.mock.calls.length
+      const configCount = vi.mocked(api.loadOmpConfig).mock.calls.length
+      for (const value of [true, false, true]) {
+        act(() => {
+          dark = value
+          listeners.forEach((listener) => listener())
+        })
+        expect(document.documentElement.dataset.desktopTheme).toBe(value ? "dark" : "light")
+      }
+      expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(api.switchTerminal).not.toHaveBeenCalled()
+      expect(invokeMock).toHaveBeenCalledTimes(invokeCount)
+      expect(api.loadOmpConfig).toHaveBeenCalledTimes(configCount)
+      await act(async () => element(".runtime-pill").click())
+      expect(element<HTMLSelectElement>("#desktop-theme-select").value).toBe("system")
+      expect(element<HTMLButtonElement>(".settings-actions .primary").disabled).toBe(true)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("loads the persisted Desktop preference on a new App mount", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, desktopTheme: "light", language: "en" },
+    })
+    await act(async () => root.render(<App />))
+    expect(document.documentElement.dataset.desktopTheme).toBe("light")
+    await act(async () => element(".runtime-pill").click())
+    expect(element<HTMLSelectElement>("#desktop-theme-select").value).toBe("light")
+    expect(container.querySelector('label[for="desktop-theme-select"]')?.textContent).toBe(
+      "Interface theme",
+    )
+    expect(container.querySelector("#desktop-theme-help")?.textContent).toContain(
+      "Terminal appearance is configured separately",
+    )
+    expect(api.saveSettingsBundle).not.toHaveBeenCalled()
   })
 
   it("restores the selected workspace after remount without opening a terminal", async () => {

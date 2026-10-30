@@ -22,6 +22,7 @@ import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
 import type {
   AppSettings,
+  DesktopTheme,
   SettingsSavePayload,
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
@@ -267,6 +268,7 @@ export function SettingsPanel({
   const [executable, setExecutable] = useState(settings.ompExecutable ?? "")
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
+  const [desktopTheme, setDesktopTheme] = useState<DesktopTheme>(settings.desktopTheme ?? "dark")
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
@@ -697,6 +699,7 @@ export function SettingsPanel({
       (executable.trim() || null) !== settings.ompExecutable ||
       (sessionRoot.trim() || null) !== settings.sessionRoot ||
       language !== settings.language ||
+      desktopTheme !== (settings.desktopTheme ?? "dark") ||
       appFontFamily !== settings.appFontFamily ||
       appFontSize !== settings.appFontSize ||
       terminalFontFamily !== settings.terminalFontFamily ||
@@ -754,6 +757,7 @@ export function SettingsPanel({
     agentChanges,
     customProviderStarted,
     disabledProviders,
+    desktopTheme,
     appFontFamily,
     appFontSize,
     autoResume,
@@ -820,6 +824,7 @@ export function SettingsPanel({
           ompExecutable: executable.trim() || null,
           sessionRoot: sessionRoot.trim() || null,
           language,
+          desktopTheme,
           appFontFamily,
           appFontSize,
           terminalFontFamily,
@@ -1177,6 +1182,26 @@ export function SettingsPanel({
                       <Icon className="select-chevron" name="chevron" size={14} />
                     </div>
                     <p className="field-help">{t(language, "languageHelp")}</p>
+
+                    <label className="field-label" htmlFor="desktop-theme-select">
+                      {t(language, "desktopTheme")}
+                    </label>
+                    <div className="path-field select-field">
+                      <select
+                        id="desktop-theme-select"
+                        aria-describedby="desktop-theme-help"
+                        onChange={(event) => setDesktopTheme(event.target.value as DesktopTheme)}
+                        value={desktopTheme}
+                      >
+                        <option value="dark">{t(language, "desktopThemeDark")}</option>
+                        <option value="light">{t(language, "desktopThemeLight")}</option>
+                        <option value="system">{t(language, "desktopThemeSystem")}</option>
+                      </select>
+                      <Icon className="select-chevron" name="chevron" size={14} />
+                    </div>
+                    <p className="field-help" id="desktop-theme-help">
+                      {t(language, "desktopThemeHelp")}
+                    </p>
 
                     <label className="field-label" htmlFor="app-font-family">
                       {t(language, "appFontFamily")}

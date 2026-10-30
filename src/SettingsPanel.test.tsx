@@ -41,6 +41,7 @@ const settings: AppSettings = {
   proxyProviders: [],
   railMode: "expanded",
   language: "ru",
+  desktopTheme: "dark",
   appFontFamily: "Inter",
   appFontSize: 16,
   terminalFontFamily: "Cascadia Mono",

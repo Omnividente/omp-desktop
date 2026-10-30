@@ -1,5 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useDesktopTheme } from "./useDesktopTheme"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
@@ -330,6 +331,8 @@ function App() {
     setOmpConfigError(null)
     setOmpConfigLoading(false)
   }, [])
+
+  useDesktopTheme(payload?.settings.desktopTheme ?? "dark")
 
   const appFontSize = payload?.settings.appFontSize
   useEffect(() => {
