@@ -264041,7 +264041,7 @@
       "id": "research-sessions-persistence-reliability-26",
       "title": "Investigate Session lifecycle, import and persistence: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -264291,16 +264291,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "15903600011365572270",
         "dispatch_key": "8d96c8b70092a9c47fda4701",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-8d96c8b70092a9c47fda4701",
         "started_at": "2026-10-30T04:01:19.971733Z",
-        "finished_at": "",
+        "finished_at": "2026-10-30T04:23:32.224378Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -264473,13 +264473,36 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-30T04:14:32.806923Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-30T04:23:32.224378Z"
+      },
+      "research_result": {
+        "summary": "Investigated session deletion lease lock cleanup and persistence reliability.",
+        "observations": [
+          {
+            "scenario": "Session deletion and lease cleanup",
+            "evidence": "Reviewed `delete_session` in `src-tauri/src/sessions.rs` and the related test `delete_session_removes_jsonl_and_artifacts_but_rejects_external_files`.",
+            "result": "Observed that `delete_session` does not manually remove the `.lease` file, and confirmed via the owner triage decision (`4d96189dd071255f3dc7cd0c3f45c3a34764aef99e13defcf3f8a676b2a23971`) that this is an intentional safety feature, as sidecars do not participate in JSONL scanning and the stable lock inode protects concurrent owners."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if renaming sessions properly preserves their lease files without conflicts."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-30T04:23:32.224378Z",
+        "source": {
+          "activity_id": "sessions/15903600011365572270/activities/a3642f9aef4c4c588bce8c0b2b9855c0",
+          "report_sha256": "4c3c6dc70672ee52366b1c71427cbd378afa2ba86c17175b59c29b80504d7c68",
+          "activity_created_at": "2026-10-30T04:16:53.357562Z",
+          "session_id": "15903600011365572270",
+          "dispatch_key": "8d96c8b70092a9c47fda4701"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T04:14:57.964680Z",
+    "last_poll_at": "2026-10-30T04:24:10.137181Z",
     "last_tick_at": "2026-10-30T04:15:13.584250Z",
     "run_id": "41001689309",
     "owner_recovery_requests": [
