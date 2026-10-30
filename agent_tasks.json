@@ -979109,6 +979109,29 @@
         "before_state_sha": "345ea7b59a977a558bfdacf77bd2f18a88c92228",
         "before_digest": "86653a51673681c0bb6c99e2336c1f313a8f773e0061f74ce0b605fcd4b00029",
         "event_id": "6a57124f5b6fa7c16562e3df76fb6ae64909613155ae6aa6d026f44856320687"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-30T01:38:16.251641Z",
+        "decision_id": "5b66cd053bab3b0459834098a0cf506173c65595c4584f2f4b525ebf08704083",
+        "executor_claim_id": "3a24d30a53b24f0fd68989dc9c8ffead269c6f8eb97c5ec4002dc26959260242",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "f321f5b6b0f37fe6eea86e9aed9f4c2503130517",
+          "after_state_sha": "8e9a332137d5efb95a61a3618cfd245d884de33a",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-performance-25",
+              "session_id": "8995686417569630072",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-30T01:36:55Z"
+            }
+          ],
+          "before_digest": "86653a51673681c0bb6c99e2336c1f313a8f773e0061f74ce0b605fcd4b00029",
+          "after_digest": "86653a51673681c0bb6c99e2336c1f313a8f773e0061f74ce0b605fcd4b00029"
+        },
+        "receipt_id": "1daf1ed169f669fd3742e9fe1e0d11205c894652523c656a717a397cf49088e7",
+        "event_id": "370e098169e3380e906f31d6ff823931b3347952139714273ddcc7f21b64a1b0"
       }
     ]
   }
