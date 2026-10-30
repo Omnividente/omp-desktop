@@ -969933,6 +969933,16 @@
           "actor": "Omnividente"
         },
         "event_id": "2203b7d4db1cc4736fe6f8f437509122f401aa55f3b0dfe6a083692087f9d3db"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T00:26:24.866784Z",
+        "decision_id": "9ecab16f815cb2ef3ead34c77a8a8b45ed5bedb5d89d483416d4911f9546c314",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T00:26:22.827147Z"
+        },
+        "event_id": "ac3f34d606f4cc695c99b2d3501ec33de0eb1a0092721431e39a37cd17ac9b59"
       }
     ]
   }
