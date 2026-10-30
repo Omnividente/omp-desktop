@@ -665,6 +665,174 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelector(".codex-import-panel")).toBeNull()
   })
 
+  async function openImportFeedbackFixture(count = 4) {
+    const sources = Array.from({ length: count }, (_, index) => `C:/fixture/codex/${index}.jsonl`)
+    const batches: ImportSessionRequest[][] = []
+    let outcome: (batch: ImportSessionRequest[]) => Promise<ImportBatchPayload> = async (
+      batch,
+    ) => ({
+      bootstrap,
+      items: batch.map((request, index) => ({
+        sourcePath: request.path,
+        destinationPath: index === 0 ? "C:/fixture/imported.jsonl" : null,
+        status: index === 0 ? ("copied" as const) : ("failed" as const),
+        message: index === 0 ? null : `Reason for ${request.path}: permission denied`,
+      })),
+    })
+    invokeMock.mockImplementation(
+      (command: string, args?: { requests?: ImportSessionRequest[] }) => {
+        if (command === "list_codex_sessions")
+          return Promise.resolve(
+            sources.map((filePath, index) => ({
+              id: `codex-feedback-${index}`,
+              title: `Feedback ${index}`,
+              cwd: "C:/fixture/project",
+              filePath,
+              createdAt: "2026-10-28T00:00:00.000Z",
+              updatedAt: index,
+              model: null,
+              preview: "Fixture",
+            })),
+          )
+        if (command === "import_sessions") {
+          batches.push(args!.requests!)
+          return outcome(args!.requests!)
+        }
+        throw new Error(`Unexpected feedback command: ${command}`)
+      },
+    )
+    await act(async () => root.render(<App />))
+    await act(async () => element('[title="Импорт из Codex"]').click())
+    await act(async () => element(".codex-import-panel .settings-actions .secondary").click())
+    return {
+      sources,
+      batches,
+      setOutcome: (next: typeof outcome) => {
+        outcome = next
+      },
+    }
+  }
+
+  it("keeps per-file Codex import failure feedback after toast expiry without replaying successes", async () => {
+    const fixture = await openImportFeedbackFixture(5)
+    vi.useFakeTimers()
+    try {
+      await act(async () => element(".codex-import-panel .primary").click())
+      expect(container.querySelectorAll(".codex-import-error")).toHaveLength(4)
+      expect(element(".codex-import-panel").textContent).toContain(fixture.sources[4])
+      await act(async () => vi.advanceTimersByTimeAsync(5501))
+      expect(container.querySelector(".error-toast")).toBeNull()
+      expect(container.querySelectorAll(".codex-import-error")).toHaveLength(4)
+      fixture.setOutcome(async (batch) => ({
+        bootstrap,
+        items: batch.map((request) => ({
+          sourcePath: request.path,
+          destinationPath: "C:/fixture/copied.jsonl",
+          status: "copied",
+          message: null,
+        })),
+      }))
+      await act(async () => element(".codex-import-panel .primary").click())
+      expect(fixture.batches[1].map((request) => request.path)).toEqual(fixture.sources.slice(1))
+      expect(container.querySelector(".codex-import-panel")).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("replaces Codex failure feedback for a retry but preserves unattempted failures", async () => {
+    const fixture = await openImportFeedbackFixture(3)
+    await act(async () => element(".codex-import-panel .primary").click())
+    const inputs = () => [...container.querySelectorAll<HTMLInputElement>(".codex-item input")]
+    await act(async () => inputs()[2].click())
+    const pending = deferred<ImportBatchPayload>()
+    fixture.setOutcome(() => pending.promise)
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(element(".codex-import-panel").textContent).not.toContain(
+      `Reason for ${fixture.sources[1]}`,
+    )
+    expect(element(".codex-import-panel").textContent).toContain(`Reason for ${fixture.sources[2]}`)
+    await act(async () =>
+      pending.resolve({
+        bootstrap,
+        items: [
+          {
+            sourcePath: fixture.sources[1],
+            destinationPath: null,
+            status: "failed",
+            message: "New failure after retry",
+          },
+        ],
+      }),
+    )
+    expect(element(".codex-import-panel").textContent).toContain("New failure after retry")
+    expect(element(".codex-import-panel").textContent).toContain(`Reason for ${fixture.sources[2]}`)
+  })
+
+  it("clears old Codex failure feedback when closing and reopening the import view", async () => {
+    await openImportFeedbackFixture(2)
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(container.querySelectorAll(".codex-import-error")).toHaveLength(1)
+    await act(async () => element(".codex-import-panel .settings-header button").click())
+    await act(async () => element('[title="Импорт из Codex"]').click())
+    expect(container.querySelectorAll(".codex-import-error")).toHaveLength(0)
+  })
+
+  it.each(["failed", "copied"] as const)(
+    "does not apply late Codex %s feedback to another workspace",
+    async (status) => {
+      const fixture = await openImportFeedbackFixture(2)
+      const pending = deferred<ImportBatchPayload>()
+      fixture.setOutcome(() => pending.promise)
+      await act(async () => element(".codex-import-panel .primary").click())
+      const another = workspacePayload("Another")
+      vi.mocked(api.addWorkspace).mockResolvedValue(another)
+      await act(async () => requestWorkspace("Another"))
+      expect(element(".project-item.is-active").textContent).toContain("Another")
+      await act(async () =>
+        pending.resolve({
+          bootstrap: another,
+          items: fixture.sources.map((sourcePath) => ({
+            sourcePath,
+            destinationPath: status === "copied" ? "C:/fixture/copied.jsonl" : null,
+            status,
+            message: status === "failed" ? "Old project import failure" : null,
+          })),
+        }),
+      )
+      expect(element(".codex-import-panel").textContent).not.toContain("Old project import failure")
+      expect(container.querySelectorAll(".codex-import-error")).toHaveLength(0)
+      expect(
+        [...container.querySelectorAll<HTMLInputElement>(".codex-item input")].every(
+          (input) => input.checked,
+        ),
+      ).toBe(true)
+    },
+  )
+
+  it("renders bounded Codex failure feedback as inert text and labels the affected checkbox", async () => {
+    const fixture = await openImportFeedbackFixture(1)
+    fixture.setOutcome(async (batch) => ({
+      bootstrap,
+      items: batch.map((request) => ({
+        sourcePath: request.path,
+        destinationPath: null,
+        status: "failed",
+        message: '<script>alert("fixture")</script>' + "x".repeat(4000),
+      })),
+    }))
+    await act(async () => element(".codex-import-panel .primary").click())
+    const failure = element(".codex-import-error")
+    expect(failure.textContent).toHaveLength(2049)
+    expect(failure.textContent).toContain('<script>alert("fixture")</script>')
+    expect(failure.querySelector("script")).toBeNull()
+    expect(
+      document.getElementById(element(".codex-item input").getAttribute("aria-describedby")!)
+        ?.textContent,
+    ).toBe(failure.textContent)
+    expect(element(".codex-import-panel").querySelectorAll("[role=alert]")).toHaveLength(1)
+  })
+
   it("closes a transcript when external refresh removes its session", async () => {
     vi.mocked(api.bootstrap)
       .mockResolvedValueOnce(bootstrap)

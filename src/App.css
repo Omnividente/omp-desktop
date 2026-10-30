@@ -5644,3 +5644,57 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
     transition-duration: 0.01ms !important;
   }
 }
+
+.codex-import-error {
+  display: block;
+  margin-top: 6px;
+  color: #f5a6a6;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.codex-import-failures {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(160px, 20vh);
+  margin-bottom: 8px;
+  padding: 8px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #8f5151;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.codex-import-failures:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.codex-import-failures ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.codex-import-failures li + li {
+  margin-top: 10px;
+}
+
+.codex-import-failures small {
+  display: block;
+}
+
+.codex-import-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.codex-import-pages [aria-disabled="true"] {
+  opacity: 0.6;
+}
