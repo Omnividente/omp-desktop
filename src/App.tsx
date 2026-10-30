@@ -42,6 +42,7 @@ import {
   writeTerminal,
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
+import { importFailureMessage } from "./importFailure"
 import { IncidentCenter } from "./IncidentCenter"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
@@ -1508,7 +1509,7 @@ function App() {
       }
       showNotice(summarizeImport(result.items, lang))
       if (failures.length > 0) {
-        showError(failures.map((item) => item.message ?? item.sourcePath).join("\n"))
+        showError(failures.map((item) => importFailureMessage(item, lang)).join("\n"))
       } else {
         setCodexOpen(false)
       }
@@ -1567,7 +1568,7 @@ function App() {
       const failure = result.items.find((item) => item.status === "failed")
       showNotice(summarizeImport(result.items, lang))
       if (failure) {
-        showError(failure.message ?? failure.sourcePath)
+        showError(importFailureMessage(failure, lang))
       } else {
         setPendingOmpImportPath(null)
       }

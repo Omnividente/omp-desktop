@@ -1352,4 +1352,125 @@ describe("App lifecycle serialization", () => {
     expect(element<HTMLSelectElement>(".session-model-select").value).toBe("provider/Saved")
     expect(container.textContent).not.toContain("Stale App load failed")
   })
+
+  it.each(["en", "ru"] as const)(
+    "localizes OMP import failure without losing raw diagnostic in %s UI",
+    async (language) => {
+      const payload = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        runtime: { ...bootstrap.runtime, language },
+      }
+      const path = "C:/fixture/active session.jsonl"
+      const raw = `[session_lease_active] Сессия используется активным терминалом: ${path} <img src=x onerror=alert(1)>`
+      vi.mocked(api.bootstrap).mockResolvedValue(payload)
+      vi.mocked(open).mockResolvedValue(path)
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "import_sessions")
+          return Promise.resolve({
+            bootstrap: payload,
+            items: [{ sourcePath: path, destinationPath: null, status: "failed", message: raw }],
+          } satisfies ImportBatchPayload)
+        throw new Error(`Unexpected research command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(`[title="${t(language, "importSession")}"]`).click())
+      await act(async () => element('[aria-labelledby="omp-import-title"] .primary').click())
+      expect(container.textContent).toContain(raw)
+      expect(container.textContent).toContain(
+        language === "ru"
+          ? "Невозможно импортировать: сессия используется"
+          : "Cannot import: the session is in use",
+      )
+      expect(container.querySelector('[aria-labelledby="omp-import-title"]')).not.toBeNull()
+      expect(container.querySelector(".error-toast img")).toBeNull()
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "import_sessions"),
+      ).toHaveLength(1)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it("retains long import diagnostics in the bounded toast title", async () => {
+    const language = "en" as const
+    const payload = {
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language },
+      runtime: { ...bootstrap.runtime, language },
+    }
+    const path = "C:/fixture/" + "x".repeat(300) + "/active session.jsonl"
+    const raw = `[session_lease_active] Сессия используется активным терминалом: ${path} <img src=x onerror=alert(1)>`
+    vi.mocked(api.bootstrap).mockResolvedValue(payload)
+    vi.mocked(open).mockResolvedValue(path)
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "import_sessions")
+        return Promise.resolve({
+          bootstrap: payload,
+          items: [{ sourcePath: path, destinationPath: null, status: "failed", message: raw }],
+        } satisfies ImportBatchPayload)
+      throw new Error(`Unexpected research command: ${command}`)
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element(`[title="${t(language, "importSession")}"]`).click())
+    await act(async () => element('[aria-labelledby="omp-import-title"] .primary').click())
+    expect(element(".error-toast .toast-message").title).toBe(
+      `Cannot import: the session is in use\n${raw}`,
+    )
+    expect(element(".error-toast .toast-message").textContent!.length).toBeLessThanOrEqual(221)
+    expect(container.textContent).toContain("Cannot import: the session is in use")
+    expect(container.querySelector('[aria-labelledby="omp-import-title"]')).not.toBeNull()
+    expect(container.querySelector(".error-toast img")).toBeNull()
+    expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toHaveLength(
+      1,
+    )
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("localizes Codex partial failure and retains context and retry target in English UI", async () => {
+    const payload = {
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en" as const },
+      runtime: { ...bootstrap.runtime, language: "en" as const },
+    }
+    const source = "C:/fixture/codex/source.jsonl"
+    const destination = "C:/fixture/sessions/blocked target.jsonl"
+    const raw = `[session_lease_active] Сессия используется активным терминалом: ${destination}`
+    vi.mocked(api.bootstrap).mockResolvedValue(payload)
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "list_codex_sessions")
+        return Promise.resolve([
+          {
+            id: "research",
+            title: "Research source",
+            cwd: "C:/fixture/project",
+            filePath: source,
+            createdAt: "2026-09-27T00:00:00.000Z",
+            updatedAt: 1,
+            model: null,
+            preview: "Synthetic",
+          },
+        ])
+      if (command === "import_sessions")
+        return Promise.resolve({
+          bootstrap: payload,
+          items: [{ sourcePath: source, destinationPath: null, status: "failed", message: raw }],
+        } satisfies ImportBatchPayload)
+      throw new Error(`Unexpected research command: ${command}`)
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element('[title="Import from Codex"]').click())
+    await act(async () =>
+      element<HTMLInputElement>(".codex-import-panel .codex-item input").click(),
+    )
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(container.textContent).toContain(raw)
+    expect(container.textContent).toContain("Cannot import: the session is in use")
+    expect(element<HTMLInputElement>(".codex-import-panel .codex-item input").checked).toBe(true)
+    expect(container.querySelector(".codex-import-panel")).not.toBeNull()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(api.errorMessage(raw, "en")).toBe(
+      "This session is already open in another OMP Desktop process",
+    )
+    expect(api.errorMessage(raw, "en")).not.toContain(destination)
+  })
 })
