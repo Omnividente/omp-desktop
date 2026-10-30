@@ -266604,7 +266604,7 @@
       "id": "research-workspace-navigation-reliability-26",
       "title": "Investigate Workspace navigation and project switching: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -266724,16 +266724,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "14282831480461179014",
         "dispatch_key": "193736438f6774b0165b8eb8",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-193736438f6774b0165b8eb8",
         "started_at": "2026-10-30T08:47:44.977149Z",
-        "finished_at": "",
+        "finished_at": "2026-10-30T09:12:08.804274Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -266905,8 +266905,37 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-30T09:02:21.780510Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-30T09:12:08.804274Z"
+      },
+      "research_result": {
+        "summary": "Investigated workspace and session renaming UI behavior on backend failure.",
+        "observations": [
+          {
+            "scenario": "Review App.tsx implementation for workspace renaming handling.",
+            "evidence": "In App.tsx (submitWorkspaceRename), `renamingWorkspaceKey` and `workspaceNameValue` are cleared only if the backend call (`renameWorkspace`) succeeds and its result is applied (`applyPayload(await renameWorkspace(workspace.path, name))`). If the backend call fails, the catch block calls `showError`, and the finally block cleans up `workspaceRenamePendingRef` and `workspaceBusyKey`, but does NOT clear `renamingWorkspaceKey` or `workspaceNameValue`.",
+            "result": "On a backend failure during workspace renaming, the UI retains the rename input field with the user's drafted name, allowing them to correct and retry. The state is correctly preserved."
+          },
+          {
+            "scenario": "Review App.tsx implementation for session renaming handling.",
+            "evidence": "In App.tsx (updateSessionTitlePin), the function returns true on success (`applyPayload(await setSessionTitlePin(session.filePath, title))`) and undefined on failure (caught error invokes `showError`). The callers of `updateSessionTitlePin` handle UI cleanup based on the return value: if true, they clean up the UI; if not, they leave the UI in the renaming state.",
+            "result": "On a backend failure during session renaming, the UI retains the rename input field with the user's drafted name, allowing them to correct and retry. The state is correctly preserved."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if pagination or a 'show more' incremental loading approach in `ProjectRail` could provide a simpler alternative to full virtualization that avoids focus complexity while still bounding rendering work.",
+          "Evaluate if the `SessionList` virtualization correctly handles dynamic row heights for sessions with very long names or deep nesting levels, and if layout thrashing occurs during rapid scrolling."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-30T09:12:08.804274Z",
+        "source": {
+          "activity_id": "sessions/14282831480461179014/activities/9e3bc3d431374676ad667eff7c732498",
+          "report_sha256": "aa86b9595bb02bfbbc94e9561fbcde87b1a9d9ad772649e7d6e87c2371c75fe6",
+          "activity_created_at": "2026-10-30T09:04:31.957117Z",
+          "session_id": "14282831480461179014",
+          "dispatch_key": "193736438f6774b0165b8eb8"
+        },
+        "deferred_findings": []
       }
     },
     {
@@ -266955,7 +266984,7 @@
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T09:03:21.095935Z",
+    "last_poll_at": "2026-10-30T09:12:45.889333Z",
     "last_tick_at": "2026-10-30T09:03:58.308153Z",
     "run_id": "41030426553",
     "owner_recovery_requests": [
