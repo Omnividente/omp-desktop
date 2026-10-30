@@ -263406,7 +263406,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T03:39:43.255028Z"
+        "observed_at": "2026-10-30T03:39:43.255028Z",
+        "released_attempt_ref": "autonomous/attempt-cecf3fbf8f906e46dd34423b"
       },
       "research_result": {
         "summary": "Investigated session import error localization, accessibility of the session list empty state, and rapid keyboard navigation in the Codex import modal.",
