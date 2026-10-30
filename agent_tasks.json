@@ -972223,6 +972223,16 @@
           "actor": "Omnividente"
         },
         "event_id": "25e3f08f9c1e49ae92cf362b634e3e75fd5d653a4e5a3a1d12e5346420efa44f"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T00:41:04.252925Z",
+        "decision_id": "dd8a35d5d1ef1cc6987a1ca8506537d8b3b7bf9e2e7e51d59c1c024d33ed07d1",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T00:41:01.917401Z"
+        },
+        "event_id": "6da103704cfed6a14f0697e0eda4e801062feb968c4b0cdabc5a92a902187451"
       }
     ]
   }
