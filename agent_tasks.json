@@ -261519,6 +261519,134 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-ux-25",
+      "title": "Investigate Runtime incidents and resource health: Interaction clarity and accessibility",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "a11y",
+        "i18n",
+        "quality",
+        "bugfix"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-10-30T01:46:15Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one keyboard-only, focus-restoration, localized-text or empty/error-state journey in this area. Exercise the real UI when available and distinguish visual evidence from static inspection. Record the user's observable outcome and any limitation. On a revisit choose another interaction or prior next_hypothesis. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "ux",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 25,
+        "previous_reports": [
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas controlAvailable correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs. However, all of these issues have been previously rejected or resolved by the owner for valid reasons, and my tests confirmed these rejections. The synthetic benchmarks and states used were inaccurate reflections of real app behavior.",
+            "observations": [
+              {
+                "scenario": "Hypothesis: Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?",
+                "evidence": "Executed synthetic TypeScript tests checking endRuntimeIncidentTerminal followed by clearResolvedRuntimeIncidents. The state is populated with an active incident. endRuntimeIncidentTerminal updates the incident to status: 'resolved' and resolutionReason: 'terminalEnded'. Subsequent call to clearResolvedRuntimeIncidents drops this incident entirely because it filters strictly for incident.status === 'active'.",
+                "result": "clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-30T00:41:43.671637Z",
+            "source": {
+              "activity_id": "sessions/1777247176196240509/activities/88bec07b260a4a9996a3dc28ae7c926e",
+              "report_sha256": "c1bd3b2ac85202e57f48f0c910fd373b62eaf7a966f28fa162e4c6d4e26e5e40",
+              "activity_created_at": "2026-10-30T00:32:23.189713Z",
+              "session_id": "1777247176196240509",
+              "dispatch_key": "8a3f748f6ecb41f9082e1fdd"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix clearResolvedRuntimeIncidents aggressively dropping incidents resolved by terminalEnded",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-f9b6cb727c2f67a7; not established as a duplicate. {\"detail\": \"Observed that clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant.\", \"reproduction\": {\"actual\": \"Incident is completely removed from the state because clearResolvedRuntimeIncidents filters for strictly status === 'active'.\", \"expected\": \"Incident is retained because it was resolved with terminalEnded reason.\", \"steps\": [\"Initialize a RuntimeIncidentState with an active incident.\", \"Call endRuntimeIncidentTerminal to resolve the incident.\", \"Call clearResolvedRuntimeIncidents.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "clearResolvedRuntimeIncidents correctly retains terminalEnded incidents until they age out.",
+                  "Unit tests pass demonstrating retention of terminalEnded incidents during cleanup."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated ResourceHealthPanel and resourceHealth behavior when handling unavailable volumes. Observed that while `resourceWarningCount` correctly increments for `unavailableVolumes.length`, the action hint logic in `ResourceHealthPanel.tsx` checks only `snapshot?.memory.severity === \"warning\" || snapshot?.volumes.some((volume) => volume.severity === \"warning\")`, missing unavailable volumes. Therefore, when only unavailable volumes exist, the overall severity is warning but no action hint is displayed, resulting in a UI inconsistency where the action description is missing.",
+            "observations": [
+              {
+                "scenario": "Handling of unavailable volumes in ResourceHealthPanel action hint",
+                "evidence": "Locally verified via Vitest and JSDOM rendering of `ResourceHealthPanel` that when `snapshot.unavailableVolumes` is non-empty (and memory/volumes are ok), the `resourceWarningAction` string is missing from the output because the conditional logic in `ResourceHealthPanel.tsx` misses checking `unavailableVolumes.length > 0`. Also verified that `resourceWarningCount` does correctly include unavailable volumes.",
+                "result": "ResourceHealthPanel does not display a warning action hint if the only issue is an unavailable volume, whereas the warning count badge does include it."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-04b1aa42e9768478"
+            ],
+            "completed_at": "2026-10-30T01:05:03.295087Z",
+            "source": {
+              "activity_id": "sessions/12696209226824277456/activities/485cf4ba3a61405aa4c1c4be40e06604",
+              "report_sha256": "6f2ece189af8d26e3703b71926bafcae6d908b68857932b0cdf005d98f322d29",
+              "activity_created_at": "2026-10-30T00:57:53.895471Z",
+              "session_id": "12696209226824277456",
+              "dispatch_key": "477a1c60226038fa8749415f"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated ResourceHealthPanel and resourceHealth behavior when handling unavailable volumes. Observed that while `resourceWarningCount` correctly increments for `unavailableVolumes.length`, the action hint logic in `ResourceHealthPanel.tsx` checks only `snapshot?.memory.severity === \"warning\" || snapshot?.volumes.some((volume) => volume.severity === \"warning\")`, missing unavailable volumes. Therefore, when only unavailable volumes exist, the overall severity is warning but no action hint is displayed, resulting in a UI inconsistency where the action description is missing.",
+            "observations": [
+              {
+                "scenario": "Handling of unavailable volumes in ResourceHealthPanel action hint",
+                "evidence": "Locally verified via Vitest and JSDOM rendering of `ResourceHealthPanel` that when `snapshot.unavailableVolumes` is non-empty (and memory/volumes are ok), the `resourceWarningAction` string is missing from the output because the conditional logic in `ResourceHealthPanel.tsx` misses checking `unavailableVolumes.length > 0`. Also verified that `resourceWarningCount` does correctly include unavailable volumes.",
+                "result": "ResourceHealthPanel does not display a warning action hint if the only issue is an unavailable volume, whereas the warning count badge does include it."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-30T01:46:15.138655Z",
+            "source": {
+              "activity_id": "sessions/8995686417569630072/activities/190ef3914d4146dcb27f7729aad1b10b",
+              "report_sha256": "91125f35c4b6188cff94b673e455ca73ab20ba31a598c90d85a1db0b58ef3b29",
+              "activity_created_at": "2026-10-30T01:32:31.956048Z",
+              "session_id": "8995686417569630072",
+              "dispatch_key": "39ff13f9e8b84df5f97b6a38"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix missing warning action hint for unavailable volumes in ResourceHealthPanel",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-04b1aa42e9768478; not established as a duplicate. {\"detail\": \"Observed that ResourceHealthPanel.tsx checks memory severity and volume severity for the action hint, but forgets to check if unavailable volumes exist, causing a missing action string when only unavailable volumes trigger the warning state.\", \"reproduction\": {\"actual\": \"The action string is null and not rendered.\", \"expected\": \"The warning action string ('resourceWarningAction') is visible.\", \"steps\": [\"Render ResourceHealthPanel with a snapshot containing only `unavailableVolumes` and no other warnings.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/ResourceHealthPanel.tsx"
+                ],
+                "acceptance": [
+                  "When only unavailable volumes exist in the resource snapshot (and memory/other volumes are ok), the warning action hint is displayed.",
+                  "The resourceWarningCount and the ResourceHealthPanel severity/action hint are consistently based on all warning conditions including unavailable volumes."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
