@@ -994446,6 +994446,16 @@
           "actor": "Omnividente"
         },
         "event_id": "34789187ef07a657b02ba66516a4af102c957d7267f29a5ffbd6aa0b6003b012"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T03:33:14.782792Z",
+        "decision_id": "d8c0bc492b92bf7b18cbad7bbb97a010b3460f54a13c1e40d0fe2bf0a9ec8678",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T03:33:11.903455Z"
+        },
+        "event_id": "fbc2897005aab01083b1b7248694ea4721831ebc46791f20da64590cbc743e6b"
       }
     ]
   }
