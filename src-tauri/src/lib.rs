@@ -539,6 +539,9 @@ fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     if let SettingsPatch::Set(value) = &update.terminal_font_size {
         snapshot.terminal_font_size = normalize_terminal_font_size(*value);
     }
+    if let SettingsPatch::Set(Some(desktop_theme)) = update.desktop_theme {
+        snapshot.desktop_theme = desktop_theme;
+    }
     if let SettingsPatch::Set(Some(rail_mode)) = update.rail_mode {
         snapshot.rail_mode = rail_mode;
     }

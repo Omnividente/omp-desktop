@@ -2,6 +2,11 @@ export type Lang = "ru" | "en"
 
 export const UI_TEXT = {
   ru: {
+    desktopTheme: "Тема интерфейса",
+    desktopThemeDark: "Тёмная",
+    desktopThemeLight: "Светлая",
+    desktopThemeSystem: "Как в системе",
+    desktopThemeHelp: "Применяется после сохранения. Оформление терминала настраивается отдельно.",
     emptyTitle: "Откройте папку проекта",
     emptyDesc: "OMP Desktop запустит агента в выбранной папке и соберёт связанные с ней сессии.",
     btnOpenFolder: "Открыть папку",
@@ -595,6 +600,11 @@ export const UI_TEXT = {
     failed: "Ошибок",
   },
   en: {
+    desktopTheme: "Interface theme",
+    desktopThemeDark: "Dark",
+    desktopThemeLight: "Light",
+    desktopThemeSystem: "System",
+    desktopThemeHelp: "Applied after saving. Terminal appearance is configured separately.",
     emptyTitle: "Open project folder",
     emptyDesc: "OMP Desktop will launch the agent in the selected folder and collect its sessions.",
     btnOpenFolder: "Open folder",

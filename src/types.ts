@@ -20,6 +20,8 @@ export interface SettingsWarning {
 
 export type RailMode = "expanded" | "collapsed" | "autoHide"
 
+export type DesktopTheme = "dark" | "light" | "system"
+
 export interface AppSettings {
   ompExecutable: string | null
   sessionRoot: string | null
@@ -32,6 +34,7 @@ export interface AppSettings {
   proxyProviders: string[]
   railMode: RailMode
   language: "ru" | "en"
+  desktopTheme: DesktopTheme
   appFontFamily: string
   appFontSize: number
   terminalFontFamily: string
@@ -176,6 +179,7 @@ export interface ImportBatchPayload {
 }
 
 export interface SettingsUpdate {
+  desktopTheme?: DesktopTheme | null
   ompExecutable?: string | null
   appFontFamily?: string | null
   appFontSize?: number | null

@@ -1103,6 +1103,47 @@ mod tests {
     }
 
     #[test]
+    fn desktop_theme_survives_partial_saves_and_restart() {
+        use crate::models::DesktopTheme;
+        let root = settings_fixture("desktop-theme");
+        let path = root.join("settings.json");
+        fs::create_dir_all(&root).expect("theme settings fixture should be writable");
+        let mut settings: AppSettings =
+            serde_json::from_str(r#"{"language":"en","terminalFontSize":18}"#).unwrap();
+        assert_eq!(settings.desktop_theme, DesktopTheme::Dark);
+        for (patch, expected) in [
+            (
+                serde_json::json!({"desktopTheme": "light"}),
+                DesktopTheme::Light,
+            ),
+            (serde_json::json!({"appFontSize": 24}), DesktopTheme::Light),
+            (serde_json::json!({}), DesktopTheme::Light),
+            (
+                serde_json::json!({"desktopTheme": null}),
+                DesktopTheme::Light,
+            ),
+            (
+                serde_json::json!({"desktopTheme": "system"}),
+                DesktopTheme::System,
+            ),
+            (
+                serde_json::json!({"desktopTheme": "dark"}),
+                DesktopTheme::Dark,
+            ),
+        ] {
+            let update = serde_json::from_value(patch).unwrap();
+            crate::apply_settings_update(&mut settings, &update);
+            save_settings_to_path(&path, &settings).unwrap();
+            settings = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(settings.desktop_theme, expected);
+            assert_eq!(settings.terminal_font_size, 18);
+            assert_eq!(settings.language, "en");
+        }
+        assert_eq!(settings.app_font_size, 24);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn settings_failure_reason_is_bounded_and_redacted() {
         let sensitive = "permission denied: API_KEY=super-secret-value";
         let redacted = bounded_settings_reason(sensitive);
