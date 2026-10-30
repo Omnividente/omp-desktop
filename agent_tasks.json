@@ -266100,7 +266100,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T08:17:55.027744Z"
+        "observed_at": "2026-10-30T08:17:55.027744Z",
+        "released_attempt_ref": "autonomous/attempt-17fc95dca2a9279cd8971527"
       },
       "research_result": {
         "summary": "Investigated keyboard shortcut handling in terminalShortcutInput. Observed that on non-QWERTY layouts (like AZERTY), logical Ctrl+Z is incorrectly mapped because the function strictly checks event.code === 'KeyZ', which corresponds to physical KeyW on AZERTY. This causes the undo command to fail and return Ctrl+W instead. Also verified that createMouseSelectionEdit length calculation counts Unicode code points rather than visual grapheme clusters, which overestimates deletion size for ZWJ emojis like '👨‍👩‍👧‍👦'. Replacing the for-of string iterator with Intl.Segmenter correctly calculates a length of 1 while maintaining bounded latency and zero array copies.",
