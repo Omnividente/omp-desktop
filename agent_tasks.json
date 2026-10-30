@@ -991908,6 +991908,16 @@
           "actor": "Omnividente"
         },
         "event_id": "f785e1b7025fef2f81c95d8158926cc828e6a68712718905dbbe9eba5a9461b5"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T03:13:02.752026Z",
+        "decision_id": "bb8386e919d3498de71b26e533b6ff417349ec12b44ac86a8d97c044e73e9f69",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T03:13:00.180615Z"
+        },
+        "event_id": "317954f104b106411ae5a0be34adb05130f6c7117462bbbd68506ed3e8d7b806"
       }
     ]
   }
