@@ -260737,7 +260737,7 @@
       "id": "research-diagnostics-resources-behavior-25",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -260863,16 +260863,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "12696209226824277456",
         "dispatch_key": "477a1c60226038fa8749415f",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-477a1c60226038fa8749415f",
         "started_at": "2026-10-30T00:41:43.671637Z",
-        "finished_at": "",
+        "finished_at": "2026-10-30T01:05:03.295087Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -261043,13 +261043,99 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-30T00:56:10.469790Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-30T01:05:03.295087Z"
+      },
+      "research_result": {
+        "summary": "Investigated ResourceHealthPanel and resourceHealth behavior when handling unavailable volumes. Observed that while `resourceWarningCount` correctly increments for `unavailableVolumes.length`, the action hint logic in `ResourceHealthPanel.tsx` checks only `snapshot?.memory.severity === \"warning\" || snapshot?.volumes.some((volume) => volume.severity === \"warning\")`, missing unavailable volumes. Therefore, when only unavailable volumes exist, the overall severity is warning but no action hint is displayed, resulting in a UI inconsistency where the action description is missing.",
+        "observations": [
+          {
+            "scenario": "Handling of unavailable volumes in ResourceHealthPanel action hint",
+            "evidence": "Locally verified via Vitest and JSDOM rendering of `ResourceHealthPanel` that when `snapshot.unavailableVolumes` is non-empty (and memory/volumes are ok), the `resourceWarningAction` string is missing from the output because the conditional logic in `ResourceHealthPanel.tsx` misses checking `unavailableVolumes.length > 0`. Also verified that `resourceWarningCount` does correctly include unavailable volumes.",
+            "result": "ResourceHealthPanel does not display a warning action hint if the only issue is an unavailable volume, whereas the warning count badge does include it."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [
+          "discovery-04b1aa42e9768478"
+        ],
+        "completed_at": "2026-10-30T01:05:03.295087Z",
+        "source": {
+          "activity_id": "sessions/12696209226824277456/activities/485cf4ba3a61405aa4c1c4be40e06604",
+          "report_sha256": "6f2ece189af8d26e3703b71926bafcae6d908b68857932b0cdf005d98f322d29",
+          "activity_created_at": "2026-10-30T00:57:53.895471Z",
+          "session_id": "12696209226824277456",
+          "dispatch_key": "477a1c60226038fa8749415f"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/12696209226824277456/activities/485cf4ba3a61405aa4c1c4be40e06604",
+          "report_sha256": "6f2ece189af8d26e3703b71926bafcae6d908b68857932b0cdf005d98f322d29",
+          "activity_created_at": "2026-10-30T00:57:53.895471Z",
+          "session_id": "12696209226824277456",
+          "dispatch_key": "477a1c60226038fa8749415f"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-04b1aa42e9768478"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
+      }
+    },
+    {
+      "id": "discovery-04b1aa42e9768478",
+      "title": "Fix ResourceHealthPanel missing action hint for unavailable volumes",
+      "task_type": "bugfix",
+      "status": "proposed",
+      "priority": 10,
+      "risk": "low",
+      "focus": [
+        "UI",
+        "bugfix"
+      ],
+      "created_at": "2026-10-30T01:05:03.295087Z",
+      "acceptance": [
+        "ResourceHealthPanel displays the warning action hint if there are unavailable volumes.",
+        "Unit tests pass demonstrating that the action hint appears for unavailable volumes."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Observed that ResourceHealthPanel action hint conditional checks `snapshot?.volumes.some((volume) => volume.severity === 'warning')` but misses `snapshot?.unavailableVolumes.length > 0`.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Render ResourceHealthPanel with a snapshot containing only unavailableVolumes.",
+            "Check if the warning action text is present."
+          ],
+          "expected": "The warning action hint is displayed.",
+          "actual": "The warning action hint is not displayed."
+        }
+      },
+      "target_paths": [
+        "src/ResourceHealthPanel.tsx",
+        "src/ResourceHealthPanel.test.tsx"
+      ],
+      "origin": {
+        "task_id": "research-diagnostics-resources-behavior-25",
+        "activity_id": "sessions/12696209226824277456/activities/485cf4ba3a61405aa4c1c4be40e06604",
+        "report_sha256": "6f2ece189af8d26e3703b71926bafcae6d908b68857932b0cdf005d98f322d29",
+        "activity_created_at": "2026-10-30T00:57:53.895471Z",
+        "session_id": "12696209226824277456",
+        "dispatch_key": "477a1c60226038fa8749415f"
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T00:56:46.260549Z",
+    "last_poll_at": "2026-10-30T01:05:42.403934Z",
     "last_tick_at": "2026-10-30T00:57:03.812671Z",
     "run_id": "40982700000",
     "owner_recovery_requests": [
