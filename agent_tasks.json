@@ -264500,6 +264500,136 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-workspace-navigation-behavior-26",
+      "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/WorkspaceHome.tsx",
+        "src/ProjectRail.tsx",
+        "src/TerminalWorkspace.tsx",
+        "src/Topbar.tsx",
+        "src/App.tsx"
+      ],
+      "created_at": "2026-10-30T06:04:28Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "workspace-navigation",
+        "perspective_id": "behavior",
+        "fingerprint": "6f80504ccab9686a0d552f02b041c75318da4d5a653ff0902c6a0a5cd628cf48",
+        "cycle": 26,
+        "previous_reports": [
+          {
+            "summary": "Investigated workspace navigation and project switching failure recovery. Confirmed that if saving a workspace selection to the backend fails (e.g., transient error), the React state is updated but the failure prevents retrying the save without switching to another workspace first, due to the dependency array in useEffect. Tested a solution where the previous selected workspace path is used as a fallback or selecting the current workspace again triggers a save, but a simpler task formulation focuses on addressing the core bug.",
+            "observations": [
+              {
+                "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+                "evidence": "Observed in src/App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects, the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry the operation, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+                "result": "A failed workspace selection persistence cannot be retried simply by clicking the same workspace again; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T07:58:59.784110Z",
+            "source": {
+              "activity_id": "sessions/9289622408124274165/activities/4eb5d12f3e3e4a3b99fb074383b8feaf",
+              "report_sha256": "fbe01d198b2f03ad028bf935200654744521c97686417592bf77ac2e05ae8546",
+              "activity_created_at": "2026-10-29T07:50:03.151413Z",
+              "session_id": "9289622408124274165",
+              "dispatch_key": "6778bf4df90bfe6d0e640ea6"
+            },
+            "deferred_findings": [
+              {
+                "title": "Enable retry for workspace selection persistence failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-da432379453e9196; not established as a duplicate. {\"detail\": \"Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.\", \"reproduction\": {\"actual\": \"No save attempt is made, state remains same\", \"expected\": \"Another save attempt is made\", \"steps\": [\"Simulate transient error on saveWorkspaceSelection\", \"Select a workspace\", \"Click the selected workspace again\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Clicking the currently selected workspace after a persistence failure should trigger another save attempt."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated workspace selection persistence failure retry.",
+            "observations": [
+              {
+                "scenario": "Simulated failed saveWorkspaceSelection action triggered by selecting a workspace in the UI.",
+                "evidence": "Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.",
+                "result": "A failed workspace selection persistence cannot be retried simply by clicking the same workspace again; the user must manually select a different workspace and then select the desired one again to trigger another save attempt."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if pagination or a 'show more' incremental loading approach in `ProjectRail` could provide a simpler alternative to full virtualization that avoids focus complexity while still bounding rendering work.",
+              "Evaluate if the `SessionList` virtualization correctly handles dynamic row heights for sessions with very long names or deep nesting levels, and if layout thrashing occurs during rapid scrolling."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T08:20:17.636135Z",
+            "source": {
+              "activity_id": "sessions/9113655409402565672/activities/cabe8c65a2ae4c4b87112378ea70786d",
+              "report_sha256": "4aa49109c340b2d9d2e785ae6cd92e859726760d33107c28c9d9b47382df5c23",
+              "activity_created_at": "2026-10-29T08:12:16.191943Z",
+              "session_id": "9113655409402565672",
+              "dispatch_key": "f9455e330070d2b96f642844"
+            },
+            "deferred_findings": [
+              {
+                "title": "Enable retry for workspace selection persistence failure",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-da432379453e9196; not established as a duplicate. {\"detail\": \"Observed in App.tsx that the useEffect handling workspaceSaveQueueRef triggers saveWorkspaceSelection only when selectedWorkspacePath changes. If saveWorkspaceSelection rejects (e.g. transient error), the React state 'selectedWorkspaceKey' has already been updated. If the user clicks the same workspace to retry, the state does not change, the useEffect is not triggered, and the retry is ignored.\", \"reproduction\": {\"actual\": \"No save attempt is made, state remains same\", \"expected\": \"Another save attempt is made\", \"steps\": [\"Simulate transient error on saveWorkspaceSelection\", \"Select a workspace\", \"Click the selected workspace again\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx"
+                ],
+                "acceptance": [
+                  "Clicking the currently selected workspace after a persistence failure should trigger another save attempt."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated the empty workspace state in WorkspaceHome to understand its interaction clarity. Verified that the empty state provides a clear 'btnOpenFolder' primary action and displays a keyboard shortcut hint.",
+            "observations": [
+              {
+                "scenario": "Inspecting the empty workspace state in WorkspaceHome.",
+                "evidence": "Observed in src/WorkspaceHome.tsx that when workspace is null, an 'empty-workspace' section is rendered. It includes an icon, a title, a description, a primary button to open a folder (tied to primaryActionRef), and a shortcut hint formatting 'Ctrl + Shift + O'.",
+                "result": "The empty state provides clear visual guidance and a primary action to open a folder, along with a platform-formatted keyboard shortcut hint."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if the keyboard shortcut hint in the empty workspace state is fully localized and announced appropriately by screen readers.",
+              "Evaluate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T08:59:16.870815Z",
+            "source": {
+              "activity_id": "sessions/2331055799468616556/activities/78af15b2ceb047e29416fa1a0e2016f1",
+              "report_sha256": "e439545ffe1dff7441ef4326c5c9b476d6112d634d3130b84f24768e78e81c6b",
+              "activity_created_at": "2026-10-29T08:46:01.427680Z",
+              "session_id": "2331055799468616556",
+              "dispatch_key": "3c4ff58f4c4de5a1ac1a7d41"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
