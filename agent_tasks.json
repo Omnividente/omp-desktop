@@ -266906,7 +266906,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T09:12:08.804274Z"
+        "observed_at": "2026-10-30T09:12:08.804274Z",
+        "released_attempt_ref": "autonomous/attempt-193736438f6774b0165b8eb8"
       },
       "research_result": {
         "summary": "Investigated workspace and session renaming UI behavior on backend failure.",
