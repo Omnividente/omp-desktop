@@ -266529,13 +266529,17 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-30T08:30:23.131063Z"
+        "session_state": "AWAITING_USER_FEEDBACK",
+        "observed_at": "2026-10-30T08:47:44.977149Z",
+        "research_detached": {
+          "at": "2026-10-30T08:47:44.977149Z",
+          "reason": "AWAITING_USER_FEEDBACK"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T08:39:32.575560Z",
+    "last_poll_at": "2026-10-30T08:48:21.221385Z",
     "last_tick_at": "2026-10-30T08:39:48.351890Z",
     "run_id": "41027788861",
     "owner_recovery_requests": [
