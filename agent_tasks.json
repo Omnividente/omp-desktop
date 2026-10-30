@@ -266534,6 +266534,17 @@
         "research_detached": {
           "at": "2026-10-30T08:47:44.977149Z",
           "reason": "AWAITING_USER_FEEDBACK"
+        },
+        "feedback_nudge": {
+          "at": "2026-10-30T08:47:44.977149Z",
+          "result": "pending",
+          "source": {
+            "session_id": "888738780429045988",
+            "dispatch_key": "4bc616b66983cf1467094b88",
+            "activity_id": "sessions/888738780429045988/activities/2edfa467acd94ff582af7e467cffb197",
+            "activity_created_at": "2026-10-30T08:46:57.853464Z",
+            "activity_sha256": "964da144e5a2fb9ce0561249c3591144ee358dd44aece7672e21a2b4b4aaf00b"
+          }
         }
       }
     }
