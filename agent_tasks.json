@@ -268180,8 +268180,8 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
-        "session_id": "",
+        "state": "dispatched",
+        "session_id": "7783452410557040437",
         "dispatch_key": "384cfb351351cff75984f1ad",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-384cfb351351cff75984f1ad",
