@@ -268765,7 +268765,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T23:04:58.337271Z"
+        "observed_at": "2026-10-30T23:04:58.337271Z",
+        "released_attempt_ref": "autonomous/attempt-b0395458f9d4ac725edc3886"
       },
       "research_result": {
         "summary": "Investigated the SettingsRecoveryScreen bug where generic network errors trap the user. Re-verified via a local vitest check on src/App.tsx that the state settingsRecovery fails to be cleared on non-settings errors.",
