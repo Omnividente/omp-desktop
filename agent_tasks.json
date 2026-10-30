@@ -261444,7 +261444,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T01:46:15.138655Z"
+        "observed_at": "2026-10-30T01:46:15.138655Z",
+        "released_attempt_ref": "autonomous/attempt-39ff13f9e8b84df5f97b6a38"
       },
       "research_result": {
         "summary": "Investigated ResourceHealthPanel and resourceHealth behavior when handling unavailable volumes. Observed that while `resourceWarningCount` correctly increments for `unavailableVolumes.length`, the action hint logic in `ResourceHealthPanel.tsx` checks only `snapshot?.memory.severity === \"warning\" || snapshot?.volumes.some((volume) => volume.severity === \"warning\")`, missing unavailable volumes. Therefore, when only unavailable volumes exist, the overall severity is warning but no action hint is displayed, resulting in a UI inconsistency where the action description is missing.",
