@@ -266212,7 +266212,7 @@
       "id": "research-transcript-links-performance-25",
       "title": "Investigate Transcript rendering, scrolling and content links: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -266349,16 +266349,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "888738780429045988",
         "dispatch_key": "4bc616b66983cf1467094b88",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-4bc616b66983cf1467094b88",
         "started_at": "2026-10-30T08:17:55.027744Z",
-        "finished_at": "",
+        "finished_at": "2026-10-30T09:02:21.780510Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -266529,8 +266529,8 @@
             }
           ]
         },
-        "session_state": "AWAITING_USER_FEEDBACK",
-        "observed_at": "2026-10-30T08:47:44.977149Z",
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-30T09:02:21.780510Z",
         "research_detached": {
           "at": "2026-10-30T08:47:44.977149Z",
           "reason": "AWAITING_USER_FEEDBACK"
@@ -266545,6 +266545,57 @@
             "activity_created_at": "2026-10-30T08:46:57.853464Z",
             "activity_sha256": "964da144e5a2fb9ce0561249c3591144ee358dd44aece7672e21a2b4b4aaf00b"
           }
+        }
+      },
+      "research_result": {
+        "summary": "Investigated Transcript rendering performance and discovered a significant bottleneck in TranscriptModal.tsx where the full Markdown AST is eagerly evaluated for all visible entries (e.g., thousands of messages) to provide plain text for TranscriptSearch, blocking the main thread for over 300ms on 5,000 items.",
+        "observations": [
+          {
+            "scenario": "Rendering TranscriptModal with a large number of entries",
+            "evidence": "By isolating the rendering logic in a synthetic test (src/transcript-perf.test.tsx) and Node.js benchmark scripts, rendering 5,000 items took ~640ms. ~330ms was spent computing markdownContent for the entire array inside the contents useMemo hook to extract plain text for TranscriptSearch.",
+            "result": "Eagerly parsing Markdown for every transcript entry blocks the main thread, causing severe latency upon loading a large transcript. (Evidence mode: mock_or_model)"
+          },
+          {
+            "scenario": "Evaluating CONTENT_SELECTOR regex performance on malicious strings",
+            "evidence": "Ran a Node script testing CONTENT_SELECTOR against a payload like `':' + '1..2,'.repeat(35) + 'x'`.",
+            "result": "Confirmed the pattern takes bounded time (< 1ms) despite structural repetition. (Evidence mode: real_runtime)"
+          }
+        ],
+        "next_hypotheses": [
+          "Investigating the ResizeObserver in useVirtualList.ts for rapid scrolling events may reveal further DOM measurement overhead."
+        ],
+        "proposed_task_ids": [
+          "discovery-91f0fd91640e0ad6"
+        ],
+        "completed_at": "2026-10-30T09:02:21.780510Z",
+        "source": {
+          "activity_id": "sessions/888738780429045988/activities/1a0ba6df5d694514bcc4bdf9c0a97928",
+          "report_sha256": "b2344d9f23d18a2681277f2fc3e0c47e8383a616238d04ab4b76dfe70d22a3e2",
+          "activity_created_at": "2026-10-30T08:49:47.363386Z",
+          "session_id": "888738780429045988",
+          "dispatch_key": "4bc616b66983cf1467094b88"
+        },
+        "deferred_findings": []
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/888738780429045988/activities/1a0ba6df5d694514bcc4bdf9c0a97928",
+          "report_sha256": "b2344d9f23d18a2681277f2fc3e0c47e8383a616238d04ab4b76dfe70d22a3e2",
+          "activity_created_at": "2026-10-30T08:49:47.363386Z",
+          "session_id": "888738780429045988",
+          "dispatch_key": "4bc616b66983cf1467094b88"
+        },
+        "result": {
+          "changed": true,
+          "added": [
+            "discovery-91f0fd91640e0ad6"
+          ],
+          "duplicates": [],
+          "skipped": [],
+          "deferred": [],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
         }
       }
     },
@@ -266856,10 +266907,54 @@
         "session_state": "QUEUED",
         "observed_at": "2026-10-30T08:47:44.977149Z"
       }
+    },
+    {
+      "id": "discovery-91f0fd91640e0ad6",
+      "title": "Fix main thread block by avoiding eager Markdown AST parsing for non-visible transcript entries",
+      "task_type": "product_improvement",
+      "status": "proposed",
+      "priority": 20,
+      "risk": "medium",
+      "focus": [
+        "perf",
+        "transcript",
+        "rendering"
+      ],
+      "created_at": "2026-10-30T09:02:21.780510Z",
+      "acceptance": [
+        "TranscriptSearch continues to correctly index the stripped markdown plain text of all entries.",
+        "Rendering a large transcript no longer synchronously parses the Markdown AST for all entries.",
+        "TranscriptModal and MarkdownContent tests pass without regression."
+      ],
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Measured TranscriptModal initialization using a synthetic test with 5,000 entries. The contents useMemo hook calls markdownContent for every entry to construct the search index, taking ~330ms synchronously to build unused AST nodes and causing UI freezes. Extracting the stripped text separately from the AST rendering reduces this overhead significantly.",
+        "status": "reported",
+        "reproduction": {
+          "steps": [
+            "Create a Node.js script that maps markdownContent over 5,000 synthetic transcript entries.",
+            "Measure the execution time using performance.now()."
+          ],
+          "expected": "Extracting text for the search index should be fast and avoid building unnecessary AST nodes for virtualized items.",
+          "actual": "Eagerly parsing the full Markdown AST for all 5,000 items takes over 330ms, blocking the main thread."
+        }
+      },
+      "target_paths": [
+        "src/TranscriptModal.tsx",
+        "src/MarkdownContent.tsx"
+      ],
+      "origin": {
+        "task_id": "research-transcript-links-performance-25",
+        "activity_id": "sessions/888738780429045988/activities/1a0ba6df5d694514bcc4bdf9c0a97928",
+        "report_sha256": "b2344d9f23d18a2681277f2fc3e0c47e8383a616238d04ab4b76dfe70d22a3e2",
+        "activity_created_at": "2026-10-30T08:49:47.363386Z",
+        "session_id": "888738780429045988",
+        "dispatch_key": "4bc616b66983cf1467094b88"
+      }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T08:54:17.309031Z",
+    "last_poll_at": "2026-10-30T09:02:57.299494Z",
     "last_tick_at": "2026-10-30T08:54:35.482723Z",
     "run_id": "41028773520",
     "owner_recovery_requests": [
