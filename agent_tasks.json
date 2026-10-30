@@ -264474,7 +264474,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T04:23:32.224378Z"
+        "observed_at": "2026-10-30T04:23:32.224378Z",
+        "released_attempt_ref": "autonomous/attempt-8d96c8b70092a9c47fda4701"
       },
       "research_result": {
         "summary": "Investigated session deletion lease lock cleanup and persistence reliability.",
