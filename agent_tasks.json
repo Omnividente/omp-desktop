@@ -267281,7 +267281,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T09:44:45.083879Z"
+        "observed_at": "2026-10-30T09:44:45.083879Z",
+        "released_attempt_ref": "autonomous/attempt-bbb159b12cf16b93ebed393e"
       },
       "research_result": {
         "summary": "Investigated Workspace navigation and project switching performance using synthetic benchmarks.",
