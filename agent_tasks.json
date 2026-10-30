@@ -968108,6 +968108,16 @@
           "actor": "Omnividente"
         },
         "event_id": "0bbbf67106d9ef59aee53c06183c671cac6deb73f757a4a1578a6e3e349be64d"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T00:13:48.083290Z",
+        "decision_id": "c7b8fc6b579e0dcbf1000acc9424c3c64bd5bd716ec22d20aa43a643efcec932",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T00:13:45.327637Z"
+        },
+        "event_id": "83fac26b0e4d1e6bb0abbb4f083be4ee9264514cbb76c5069d8b9195266b1ec0"
       }
     ]
   }
