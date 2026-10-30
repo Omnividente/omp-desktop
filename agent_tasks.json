@@ -269167,7 +269167,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T23:27:37.865569Z"
+        "observed_at": "2026-10-30T23:27:37.865569Z",
+        "released_attempt_ref": "autonomous/attempt-a93e09c800d6aa2e1a3bd4e8"
       },
       "research_result": {
         "summary": "Measured ModelPicker render and search latencies under realistic and large-scale model catalog scenarios. Re-verified the SettingsRecoveryScreen bug where a generic network error on retry fails to clear the recovery state, trapping the user.",
