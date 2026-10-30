@@ -262348,7 +262348,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T02:38:08.554983Z"
+        "observed_at": "2026-10-30T02:38:08.554983Z",
+        "released_attempt_ref": "autonomous/attempt-03e660305df016075e3a061b"
       },
       "research_result": {
         "summary": "Investigated session import performance and accessibility. Observed that rapid keyboard navigation in CodexImportModal using End/ArrowUp bursts can lead to loss of focus due to layout effect timing. Verified that SessionList empty state lacks aria-live and role attributes. Confirmed that parseBackendError fails to extract bracket codes from objects with a message string.",
