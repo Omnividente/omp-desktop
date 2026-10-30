@@ -977902,6 +977902,29 @@
           "path": ".github/workflows/autonomous_next_task.yml"
         },
         "event_id": "aca92d1f4fa3d2a3e1d07b6a689e1910c42d054e7cd598da76633f68d9cc3276"
+      },
+      {
+        "type": "EffectObservation",
+        "at": "2026-10-30T01:29:25.806077Z",
+        "decision_id": "4e2a8053981a2798239c34a3a4b274ee884f5ed495a8c3e280b1410d776d6e55",
+        "executor_claim_id": "8aacc02c3bdd34c026394110a7490866e223886d5b0c4e39fa19cf82689240ec",
+        "kind": "controller_checkpoint",
+        "evidence": {
+          "before_state_sha": "dd2dd02c5ec93afeca8e274b0b905eecf35df7d1",
+          "after_state_sha": "b91b007f742c84bab1f1325cdc9386701c28a473",
+          "poll_observations": [
+            {
+              "task_id": "research-diagnostics-resources-performance-25",
+              "session_id": "8995686417569630072",
+              "session_state": "IN_PROGRESS",
+              "observed_at": "2026-10-30T01:28:04Z"
+            }
+          ],
+          "before_digest": "86653a51673681c0bb6c99e2336c1f313a8f773e0061f74ce0b605fcd4b00029",
+          "after_digest": "86653a51673681c0bb6c99e2336c1f313a8f773e0061f74ce0b605fcd4b00029"
+        },
+        "receipt_id": "c0a66e3f3da91564843b3f5b333228961990917ed161cf9b2124422cc9150faf",
+        "event_id": "fa11efb020fffa05543d316838b9894703bd353820de519ed2f64198cb2eddc3"
       }
     ]
   }
