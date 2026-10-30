@@ -981989,6 +981989,16 @@
           "actor": "Omnividente"
         },
         "event_id": "9a11e407838f93dbc1d919d3996ae5c6e9d9b3e750df48bddaf6f690e000a63a"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T02:00:42.853191Z",
+        "decision_id": "126eab57f605623c33469daefca8c2acc0783d843cdf5a8f8894b9997d8c6b31",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T02:00:39.969656Z"
+        },
+        "event_id": "27825f5f8f6da6b36b7ba488050b862f50426b84bcf3692af603b2d524f8e93f"
       }
     ]
   }
