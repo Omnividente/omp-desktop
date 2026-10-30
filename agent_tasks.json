@@ -971140,6 +971140,16 @@
           "actor": "Omnividente"
         },
         "event_id": "15eb73c15ff949cd9476415c3c9ad351ad5af06a71ca9bd091b2488364f8d7d3"
+      },
+      {
+        "type": "DeliveryObservation",
+        "at": "2026-10-30T00:35:22.051632Z",
+        "decision_id": "a88c9584f06ade26502d289248ba864a027c55cdb2efa227552d82138b96c071",
+        "observation": {
+          "kind": "post_acknowledged",
+          "observed_at": "2026-10-30T00:35:19.244298Z"
+        },
+        "event_id": "057f41addaeddc86cbb8a07986e7816c7fb9cc951d70ff7e30fae6e45268ff45"
       }
     ]
   }
