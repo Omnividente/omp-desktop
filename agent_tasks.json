@@ -971200,6 +971200,15 @@
         },
         "receipt_id": "593a24fde7091c7ff3ebdabdd844813a56cf6015c43de114a6e5eb940a15c6de",
         "event_id": "f0917d6ccdc8e6e79011c822d5c060a183b11d8875a0ceb324aca70265879036"
+      },
+      {
+        "type": "Advance",
+        "at": "2026-10-30T00:40:07.506786Z",
+        "decision_id": "a88c9584f06ade26502d289248ba864a027c55cdb2efa227552d82138b96c071",
+        "executor_claim_id": "1037748a3cf681428f60b0e25976d96798ca56ece32c3a0c5a20962257eced2f",
+        "receipt_id": "593a24fde7091c7ff3ebdabdd844813a56cf6015c43de114a6e5eb940a15c6de",
+        "frontier_seq": 1287,
+        "event_id": "0252f555bf82b4d9b54687171964145314f637b12f6483977957de6dd5896fed"
       }
     ]
   }
