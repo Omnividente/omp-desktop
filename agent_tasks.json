@@ -260732,6 +260732,135 @@
           "detail": "1 task entry/entries parsed"
         }
       }
+    },
+    {
+      "id": "research-diagnostics-resources-behavior-25",
+      "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "quality",
+        "bugfix",
+        "tests",
+        "compat"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/IncidentCenter.tsx",
+        "src/ResourceHealthPanel.tsx",
+        "src/runtimeIncidents.ts",
+        "src/runtimeEvents.ts",
+        "src/resourceHealth.ts",
+        "src-tauri/src/diagnostics.rs",
+        "src-tauri/src/resource_health.rs"
+      ],
+      "created_at": "2026-10-30T00:41:43Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one user journey in this area; exercise a normal transition and a boundary input using isolated synthetic data. Compare frontend behavior with its backend contract and capture expected versus observed results. On a revisit choose a different journey or investigate a previous next_hypothesis; do not repeat a generic quality gate. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "diagnostics-resources",
+        "perspective_id": "behavior",
+        "fingerprint": "9bff1929b82441c1bfe2860fdb783e8fb3ec40e6a4e899f94f6ac612905d865b",
+        "cycle": 25,
+        "previous_reports": [
+          {
+            "summary": "Investigated the behavior of `clearResolvedRuntimeIncidents` regarding incidents resolved with the `terminalEnded` reason. When a terminal ends, its incidents are marked as resolved with `resolutionReason: \"terminalEnded\"`. `clearResolvedRuntimeIncidents` currently filters to retain only `active` incidents. Thus, it aggressively removes all resolved incidents, including those resolved by `terminalEnded`. Retaining `terminalEnded` incidents might be desirable for terminal metadata retention, but the current strict `active` filter does not.",
+            "observations": [
+              {
+                "scenario": "Hypothesis: Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?",
+                "evidence": "Executed synthetic TypeScript tests checking `endRuntimeIncidentTerminal` followed by `clearResolvedRuntimeIncidents`. The state is populated with an active incident. `endRuntimeIncidentTerminal` updates the incident to `status: \"resolved\"` and `resolutionReason: \"terminalEnded\"`. Subsequent call to `clearResolvedRuntimeIncidents` drops this incident entirely because it filters strictly for `incident.status === \"active\"`.",
+                "result": "`clearResolvedRuntimeIncidents` indiscriminately removes all resolved incidents, discarding the `terminalEnded` state even if that terminal's metadata is still relevant."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [
+              "discovery-f9b6cb727c2f67a7"
+            ],
+            "completed_at": "2026-10-29T00:35:38.252431Z",
+            "source": {
+              "activity_id": "sessions/10984350297606310874/activities/94ba109c50a64f47a54a83b8ac81a4df",
+              "report_sha256": "ed5a53f912e4d9dc3a9d2380e0cd45147562034828229933584aa51bd1900e66",
+              "activity_created_at": "2026-10-29T00:26:53.004559Z",
+              "session_id": "10984350297606310874",
+              "dispatch_key": "d89e1af2b86d1e0a5c366ddf"
+            },
+            "deferred_findings": []
+          },
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas controlAvailable correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs. However, all of these issues have been previously rejected or resolved by the owner for valid reasons, and my tests confirmed these rejections. The synthetic benchmarks and states used were inaccurate reflections of real app behavior.",
+            "observations": [
+              {
+                "scenario": "Hypothesis: Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?",
+                "evidence": "Executed synthetic TypeScript tests checking endRuntimeIncidentTerminal followed by clearResolvedRuntimeIncidents. The state is populated with an active incident. endRuntimeIncidentTerminal updates the incident to status: \"resolved\" and resolutionReason: \"terminalEnded\". Subsequent call to clearResolvedRuntimeIncidents drops this incident entirely because it filters strictly for incident.status === \"active\".",
+                "result": "clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-29T00:55:42.689894Z",
+            "source": {
+              "activity_id": "sessions/6330513908119098762/activities/a793255d05b64bc08dfd0dcdfdd7b010",
+              "report_sha256": "c514549b6f72e15a1a83b829dfbd5b73db96fd2ac08123571d462de67863fc80",
+              "activity_created_at": "2026-10-29T00:46:41.830179Z",
+              "session_id": "6330513908119098762",
+              "dispatch_key": "23ae0101b1325cd6650208de"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix clearResolvedRuntimeIncidents aggressively dropping incidents resolved by terminalEnded",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-f9b6cb727c2f67a7; not established as a duplicate. {\"detail\": \"Observed that clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant.\", \"reproduction\": {\"actual\": \"Incident is completely removed from the state because clearResolvedRuntimeIncidents filters for strictly status === 'active'.\", \"expected\": \"Incident is retained because it was resolved with terminalEnded reason.\", \"steps\": [\"Initialize a RuntimeIncidentState with an active incident.\", \"Call endRuntimeIncidentTerminal to resolve the incident.\", \"Call clearResolvedRuntimeIncidents.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "clearResolvedRuntimeIncidents correctly retains terminalEnded incidents until they age out.",
+                  "Unit tests pass demonstrating retention of terminalEnded incidents during cleanup."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated IncidentCenter and ResourceHealthPanel keyboard focus trapping inside collapsed details tags, enforceIncidentBound dropping unresolved primary errors under fallback saturation, and the fast-path skip in diagnostics redact_text. Verified via local tests that inline focus traps incorrectly include elements hidden within collapsed <details> elements, whereas controlAvailable correctly excludes them. Verified that enforceIncidentBound drops the sole unresolved error incident under fallback saturation. Verified via performance test that a fast path skip in redact_text avoiding line splitting when no sensitive markers are present improves performance on large clean logs. However, all of these issues have been previously rejected or resolved by the owner for valid reasons, and my tests confirmed these rejections. The synthetic benchmarks and states used were inaccurate reflections of real app behavior.",
+            "observations": [
+              {
+                "scenario": "Hypothesis: Does clearResolvedRuntimeIncidents properly retain 'terminalEnded' reasons when retaining terminal metadata?",
+                "evidence": "Executed synthetic TypeScript tests checking endRuntimeIncidentTerminal followed by clearResolvedRuntimeIncidents. The state is populated with an active incident. endRuntimeIncidentTerminal updates the incident to status: 'resolved' and resolutionReason: 'terminalEnded'. Subsequent call to clearResolvedRuntimeIncidents drops this incident entirely because it filters strictly for incident.status === 'active'.",
+                "result": "clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant."
+              }
+            ],
+            "next_hypotheses": [],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-30T00:41:43.671637Z",
+            "source": {
+              "activity_id": "sessions/1777247176196240509/activities/88bec07b260a4a9996a3dc28ae7c926e",
+              "report_sha256": "c1bd3b2ac85202e57f48f0c910fd373b62eaf7a966f28fa162e4c6d4e26e5e40",
+              "activity_created_at": "2026-10-30T00:32:23.189713Z",
+              "session_id": "1777247176196240509",
+              "dispatch_key": "8a3f748f6ecb41f9082e1fdd"
+            },
+            "deferred_findings": [
+              {
+                "title": "Fix clearResolvedRuntimeIncidents aggressively dropping incidents resolved by terminalEnded",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-f9b6cb727c2f67a7; not established as a duplicate. {\"detail\": \"Observed that clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant.\", \"reproduction\": {\"actual\": \"Incident is completely removed from the state because clearResolvedRuntimeIncidents filters for strictly status === 'active'.\", \"expected\": \"Incident is retained because it was resolved with terminalEnded reason.\", \"steps\": [\"Initialize a RuntimeIncidentState with an active incident.\", \"Call endRuntimeIncidentTerminal to resolve the incident.\", \"Call clearResolvedRuntimeIncidents.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/runtimeIncidents.ts",
+                  "src/runtimeIncidents.test.ts"
+                ],
+                "acceptance": [
+                  "clearResolvedRuntimeIncidents correctly retains terminalEnded incidents until they age out.",
+                  "Unit tests pass demonstrating retention of terminalEnded incidents during cleanup."
+                ]
+              }
+            ]
+          }
+        ]
+      }
     }
   ],
   "controller": {
