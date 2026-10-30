@@ -268847,7 +268847,7 @@
       "id": "research-settings-models-performance-26",
       "title": "Investigate Settings recovery and model selection: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -268985,16 +268985,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "1352697188074982624",
         "dispatch_key": "a93e09c800d6aa2e1a3bd4e8",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-a93e09c800d6aa2e1a3bd4e8",
         "started_at": "2026-10-30T23:04:58.337271Z",
-        "finished_at": "",
+        "finished_at": "2026-10-30T23:27:37.865569Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -269166,13 +269166,98 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-30T23:18:22.951207Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-30T23:27:37.865569Z"
+      },
+      "research_result": {
+        "summary": "Measured ModelPicker render and search latencies under realistic and large-scale model catalog scenarios. Re-verified the SettingsRecoveryScreen bug where a generic network error on retry fails to clear the recovery state, trapping the user.",
+        "observations": [
+          {
+            "scenario": "Rendering ModelPicker with a large-scale catalog (5000 models)",
+            "evidence": "Measured using a synthetic Vitest fixture (src/ModelPickerPerf2.test.tsx). Opening the ModelPicker with 5000 available models takes ~1700-2000ms. With a realistic catalog of 200 models, it takes ~200ms.",
+            "result": "Render times scale linearly with the number of models. As noted in a prior decision (discovery-d41f0e7cd0ba21ff), a 5000-model catalog is not a realistic current use case, and the 200-model performance is acceptable without requiring list virtualization."
+          },
+          {
+            "scenario": "Simulating repeated search interactions in ModelPicker (500 models)",
+            "evidence": "Measured using a synthetic Vitest fixture with React testing library simulating typing 5 characters sequentially. The state updates and re-renders took ~340ms total (an average of ~68ms per keystroke).",
+            "result": "Search responsiveness is adequate for catalogs in the hundreds. The previous refactor hoisting splitSelector successfully prevents string allocation issues during query updates."
+          },
+          {
+            "scenario": "Simulating a generic network error during SettingsRecovery retry",
+            "evidence": "Observed via src/App_refresh_bug.test.tsx that mocking api.loadBootstrap to throw a generic error during a retry click in the SettingsRecoveryScreen does not dismiss the screen. setSettingsRecovery(null) is missing when settingsUnavailableDetails(error) returns null in refresh().",
+            "result": "Confirmed bug. The UI fails to dismiss the SettingsRecoveryScreen because settingsRecovery is not cleared on subsequent non-settings errors, trapping the user."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate the rendering performance of SettingsPanel when a large number of custom provider fallback chains are defined.",
+          "Test if similar missing state resets occur during other bootstrap load actions when network errors occur."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-30T23:27:37.865569Z",
+        "source": {
+          "activity_id": "sessions/1352697188074982624/activities/b1335b101ac749c4a6b6f7fcd39f6883",
+          "report_sha256": "a672a59ab615a17a756eeb046e0fb03148817d35d5c33785794f2e78c87582f5",
+          "activity_created_at": "2026-10-30T23:19:58.123357Z",
+          "session_id": "1352697188074982624",
+          "dispatch_key": "a93e09c800d6aa2e1a3bd4e8"
+        },
+        "deferred_findings": [
+          {
+            "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-cc13c452f9838bbe; not established as a duplicate. {\"detail\": \"Source code review of App.tsx and synthetic testing shows that recoverSettingsWithDefaults and refresh call showError for non-settings errors but fail to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults by interacting with the recovery UI.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal directly addresses the missing state clearance in recoverSettingsWithDefaults and refresh inside src/App.tsx, tracking the persistent buggy UI state observed using an autonomous mock React environment vitest setup.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-cc13c452f9838bbe\", \"responses\": [{\"decision_context_id\": \"missing_context\", \"decision_task_id\": \"discovery-cc13c452f9838bbe\", \"why_previous_reason_no_longer_explains\": \"Previous contexts were bounded to settings recovery, but testing has now verified the component behavior explicitly in Vitest.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx"
+            ],
+            "acceptance": [
+              "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed.",
+              "If refresh throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/1352697188074982624/activities/b1335b101ac749c4a6b6f7fcd39f6883",
+          "report_sha256": "a672a59ab615a17a756eeb046e0fb03148817d35d5c33785794f2e78c87582f5",
+          "activity_created_at": "2026-10-30T23:19:58.123357Z",
+          "session_id": "1352697188074982624",
+          "dispatch_key": "a93e09c800d6aa2e1a3bd4e8"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-e982e435945a44d3",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-cc13c452f9838bbe"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Clear SettingsRecoveryScreen state on subsequent non-settings errors during defaults fallback",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-cc13c452f9838bbe; not established as a duplicate. {\"detail\": \"Source code review of App.tsx and synthetic testing shows that recoverSettingsWithDefaults and refresh call showError for non-settings errors but fail to reset settingsRecovery to null. This traps the user in the recovery screen.\", \"reproduction\": {\"actual\": \"The generic error is displayed but the recovery screen remains.\", \"expected\": \"The recovery screen is dismissed (state cleared) and the generic error is displayed.\", \"steps\": [\"Trigger a settings parse error to enter the SettingsRecoveryScreen.\", \"Trigger a non-settings error (e.g., a timeout or generic error) during startWithDefaults by interacting with the recovery UI.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"This proposal directly addresses the missing state clearance in recoverSettingsWithDefaults and refresh inside src/App.tsx, tracking the persistent buggy UI state observed using an autonomous mock React environment vitest setup.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"discovery-cc13c452f9838bbe\", \"responses\": [{\"decision_context_id\": \"missing_context\", \"decision_task_id\": \"discovery-cc13c452f9838bbe\", \"why_previous_reason_no_longer_explains\": \"Previous contexts were bounded to settings recovery, but testing has now verified the component behavior explicitly in Vitest.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx"
+              ],
+              "acceptance": [
+                "If startWithDefaults throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed.",
+                "If refresh throws an error that does not produce settingsUnavailableDetails, setSettingsRecovery(null) is called so the user can see the main error UI and the recovery screen is dismissed."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "1 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T23:18:58.515993Z",
+    "last_poll_at": "2026-10-30T23:28:05.240766Z",
     "last_tick_at": "2026-10-30T23:19:17.211956Z",
     "run_id": "41143581580",
     "owner_recovery_requests": [
