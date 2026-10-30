@@ -264505,7 +264505,7 @@
       "id": "research-workspace-navigation-behavior-26",
       "title": "Investigate Workspace navigation and project switching: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -264632,16 +264632,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "4615376546614448692",
         "dispatch_key": "70b6fd6e311dd52be4497cba",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-70b6fd6e311dd52be4497cba",
         "started_at": "2026-10-30T06:04:28.020251Z",
-        "finished_at": "",
+        "finished_at": "2026-10-30T07:03:06.694861Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -264813,13 +264813,42 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-30T06:18:01.940787Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-30T07:03:06.694861Z"
+      },
+      "research_result": {
+        "summary": "Investigated if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks. The experiment ran successfully. The test created a large list of 100 sessions and verified that virtualization bounds the number of rendered items properly (e.g., less than 100 are present in the DOM). Keyboard focus on the rendered virtual items behaves as expected.",
+        "observations": [
+          {
+            "scenario": "Simulate rendering a large dataset (100 sessions) within SessionList and inspect DOM virtualization and focus.",
+            "evidence": "Ran an isolated jsdom Vitest rendering `SessionList` with 100 elements. Tested that `querySelectorAll('.session-select')` returns a number of nodes strictly less than 100 but greater than 0, confirming virtualization is active. Also verified that `.focus()` sets `document.activeElement` correctly on these virtual items without failure.",
+            "result": "SessionList virtualization works robustly for large datasets and does not impede basic keyboard focus for the elements rendered within the viewport."
+          },
+          {
+            "scenario": "Review workspace persistence behavior and overlap with existing discovery findings.",
+            "evidence": "Observed that in `App.tsx` (around lines 1125-1145), the persistence is dependent on `selectedWorkspacePath` through a `useEffect`. A failure is caught, but clicking the same workspace again does not trigger a retry because `selectedWorkspaceKey` is already updated and the effect dependencies do not change. This finding exactly matches the behavior documented in deferred finding discovery-da432379453e9196.",
+            "result": "The inability to retry a failed workspace save by clicking the same workspace is a confirmed behavior, matching canonical_id discovery-da432379453e9196."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if pagination or incremental loading for workspaces in ProjectRail could be a simpler alternative to full virtualization given the owner's reluctance to introduce virtualization complexity.",
+          "Evaluate if layout thrashing occurs during rapid scrolling when dynamic row heights are involved for sessions with very long names or deep nesting levels."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-30T07:03:06.694861Z",
+        "source": {
+          "activity_id": "sessions/4615376546614448692/activities/20cbd194be13407dba483287a465ae54",
+          "report_sha256": "78dd43d7a1f9b2ba7efac7ad79f968781cbc2c91b5ee298d374d196c46fd4bea",
+          "activity_created_at": "2026-10-30T06:48:21.768054Z",
+          "session_id": "4615376546614448692",
+          "dispatch_key": "70b6fd6e311dd52be4497cba"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-30T06:44:55.158552Z",
+    "last_poll_at": "2026-10-30T07:03:36.340684Z",
     "last_tick_at": "2026-10-30T06:45:11.743127Z",
     "run_id": "41015767259",
     "owner_recovery_requests": [
