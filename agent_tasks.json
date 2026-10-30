@@ -264814,7 +264814,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-30T07:03:06.694861Z"
+        "observed_at": "2026-10-30T07:03:06.694861Z",
+        "released_attempt_ref": "autonomous/attempt-70b6fd6e311dd52be4497cba"
       },
       "research_result": {
         "summary": "Investigated if keyboard navigation within the SessionList handles large datasets correctly without virtualization breaks. The experiment ran successfully. The test created a large list of 100 sessions and verified that virtualization bounds the number of rendered items properly (e.g., less than 100 are present in the DOM). Keyboard focus on the rendered virtual items behaves as expected.",
