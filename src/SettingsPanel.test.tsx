@@ -41,6 +41,7 @@ const settings: AppSettings = {
   proxyProviders: [],
   railMode: "expanded",
   language: "ru",
+  desktopTheme: "dark",
   appFontFamily: "Inter",
   appFontSize: 16,
   terminalFontFamily: "Cascadia Mono",
@@ -154,6 +155,100 @@ describe("SettingsPanel Save state", () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  async function renderRuntime(nextRuntime: RuntimeInfo, nextSettings = settings) {
+    await act(async () => {
+      root.render(
+        <SettingsPanel
+          initialOmpConfig={null}
+          onClose={vi.fn()}
+          onError={vi.fn()}
+          onSaved={vi.fn()}
+          runtime={nextRuntime}
+          settings={nextSettings}
+        />,
+      )
+    })
+  }
+
+  const failedRuntime: RuntimeInfo = {
+    ...runtime,
+    ompAvailable: false,
+    ompVersion: null,
+    ompProbeFailures: [{ source: "configured", reason: "timeout" }],
+  }
+
+  function editExecutableDraft() {
+    const input = container.querySelector<HTMLInputElement>("#omp-executable")!
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        "synthetic-unsubmitted-runtime.exe",
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    return input
+  }
+
+  it("updates probe guidance with the settings language without losing the executable draft", async () => {
+    await renderRuntime(failedRuntime)
+    expect(container.querySelector(".runtime-card")?.textContent).toContain(
+      "Проверка версии превысила лимит времени.",
+    )
+    const executable = editExecutableDraft()
+    act(() => {
+      const language = container.querySelector<HTMLSelectElement>("#language-select")!
+      language.value = "en"
+      language.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+
+    expect(container.querySelector(".runtime-card")?.textContent).toContain(
+      "The version probe timed out.",
+    )
+    expect(container.querySelector(".runtime-card")?.textContent).not.toContain(
+      "Проверка версии превысила лимит времени.",
+    )
+    expect(executable.value).toBe("synthetic-unsubmitted-runtime.exe")
+    expect(executable.disabled).toBe(false)
+  })
+
+  it("bounds diagnostic output and never displays unknown wire values or raw probe details", async () => {
+    const diagnostics = JSON.parse(
+      JSON.stringify([
+        {
+          source: "synthetic-private-path",
+          reason: "synthetic-private-reason",
+          stderr: "synthetic-private-stderr",
+        },
+        null,
+        ...Array.from({ length: 30 }, () => ({ source: "searchPath", reason: "launchFailed" })),
+      ]),
+    )
+    await renderRuntime(
+      { ...failedRuntime, ompProbeFailures: diagnostics },
+      { ...settings, language: "en" },
+    )
+
+    const card = container.querySelector(".runtime-card")!
+    expect(card.querySelectorAll("li")).toHaveLength(5)
+    expect(card.textContent).toContain("The unavailability reason was not reported.")
+    expect(card.textContent).toContain("The probe command could not be started.")
+    expect(card.textContent).not.toContain("synthetic-private-")
+    expect(container.querySelector<HTMLInputElement>("#omp-executable")!.disabled).toBe(false)
+  })
+
+  it("clears failed probe guidance after runtime recovery without resetting an unsaved path", async () => {
+    await renderRuntime({ ...failedRuntime, ompProbeFailures: undefined })
+    expect(container.querySelector(".runtime-card strong")?.textContent).toBe("OMP недоступен")
+    await renderRuntime(failedRuntime)
+    expect(container.querySelectorAll(".runtime-card li")).toHaveLength(1)
+    const executable = editExecutableDraft()
+    await renderRuntime({ ...runtime, ompProbeFailures: failedRuntime.ompProbeFailures })
+
+    expect(container.querySelector(".runtime-card strong")?.textContent).toBe("OMP подключён")
+    expect(container.querySelectorAll(".runtime-card li")).toHaveLength(0)
+    expect(executable.value).toBe("synthetic-unsubmitted-runtime.exe")
   })
 
   it("enables Save only after a settings change", async () => {
@@ -410,6 +505,300 @@ describe("SettingsPanel configuration generations", () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  it("saves only the submitted Desktop theme and keeps a later theme draft with a sticky acknowledgement", async () => {
+    const pending = deferred<SettingsSavePayload>()
+    saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+    await renderPanel(runtime, settings, true, ompConfig)
+    changeField("#desktop-theme-select", "light")
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    act(() => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0]).toMatchObject({
+      update: { desktopTheme: "light" },
+      ompConfig: null,
+    })
+    const status = container.querySelector<HTMLElement>('.settings-save-status[role="status"]')!
+    const pendingStatus = status.textContent
+    changeField("#desktop-theme-select", "system")
+    const committedSettings = { ...settings, desktopTheme: "light" as const }
+    await act(async () => pending.resolve(saveResult(ompConfig, runtime, committedSettings)))
+    await renderPanel(runtime, committedSettings, true, ompConfig)
+    expect(container.querySelector<HTMLSelectElement>("#desktop-theme-select")!.value).toBe(
+      "system",
+    )
+    expect(save.disabled).toBe(false)
+    const acknowledgement = status.textContent
+    expect(acknowledgement).toBeTruthy()
+    expect(acknowledgement).not.toBe(pendingStatus)
+    changeField("#desktop-theme-select", "dark")
+    expect(status.textContent).toBe(acknowledgement)
+    saveSettingsBundleMock.mockRejectedValueOnce(new Error("Synthetic theme save failure"))
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0]).toMatchObject({
+      update: { desktopTheme: "dark" },
+      ompConfig: null,
+    })
+    expect(status.textContent).toBe("")
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Synthetic theme save failure",
+    )
+    expect(container.querySelector<HTMLSelectElement>("#desktop-theme-select")!.value).toBe("dark")
+    expect(save.disabled).toBe(false)
+    expect(loadOmpConfigMock).not.toHaveBeenCalled()
+  })
+
+  const savedRole = "synthetic/chosen"
+  const pendingConfig: OmpConfigSnapshot = {
+    ...ompConfig,
+    roles: [
+      {
+        role: "default",
+        selector: "synthetic/original",
+        model: null,
+        available: false,
+        status: "missing",
+        detail: null,
+      },
+    ],
+  }
+  const committedConfig: OmpConfigSnapshot = {
+    ...pendingConfig,
+    roles: [{ ...pendingConfig.roles[0], selector: savedRole }],
+  }
+  const editableFields = [
+    ["advisor", "behavior", ".settings-options input", "advisorEnabled", true],
+    ["auto-resume", "behavior", ".settings-options label:nth-child(2) input", "autoResume", true],
+    ["thinking", "behavior", "#thinking-level", "defaultThinkingLevel", "high"],
+    ["enabled", "providers", ".provider-enabled-toggle input", "disabledProviders", ["codex-lb"]],
+    ["proxy", "providers", ".provider-proxy-toggle input", "proxyProviders", ["codex-lb"]],
+  ] as const
+
+  function changeModelDraft() {
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-role="default"] .model-picker-trigger')!
+        .click(),
+    )
+    changeField('[data-role="default"] .model-picker-manual input', savedRole)
+  }
+
+  it.each(
+    editableFields.flatMap((field) =>
+      [false, true].map(
+        (retry) => [field[0], retry, field[1], field[2], field[3], field[4]] as const,
+      ),
+    ),
+  )(
+    "keeps later %s edits after config Save (corrected retry: %s)",
+    async (name, retry, section, selector, key, value) => {
+      const pending = deferred<SettingsSavePayload>()
+      if (retry)
+        saveSettingsBundleMock.mockRejectedValueOnce(new Error("Synthetic provider ID collision"))
+      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+      await renderPanel(runtime, settings, true, pendingConfig)
+      changeModelDraft()
+      if (retry) {
+        act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+        changeField(".custom-provider-form input", "taken-id")
+        changeField(
+          '.custom-provider-form input[placeholder="https://gateway.example.com/v1"]',
+          "https://fixture.example.test/v1",
+        )
+        changeField(".custom-provider-form input[type=password]", "synthetic-key")
+        await act(async () =>
+          container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+        )
+        expect(container.querySelector(".settings-save-error")).not.toBeNull()
+        changeField(".custom-provider-form input", "corrected-id")
+      }
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      act(() => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.roles).toEqual({
+        default: savedRole,
+      })
+      act(() => container.querySelector<HTMLButtonElement>(`#settings-tab-${section}`)!.click())
+      const control = container.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!
+      expect(control.matches(":disabled")).toBe(false)
+      if (name === "thinking") changeField(selector, "high")
+      else act(() => (control as HTMLInputElement).click())
+      expect(save.disabled).toBe(true)
+      const snapshot: OmpConfigSnapshot = retry
+        ? {
+            ...committedConfig,
+            credentials: [
+              ...committedConfig.credentials,
+              { ...ompConfig.credentials[0], provider: "corrected-id" },
+            ],
+          }
+        : committedConfig
+      await act(async () => pending.resolve(saveResult(snapshot)))
+      expect(onSaved).toHaveBeenCalledOnce()
+      const after = container.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!
+      expect(name === "thinking" ? after.value : (after as HTMLInputElement).checked).toBe(
+        name === "thinking" ? "high" : name !== "enabled",
+      )
+      expect(save.disabled).toBe(false)
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(retry ? 2 : 1)
+      saveSettingsBundleMock.mockResolvedValueOnce(saveResult({ ...snapshot, [key]: value }))
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toMatchObject({
+        [key]: value,
+        roles: {},
+        customProviderUpserts: [],
+        removedCustomProviders: [],
+        operationalChanges: {},
+      })
+      expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+      expect(save.disabled).toBe(true)
+      expect(onSaved).toHaveBeenCalledTimes(2)
+      expect(onError).toHaveBeenCalledTimes(retry ? 1 : 0)
+    },
+  )
+
+  it.each(editableFields)(
+    "keeps a pending reversal of the submitted %s value",
+    async (name, section, selector, key, value) => {
+      const pending = deferred<SettingsSavePayload>()
+      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+      await renderPanel(runtime, settings, true, ompConfig)
+      act(() => container.querySelector<HTMLButtonElement>(`#settings-tab-${section}`)!.click())
+      const control = container.querySelector<HTMLInputElement | HTMLSelectElement>(selector)!
+      if (name === "thinking") changeField(selector, "high")
+      else act(() => (control as HTMLInputElement).click())
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      act(() => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig[key]).toEqual(value)
+      if (name === "thinking") changeField(selector, "medium")
+      else act(() => (control as HTMLInputElement).click())
+      await act(async () => pending.resolve(saveResult({ ...ompConfig, [key]: value })))
+      expect(name === "thinking" ? control.value : (control as HTMLInputElement).checked).toBe(
+        name === "thinking" ? "medium" : name === "enabled",
+      )
+      expect(save.disabled).toBe(false)
+      saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig[key]).toEqual(
+        name === "thinking" ? "medium" : name === "advisor" || name === "auto-resume" ? false : [],
+      )
+      expect(save.disabled).toBe(true)
+    },
+  )
+
+  it("accepts committed values in untouched fields and clears an edit reverted to the submitted value", async () => {
+    const pending = deferred<SettingsSavePayload>()
+    saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+    await renderPanel(runtime, settings, true, pendingConfig)
+    changeModelDraft()
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    act(() => save.click())
+    expectAdvisorDraft(false)
+    const advisor = container.querySelector<HTMLInputElement>(".settings-options input")!
+    act(() => advisor.click())
+    act(() => advisor.click())
+    await act(async () =>
+      pending.resolve(saveResult({ ...committedConfig, defaultThinkingLevel: "auto" })),
+    )
+    expect(advisor.checked).toBe(false)
+    expect(container.querySelector<HTMLSelectElement>("#thinking-level")!.value).toBe("auto")
+    expect(save.disabled).toBe(true)
+    expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
+  })
+
+  it("reconciles provider membership without discarding committed changes to another provider", async () => {
+    const pending = deferred<SettingsSavePayload>()
+    saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+    await renderPanel(runtime, settings, true, { ...pendingConfig, proxyProviders: ["codex-lb"] })
+    changeModelDraft()
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    act(() => save.click())
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    act(() => container.querySelector<HTMLInputElement>(".provider-enabled-toggle input")!.click())
+    const snapshot = { ...committedConfig, proxyProviders: ["codex-lb", "openai"] }
+    await act(async () => pending.resolve(saveResult(snapshot)))
+    expect(
+      [...container.querySelectorAll<HTMLInputElement>(".provider-enabled-toggle input")].map(
+        (input) => input.checked,
+      ),
+    ).toEqual([false, true])
+    expect(
+      [...container.querySelectorAll<HTMLInputElement>(".provider-proxy-toggle input")].map(
+        (input) => input.checked,
+      ),
+    ).toEqual([false, true])
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult({ ...snapshot, disabledProviders: ["codex-lb"], proxyProviders: ["openai"] }),
+    )
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toMatchObject({
+      disabledProviders: ["codex-lb"],
+      proxyProviders: ["openai"],
+      roles: {},
+    })
+    expect(save.disabled).toBe(true)
+  })
+
+  it.each(["before", "after"] as const)(
+    "retains a later removal confirmed %s Save settles without replaying the submitted removal",
+    async (when) => {
+      const pending = deferred<SettingsSavePayload>()
+      const confirmation = deferred<boolean>()
+      confirmMock.mockReset().mockResolvedValueOnce(true).mockReturnValueOnce(confirmation.promise)
+      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+      const snapshot = {
+        ...ompConfig,
+        credentials: [
+          ...ompConfig.credentials,
+          { ...ompConfig.credentials[0], provider: "second-custom" },
+        ],
+      }
+      await renderPanel(runtime, settings, true, snapshot)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>(".provider-remove-button")!.click(),
+      )
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      act(() => save.click())
+      act(() => container.querySelector<HTMLButtonElement>(".provider-remove-button")!.click())
+      const committed = {
+        ...snapshot,
+        credentials: snapshot.credentials.filter(
+          (credential) => credential.provider !== "codex-lb",
+        ),
+      }
+      if (when === "before") await act(async () => confirmation.resolve(true))
+      await act(async () => pending.resolve(saveResult(committed)))
+      if (when === "after") await act(async () => confirmation.resolve(true))
+      expect(container.querySelector(".provider-remove-button")).toBeNull()
+      expect(save.disabled).toBe(false)
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult({ ...committed, credentials: [ompConfig.credentials[1]] }),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.removedCustomProviders).toEqual([
+        "second-custom",
+      ])
+      expect(save.disabled).toBe(true)
+    },
+  )
+
+  it("resets old-runtime pending drafts when Save returns a different runtime", async () => {
+    const pending = deferred<SettingsSavePayload>()
+    saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+    await renderPanel(runtime, settings, true, pendingConfig)
+    changeModelDraft()
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    act(() => save.click())
+    expectAdvisorDraft(false)
+    act(() => container.querySelector<HTMLInputElement>(".settings-options input")!.click())
+    const nextRuntime = { ...runtime, ompExecutable: "synthetic-new-runtime.exe" }
+    await act(async () => pending.resolve(saveResult(committedConfig, nextRuntime)))
+    await renderPanel(nextRuntime, settings, true, committedConfig)
+    expectAdvisorDraft(false)
+    expect(save.disabled).toBe(true)
+    expect(onSaved).toHaveBeenCalledOnce()
+    expect(loadOmpConfigMock).not.toHaveBeenCalled()
   })
 
   it("opens a cached role baseline as clean and editable in Strict Mode", async () => {
@@ -1595,5 +1984,306 @@ describe("SettingsPanel keyboard lifecycle", () => {
     expect(onClose).not.toHaveBeenCalled()
     press(input, "Escape")
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("unsaved dismissal guard", () => {
+  let host: HTMLDivElement
+  let root: Root
+  let closed: Mock
+  let saved: Mock
+  let noticed: Mock
+  async function mount(nextSettings = settings) {
+    await act(async () =>
+      root.render(
+        <SettingsPanel
+          settings={nextSettings}
+          runtime={runtime}
+          initialOmpConfig={ompConfig}
+          onClose={closed}
+          onSaved={saved}
+          onNotice={noticed}
+          onError={vi.fn()}
+        />,
+      ),
+    )
+  }
+  function edit(selector = "#omp-executable", value = "synthetic-custom-omp") {
+    act(() => {
+      const input = host.querySelector<HTMLInputElement>(selector)!
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+  function press(target: Element, key: string, extra: KeyboardEventInit = {}) {
+    act(() =>
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          ...extra,
+        }),
+      ),
+    )
+  }
+  const dialog = () => host.querySelector<HTMLElement>('[role="alertdialog"]')
+  const input = () => host.querySelector<HTMLInputElement>("#omp-executable")!
+  async function dismiss(route: string) {
+    await act(async () => {
+      if (route === "backdrop")
+        host
+          .querySelector(".settings-backdrop")!
+          .dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+      if (route === "header")
+        host.querySelector<HTMLButtonElement>(".settings-header button")!.click()
+      if (route === "escape")
+        input().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        )
+    })
+  }
+  beforeEach(async () => {
+    confirmMock.mockReset()
+    loadOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
+    saveSettingsBundleMock.mockReset()
+    host = document.createElement("div")
+    document.body.append(host)
+    root = createRoot(host)
+    closed = vi.fn(() => root.render(null))
+    saved = vi.fn()
+    noticed = vi.fn()
+    await mount()
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+  })
+  it.each([false, true])(
+    "does not treat an added key name as unsaved; next new name=%s",
+    async (newName) => {
+      act(() => host.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      edit(".provider-add-row input:first-child", "CUSTOM_SYNTHETIC_KEY")
+      edit(".provider-add-row input[type=password]", "synthetic-value")
+      act(() => host.querySelector<HTMLButtonElement>(".provider-add-row button")!.click())
+      const nextSettings = { ...settings, providerEnvKeys: ["CUSTOM_SYNTHETIC_KEY"] }
+      saveSettingsBundleMock.mockResolvedValue({
+        bootstrap: {
+          settings: nextSettings,
+          runtime,
+          workspaces: [],
+          sessions: [],
+          sessionWarnings: [],
+        },
+        ompConfig,
+      })
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+      )
+      await mount(nextSettings)
+      expect(host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(
+        true,
+      )
+      if (newName) edit(".provider-add-row input:first-child", "ANOTHER_SYNTHETIC_KEY")
+      await dismiss("header")
+      if (newName) {
+        expect(dialog()).not.toBeNull()
+        expect(closed).not.toHaveBeenCalled()
+      } else {
+        expect(dialog()).toBeNull()
+        expect(closed).toHaveBeenCalledTimes(1)
+      }
+    },
+  )
+  it.each(["discard", "keep-cancel", "keep-discard"] as const)(
+    "restores the original external opener after %s",
+    async (route) => {
+      act(() => root.unmount())
+      const opener = document.createElement("button")
+      document.body.append(opener)
+      opener.focus()
+      root = createRoot(host)
+      await mount()
+      edit()
+      await dismiss("escape")
+      if (route !== "discard") {
+        await act(async () => dialog()!.querySelector<HTMLButtonElement>(".primary")!.click())
+        if (route === "keep-cancel") {
+          await act(async () =>
+            host
+              .querySelector<HTMLButtonElement>(
+                '.settings-panel[role="dialog"] .settings-actions .secondary',
+              )!
+              .click(),
+          )
+        } else {
+          await dismiss("escape")
+        }
+      }
+      if (route !== "keep-cancel") {
+        await act(async () => dialog()!.querySelector<HTMLButtonElement>(".secondary")!.click())
+      }
+      expect(document.activeElement).toBe(opener)
+      opener.remove()
+    },
+  )
+  for (const route of ["backdrop", "header", "escape"]) {
+    it(`keeps dirty draft after accidental ${route} until explicit discard`, async () => {
+      edit()
+      input().focus()
+      await dismiss(route)
+      expect(closed).not.toHaveBeenCalled()
+      expect(dialog()).not.toBeNull()
+      expect(document.activeElement?.textContent).toBe("Продолжить редактирование")
+      expect(host.querySelector<HTMLElement>('.settings-panel[role="dialog"]')!.style.display).toBe(
+        "none",
+      )
+      expect(host.querySelector('.settings-panel[role="dialog"]')?.hasAttribute("inert")).toBe(true)
+      expect(confirmMock).not.toHaveBeenCalled()
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".primary")!.click())
+      expect(dialog()).toBeNull()
+      expect(input().value).toBe("synthetic-custom-omp")
+      expect(document.activeElement).toBe(input())
+      await dismiss(route)
+      await act(async () => dialog()!.querySelector<HTMLButtonElement>(".secondary")!.click())
+      expect(closed).toHaveBeenCalledTimes(1)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      await mount()
+      expect(input().value).toBe(settings.ompExecutable ?? "")
+    })
+  }
+  it("uses Escape/backdrop as Keep editing and traps confirmation focus", async () => {
+    edit()
+    input().focus()
+    await dismiss("escape")
+    const keep = dialog()!.querySelector<HTMLButtonElement>(".primary")!
+    const discard = dialog()!.querySelector<HTMLButtonElement>(".secondary")!
+    press(keep, "Tab", { shiftKey: true })
+    expect(document.activeElement).toBe(discard)
+    press(discard, "Tab")
+    expect(document.activeElement).toBe(keep)
+    press(keep, "Escape")
+    expect(dialog()).toBeNull()
+    expect(closed).not.toHaveBeenCalled()
+    await dismiss("header")
+    await act(async () =>
+      dialog()!.parentElement!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })),
+    )
+    expect(dialog()).toBeNull()
+    expect(input().value).toBe("synthetic-custom-omp")
+  })
+  it("leaves section navigation and nested select/IME Escape owned by their controls", async () => {
+    edit()
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-behavior")!.click())
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+    expect(input().value).toBe("synthetic-custom-omp")
+    press(host.querySelector("select")!, "Escape")
+    press(input(), "Escape", { isComposing: true })
+    press(input(), "Escape", { keyCode: 229 })
+    expect(dialog()).toBeNull()
+    expect(closed).not.toHaveBeenCalled()
+  })
+  it("closes clean and harmless normalized whitespace without confirmation", async () => {
+    edit("#omp-executable", "  ")
+    await dismiss("header")
+    expect(closed).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBeNull()
+  })
+  it("preserves explicit Cancel as intentional discard", async () => {
+    edit()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .secondary")!.click(),
+    )
+    expect(closed).toHaveBeenCalledTimes(1)
+    expect(dialog()).toBeNull()
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+  it("protects unadded provider key input without enabling or sending Save", async () => {
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    edit(".provider-add-row input[type=password]", "synthetic-only-key")
+    expect(host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled).toBe(true)
+    await dismiss("header")
+    expect(dialog()).not.toBeNull()
+    expect(closed).not.toHaveBeenCalled()
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(dialog()!.textContent).not.toContain("synthetic-only-key")
+  })
+  it("protects a custom key name draft before Add", async () => {
+    await act(async () => host.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    edit(".provider-add-row input:first-child", "CUSTOM_SYNTHETIC_KEY")
+    await dismiss("header")
+    expect(dialog()).not.toBeNull()
+  })
+  it("blocks accidental close during pending Save without queuing dismissal", async () => {
+    let resolve!: (v: SettingsSavePayload) => void
+    saveSettingsBundleMock.mockImplementation(
+      () =>
+        new Promise<SettingsSavePayload>((r) => {
+          resolve = r
+        }),
+    )
+    edit()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    for (const route of ["backdrop", "header", "escape"]) await dismiss(route)
+    expect(closed).not.toHaveBeenCalled()
+    expect(dialog()).toBeNull()
+    expect(host.textContent).toContain("Сохраняем…")
+    await act(async () =>
+      resolve({
+        bootstrap: {
+          settings: { ...settings, ompExecutable: "synthetic-custom-omp" },
+          runtime,
+          workspaces: [],
+          sessions: [],
+          sessionWarnings: [],
+        },
+        ompConfig,
+      }),
+    )
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(closed).not.toHaveBeenCalled()
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+  })
+  it("still permits explicit Cancel during pending Save and acknowledges only the submitted snapshot", async () => {
+    let resolve!: (v: SettingsSavePayload) => void
+    saveSettingsBundleMock.mockImplementation(
+      () =>
+        new Promise<SettingsSavePayload>((r) => {
+          resolve = r
+        }),
+    )
+    edit()
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>(".settings-actions .secondary")!.click(),
+    )
+    expect(closed).toHaveBeenCalledTimes(1)
+    expect(noticed).not.toHaveBeenCalled()
+    await act(async () =>
+      resolve({
+        bootstrap: {
+          settings: { ...settings, language: "en" },
+          runtime,
+          workspaces: [],
+          sessions: [],
+          sessionWarnings: [],
+        },
+        ompConfig,
+      }),
+    )
+    expect(saved).toHaveBeenCalledTimes(1)
+    expect(noticed).toHaveBeenCalledTimes(1)
+    expect(noticed.mock.lastCall![0]).toContain("Submitted")
+    expect(host.querySelector('[role="status"]')).toBeNull()
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
   })
 })

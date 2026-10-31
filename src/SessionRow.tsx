@@ -31,6 +31,7 @@ interface SessionRowProps {
   onDoubleLaunch: () => void
   onKeySelect: (e: ReactKeyboardEvent<HTMLDivElement>) => void
   onToggleChildren: () => void
+  onCopyToWorkspace?: (event: React.MouseEvent) => void
   onLaunch: () => void
   onTranscript: (e: React.MouseEvent) => void
   onStartRename: (e: React.MouseEvent) => void
@@ -61,6 +62,7 @@ export function SessionRow({
   onDoubleLaunch,
   onKeySelect,
   onToggleChildren,
+  onCopyToWorkspace,
   onLaunch,
   onTranscript,
   onStartRename,
@@ -112,7 +114,7 @@ export function SessionRow({
   return (
     <>
       <article
-        className={`session-item${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}${renaming ? " is-renaming" : ""}${depth > 0 ? " is-child" : ""}${hasChildren ? " has-children" : ""}`}
+        className={`session-item${onCopyToWorkspace ? " has-copy-action" : ""}${selected ? " is-selected" : ""}${sessionOpen ? " is-open" : ""}${sessionThinking ? " is-thinking" : ""}${renaming ? " is-renaming" : ""}${depth > 0 ? " is-child" : ""}${hasChildren ? " has-children" : ""}`}
       >
         {!renaming &&
           (hasChildren ? (
@@ -252,6 +254,17 @@ export function SessionRow({
             type="button"
           >
             <Icon name="edit" size={14} />
+          </button>
+        )}
+        {!renaming && onCopyToWorkspace && (
+          <button
+            className="session-play"
+            disabled={actionsDisabled || busy || sessionRunning}
+            onClick={onCopyToWorkspace}
+            title={t(lang, "sessionCopyTitle")}
+            type="button"
+          >
+            <Icon name="folderOpen" size={14} />
           </button>
         )}
         {!renaming && (

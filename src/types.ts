@@ -20,6 +20,8 @@ export interface SettingsWarning {
 
 export type RailMode = "expanded" | "collapsed" | "autoHide"
 
+export type DesktopTheme = "dark" | "light" | "system"
+
 export interface AppSettings {
   ompExecutable: string | null
   sessionRoot: string | null
@@ -32,6 +34,7 @@ export interface AppSettings {
   proxyProviders: string[]
   railMode: RailMode
   language: "ru" | "en"
+  desktopTheme: DesktopTheme
   appFontFamily: string
   appFontSize: number
   terminalFontFamily: string
@@ -41,6 +44,25 @@ export interface AppSettings {
   settingsWarning: SettingsWarning | null
 }
 
+export interface OmpProbeFailure {
+  source:
+    | "configured"
+    | "environment"
+    | "localInstall"
+    | "userLocalBin"
+    | "userNpmBin"
+    | "systemLocalBin"
+    | "searchPath"
+  reason:
+    | "pathUnavailable"
+    | "launchFailed"
+    | "timeout"
+    | "outputLimit"
+    | "ioFailed"
+    | "unsuccessfulExit"
+    | "emptyVersion"
+}
+
 export interface RuntimeInfo {
   platform: string
   arch: string
@@ -48,6 +70,7 @@ export interface RuntimeInfo {
   ompAvailable: boolean
   ompExecutable: string
   ompVersion: string | null
+  ompProbeFailures?: OmpProbeFailure[]
   sessionRoot: string
 }
 
@@ -145,7 +168,13 @@ export interface SessionScanWarning {
   message: string
 }
 
+export interface StartupWorkspaceWarning {
+  requestedPath: string
+  message: string
+}
+
 export interface BootstrapPayload {
+  startupWorkspaceWarning?: StartupWorkspaceWarning | null
   settings: AppSettings
   runtime: RuntimeInfo
   workspaces: WorkspaceSummary[]
@@ -176,6 +205,7 @@ export interface ImportBatchPayload {
 }
 
 export interface SettingsUpdate {
+  desktopTheme?: DesktopTheme | null
   ompExecutable?: string | null
   appFontFamily?: string | null
   appFontSize?: number | null
@@ -402,6 +432,16 @@ export interface TerminalAttachment {
   exitCode: number | null
   success: boolean
   error: string | null
+}
+
+export interface TerminalCapture {
+  path: string
+  metadataPath: string
+  bytes: number
+  firstSeq: number | null
+  lastSeq: number | null
+  truncated: boolean
+  droppedBytes: number
 }
 
 export interface PtySessionEvent {

@@ -1,5 +1,9 @@
+import { createPortal } from "react-dom"
+import { StartupWorkspaceRecovery } from "./StartupWorkspaceRecovery"
+import type { StartupWorkspaceWarning } from "./types"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useDesktopTheme } from "./useDesktopTheme"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
@@ -11,6 +15,7 @@ import {
 } from "@tauri-apps/plugin-notification"
 import {
   addWorkspace,
+  resolveStartupWorkspace,
   bootstrap as loadBootstrap,
   backendErrorCode,
   checkOmpUpdate,
@@ -42,7 +47,9 @@ import {
   writeTerminal,
 } from "./api"
 import { CodexImportModal } from "./CodexImportModal"
+import { importFailureMessage } from "./importFailure"
 import { IncidentCenter } from "./IncidentCenter"
+import { SessionCopyModal } from "./SessionCopyModal"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
 import { matchesSelector, splitSelector, thinkingOptionsForModel } from "./ModelPicker"
@@ -238,6 +245,13 @@ function App() {
   const workspaceSelectionRequestRef = useRef(0)
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
+  const [workspaceSaveRetry, setWorkspaceSaveRetry] = useState(0)
+  const [workspaceSaveFailure, setWorkspaceSaveFailure] = useState<{
+    path: string | null
+    message: string
+  } | null>(null)
+  const [workspaceSaveBusy, setWorkspaceSaveBusy] = useState(false)
+  const workspaceSaveRetryPendingRef = useRef(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const sessionSelectionRequestRef = useRef(0)
   const [search, setSearch] = useState("")
@@ -277,8 +291,30 @@ function App() {
   const [settingsOpenedAt, setSettingsOpenedAt] = useState<number | null>(null)
   const settingsOpen = settingsOpenedAt !== null
   const [startupError, setStartupError] = useState<string | null>(null)
+  const [startupWorkspaceWarning, setStartupWorkspaceWarning] =
+    useState<StartupWorkspaceWarning | null>(null)
+  const startupWorkspaceWarningRef = useRef<StartupWorkspaceWarning | null>(null)
+  const [startupWorkspaceBusy, setStartupWorkspaceBusy] = useState(false)
+  const startupWorkspaceBusyRef = useRef(false)
+  const [startupWorkspaceError, setStartupWorkspaceError] = useState<string | null>(null)
+  const acceptStartupWorkspaceWarning = useCallback((warning: StartupWorkspaceWarning | null) => {
+    startupWorkspaceWarningRef.current = warning
+    setStartupWorkspaceWarning(warning)
+  }, [])
+
   const [settingsRecovery, setSettingsRecovery] = useState<SettingsUnavailableDetails | null>(null)
+  const settingsRecoveryRef = useRef<SettingsUnavailableDetails | null>(null)
   const [settingsRecoveryBusy, setSettingsRecoveryBusy] = useState(false)
+  const [settingsRecoveryActionError, setSettingsRecoveryActionError] = useState<string | null>(
+    null,
+  )
+  const [settingsRecoveryRefreshError, setSettingsRecoveryRefreshError] = useState<string | null>(
+    null,
+  )
+  const settingsRecoveryActionRef = useRef<{
+    request: number
+    active: number | null
+  }>({ request: 0, active: null })
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const sessionRenameRequestRef = useRef(0)
@@ -304,16 +340,64 @@ function App() {
   const [codexOpen, setCodexOpen] = useState(false)
   const [codexSessions, setCodexSessions] = useState<CodexSessionSummary[]>([])
   const [codexSelected, setCodexSelected] = useState<Record<string, boolean>>({})
+  const [codexFailures, setCodexFailures] = useState<Record<string, string>>({})
+  const codexViewRef = useRef(0)
+  const codexContextRef = useRef<{ open: boolean; path: string | null | undefined }>({
+    open: false,
+    path: undefined,
+  })
   const [codexLoading, setCodexLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importMode, setImportMode] = useState<ImportMode>("skip")
   const [ompFilePickerOpen, setOmpFilePickerOpen] = useState(false)
+  const copyCloseFocusRef = useRef<{ workspace: number; session: number } | null>(null)
+  const [copySession, setCopySession] = useState<{
+    session: SessionSummary
+    selectionRequest: number
+    sessionRequest: number
+    payloadRevision: number
+  } | null>(null)
+  useLayoutEffect(() => {
+    const pending = copyCloseFocusRef.current
+    if (copySession || !pending) return
+    copyCloseFocusRef.current = null
+    if (
+      pending.workspace !== workspaceSelectionRequestRef.current ||
+      pending.session !== sessionSelectionRequestRef.current ||
+      document.activeElement !== document.body ||
+      document.querySelector('[aria-modal="true"]')
+    )
+      return
+    const targets = [
+      document.querySelector<HTMLElement>(".session-item.is-selected .session-select"),
+      document.querySelector<HTMLElement>(".project-item.is-active"),
+      document.querySelector<HTMLElement>(".rail-open-folder"),
+    ]
+    for (const target of targets) {
+      if (!target) continue
+      if (target.matches(":disabled") || target.closest("[hidden], [inert]")) continue
+      let visible = true
+      for (let node: HTMLElement | null = target; node; node = node.parentElement) {
+        const style = getComputedStyle(node)
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.visibility === "collapse"
+        )
+          visible = false
+      }
+      if (!visible) continue
+      target.focus({ preventScroll: false })
+      if (document.activeElement === target) break
+    }
+  }, [copySession])
   const [pendingOmpImportPath, setPendingOmpImportPath] = useState<string | null>(null)
   const [resourceHealth, setResourceHealth] = useState<ResourceHealthSnapshot | null>(null)
   const [resourceHealthError, setResourceHealthError] = useState<string | null>(null)
   const [resourceHealthOpen, setResourceHealthOpen] = useState(false)
   const resourceHealthTriggerRef = useRef<HTMLButtonElement>(null)
   const resourceHealthSamplingRef = useRef(false)
+  const resourceHealthPendingRefreshRef = useRef<(() => void) | null>(null)
   const [railAutoOpen, setRailAutoOpen] = useState(false)
   const [railModeSaving, setRailModeSaving] = useState(false)
 
@@ -331,6 +415,8 @@ function App() {
     setOmpConfigLoading(false)
   }, [])
 
+  useDesktopTheme(payload?.settings.desktopTheme ?? "dark")
+
   const appFontSize = payload?.settings.appFontSize
   useEffect(() => {
     if (appFontSize === undefined) return
@@ -343,6 +429,16 @@ function App() {
   }, [appFontSize])
 
   const lang: Lang = payload?.settings.language === "en" ? "en" : "ru"
+  useEffect(() => {
+    const root = document.documentElement
+    const previousLanguage = root.getAttribute("lang")
+    root.lang = lang
+    return () => {
+      if (previousLanguage === null) root.removeAttribute("lang")
+      else root.setAttribute("lang", previousLanguage)
+    }
+  }, [lang])
+
   const langRef = useRef(lang)
   langRef.current = lang
   const ompVersionRef = useRef(payload?.runtime.ompVersion ?? null)
@@ -449,10 +545,14 @@ function App() {
   useEffect(
     () =>
       subscribeSettingsUnavailable((recovery) => {
+        ++settingsRecoveryActionRef.current.request
+        setSettingsRecoveryActionError(null)
+        setSettingsRecoveryRefreshError(null)
+        settingsRecoveryRef.current = recovery
         setSettingsRecovery(recovery)
         setStartupError(recovery.message)
         setRefreshing(false)
-        setSettingsRecoveryBusy(false)
+        setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
       }),
     [],
   )
@@ -575,7 +675,14 @@ function App() {
     (next: BootstrapPayload, preferredWorkspace?: string) => {
       ++payloadRevisionRef.current
       setPayload(next)
+      // Ordinary mutations may omit this add-only field; they cannot dismiss the launch intent.
+      if (next.startupWorkspaceWarning) acceptStartupWorkspaceWarning(next.startupWorkspaceWarning)
+      settingsRecoveryRef.current = null
       setSettingsRecovery(null)
+      ++settingsRecoveryActionRef.current.request
+      setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
+      setSettingsRecoveryActionError(null)
+      setSettingsRecoveryRefreshError(null)
       setTabs((current) =>
         current.map((tab) => {
           const session = next.sessions.find((candidate) =>
@@ -616,7 +723,7 @@ function App() {
         current && next.sessions.some((session) => session.id === current) ? current : null,
       )
     },
-    [showNotice],
+    [acceptStartupWorkspaceWarning, showNotice],
   )
 
   const handleSettingsSaved = useCallback(
@@ -742,6 +849,8 @@ function App() {
   }, [])
 
   const refresh = useCallback(async () => {
+    ++settingsRecoveryActionRef.current.request
+    setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
     const request = ++refreshRequestRef.current
     const revision = payloadRevisionRef.current
     const current = () =>
@@ -751,54 +860,78 @@ function App() {
     setRefreshing(true)
     try {
       const next = await loadBootstrap()
-      if (current()) applyPayload(next)
+      if (current()) {
+        acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+        applyPayload(next)
+      }
     } catch (error) {
       if (!current()) return
       const recovery = settingsUnavailableDetails(error)
       if (recovery) {
+        setSettingsRecoveryActionError(null)
+        setSettingsRecoveryRefreshError(null)
+        settingsRecoveryRef.current = recovery
         setSettingsRecovery(recovery)
         setStartupError(recovery.message)
       } else {
         const message = errorMessage(error, langRef.current)
         setStartupError(message)
-        showError(message)
+        if (settingsRecoveryRef.current) setSettingsRecoveryRefreshError(message)
+        else showError(message)
       }
     } finally {
       if (mountedRef.current && request === refreshRequestRef.current) setRefreshing(false)
     }
-  }, [applyPayload, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, showError])
 
-  const openSettingsRecoveryFolder = useCallback(async () => {
-    if (!settingsRecovery) return
-    try {
-      await openSettingsFolder()
-    } catch (error) {
-      showError(errorMessage(error, lang))
-    }
-  }, [lang, settingsRecovery, showError])
-
-  const recoverSettingsWithDefaults = useCallback(async () => {
-    if (!settingsRecovery || settingsRecoveryBusy) return
-    const accepted = await confirm(t(lang, "startWithDefaultsConfirm"), {
-      title: t(lang, "startWithDefaultsConfirmTitle"),
-      kind: "warning",
-    })
-    if (!accepted) return
-    setSettingsRecoveryBusy(true)
-    try {
-      applyPayload(await startWithDefaults())
-    } catch (error) {
-      const recovery = settingsUnavailableDetails(error)
-      if (recovery) {
-        setSettingsRecovery(recovery)
-        setStartupError(recovery.message)
-      } else {
-        showError(errorMessage(error, lang))
+  const runSettingsRecoveryAction = useCallback(
+    async (action: "folder" | "retry" | "defaults") => {
+      if (!settingsRecovery || settingsRecoveryActionRef.current.active !== null) return
+      const request = ++settingsRecoveryActionRef.current.request
+      ++refreshRequestRef.current
+      setRefreshing(false)
+      settingsRecoveryActionRef.current.active = request
+      const current = () =>
+        mountedRef.current && request === settingsRecoveryActionRef.current.request
+      setSettingsRecoveryBusy(true)
+      setSettingsRecoveryActionError(null)
+      setSettingsRecoveryRefreshError(null)
+      try {
+        if (action === "folder") {
+          await openSettingsFolder()
+          return
+        }
+        if (action === "defaults") {
+          const accepted = await confirm(t(lang, "startWithDefaultsConfirm"), {
+            title: t(lang, "startWithDefaultsConfirmTitle"),
+            kind: "warning",
+          })
+          if (!accepted || !current()) return
+        }
+        const next = await (action === "retry" ? loadBootstrap() : startWithDefaults())
+        if (current()) {
+          acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+          applyPayload(next)
+        }
+      } catch (error) {
+        if (!current()) return
+        const recovery = settingsUnavailableDetails(error)
+        if (recovery) {
+          settingsRecoveryRef.current = recovery
+          setSettingsRecovery(recovery)
+          setStartupError(recovery.message)
+        } else {
+          setSettingsRecoveryActionError(errorMessage(error, lang))
+        }
+      } finally {
+        if (settingsRecoveryActionRef.current.active === request) {
+          settingsRecoveryActionRef.current.active = null
+          if (mountedRef.current) setSettingsRecoveryBusy(false)
+        }
       }
-    } finally {
-      setSettingsRecoveryBusy(false)
-    }
-  }, [applyPayload, lang, settingsRecovery, settingsRecoveryBusy, showError])
+    },
+    [acceptStartupWorkspaceWarning, applyPayload, lang, settingsRecovery],
+  )
 
   useEffect(() => {
     void refresh()
@@ -833,6 +966,7 @@ function App() {
             return
           }
           const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+          acceptStartupWorkspaceWarning(null)
           applyPayload(next, selectRequested ? requested : undefined)
           if (selectRequested) {
             setSelectedSessionId(null)
@@ -869,7 +1003,7 @@ function App() {
       disposed = true
       stop?.()
     }
-  }, [applyPayload, refresh, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, refresh, showError])
   useEffect(() => {
     let disposed = false
     let runtimeFrame: number | null = null
@@ -1123,30 +1257,79 @@ function App() {
   }, [payload, selectedWorkspaceKey])
 
   const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
+  const currentWorkspacePathRef = useRef(selectedWorkspacePath)
+  currentWorkspacePathRef.current = selectedWorkspacePath
+  codexContextRef.current = { open: codexOpen, path: selectedWorkspacePath }
   useEffect(() => {
-    if (selectedWorkspacePath === undefined) return
+    // Feedback belongs to this import view and destination, not another project.
+    codexViewRef.current += 1
+    setCodexFailures({})
+  }, [codexOpen, selectedWorkspacePath])
+  useEffect(() => {
     const request = ++workspaceSaveRequestRef.current
+    if (selectedWorkspacePath === undefined || startupWorkspaceWarning) return
+    workspaceSaveRetryPendingRef.current = false
+    setWorkspaceSaveBusy(true)
+    setWorkspaceSaveFailure((failure) => (failure?.path === selectedWorkspacePath ? failure : null))
     // Serialize commits, not just responses; an older disk write must never win after a newer one.
     // Skip superseded queued selections and never apply bootstrap data from background persistence.
     workspaceSaveQueueRef.current = (workspaceSaveQueueRef.current ?? Promise.resolve())
       .then(async () => {
         if (!mountedRef.current || request !== workspaceSaveRequestRef.current) return
         await saveWorkspaceSelection(selectedWorkspacePath)
-      })
-      .catch((error) => {
-        if (mountedRef.current && request === workspaceSaveRequestRef.current) {
-          showError(errorMessage(error, langRef.current))
+        if (
+          mountedRef.current &&
+          request === workspaceSaveRequestRef.current &&
+          currentWorkspacePathRef.current === selectedWorkspacePath
+        ) {
+          setWorkspaceSaveFailure(null)
         }
       })
-  }, [selectedWorkspacePath, showError])
+      .catch((error) => {
+        if (
+          mountedRef.current &&
+          request === workspaceSaveRequestRef.current &&
+          currentWorkspacePathRef.current === selectedWorkspacePath
+        ) {
+          setWorkspaceSaveFailure({
+            path: selectedWorkspacePath,
+            message: errorMessage(error, langRef.current),
+          })
+        }
+      })
+      .finally(() => {
+        if (mountedRef.current && request === workspaceSaveRequestRef.current) {
+          setWorkspaceSaveBusy(false)
+          workspaceSaveRetryPendingRef.current = false
+        }
+      })
+  }, [selectedWorkspacePath, startupWorkspaceWarning, workspaceSaveRetry])
+
+  function retryWorkspaceSelection() {
+    if (
+      !mountedRef.current ||
+      workspaceSaveBusy ||
+      workspaceSaveRetryPendingRef.current ||
+      !workspaceSaveFailure ||
+      workspaceSaveFailure.path !== currentWorkspacePathRef.current
+    )
+      return
+    workspaceSaveRetryPendingRef.current = true
+    setWorkspaceSaveRetry((revision) => revision + 1)
+  }
 
   useEffect(() => {
     let disposed = false
     setResourceHealth(null)
     setResourceHealthError(null)
-    const poll = async () => {
-      if (disposed || resourceHealthSamplingRef.current || document.visibilityState !== "visible")
+    const poll = async (refreshAfterCurrent = false) => {
+      if (disposed || document.visibilityState !== "visible") return
+      if (resourceHealthSamplingRef.current) {
+        // Explicit invalidations need one latest sample; periodic ticks must not
+        // create a continuous backlog when sampling takes longer than the interval.
+        if (refreshAfterCurrent) resourceHealthPendingRefreshRef.current = catchUp
         return
+      }
       resourceHealthSamplingRef.current = true
       try {
         const snapshot = await sampleResourceHealth(selectedWorkspace?.path ?? null)
@@ -1161,18 +1344,25 @@ function App() {
         }
       } finally {
         resourceHealthSamplingRef.current = false
+        const pendingRefresh = resourceHealthPendingRefreshRef.current
+        resourceHealthPendingRefreshRef.current = null
+        pendingRefresh?.()
       }
     }
+    const catchUp = () => void poll()
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") void poll()
+      if (document.visibilityState === "visible") void poll(true)
     }
-    void poll()
+    void poll(true)
     const interval = window.setInterval(() => void poll(), 30_000)
     document.addEventListener("visibilitychange", handleVisibility)
     return () => {
       disposed = true
       window.clearInterval(interval)
       document.removeEventListener("visibilitychange", handleVisibility)
+      if (resourceHealthPendingRefreshRef.current === catchUp) {
+        resourceHealthPendingRefreshRef.current = null
+      }
     }
   }, [lang, selectedWorkspace?.path])
 
@@ -1268,6 +1458,13 @@ function App() {
   )
 
   const openFolder = useCallback(async () => {
+    if (startupWorkspaceBusyRef.current) return
+    const recovering = startupWorkspaceWarningRef.current !== null
+    if (recovering) {
+      startupWorkspaceBusyRef.current = true
+      setStartupWorkspaceBusy(true)
+      setStartupWorkspaceError(null)
+    }
     try {
       const selected = await open({
         directory: true,
@@ -1278,15 +1475,59 @@ function App() {
       const selectionRequest = ++workspaceSelectionRequestRef.current
       const next = await addWorkspace(selected)
       const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+      acceptStartupWorkspaceWarning(null)
       applyPayload(next, selectRequested ? selected : undefined)
       if (selectRequested) {
         setSelectedSessionId(null)
         setSearch("")
       }
     } catch (error) {
-      showError(errorMessage(error, lang))
+      const message = errorMessage(error, lang)
+      if (recovering) setStartupWorkspaceError(message)
+      else showError(message)
+    } finally {
+      if (recovering) {
+        startupWorkspaceBusyRef.current = false
+        setStartupWorkspaceBusy(false)
+      }
     }
-  }, [applyPayload, lang, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, lang, showError])
+
+  const resolveStartup = useCallback(
+    async (action: "retry" | "continue") => {
+      const warning = startupWorkspaceWarningRef.current
+      if (!warning || startupWorkspaceBusyRef.current) return
+      startupWorkspaceBusyRef.current = true
+      setStartupWorkspaceBusy(true)
+      setStartupWorkspaceError(null)
+      const selectionRequest = ++workspaceSelectionRequestRef.current
+      ++payloadRevisionRef.current
+      try {
+        const next = await resolveStartupWorkspace(warning.requestedPath, action)
+        if (!mountedRef.current) return
+        // An acknowledgement owns only this failed launch intent, not newer navigation.
+        if (startupWorkspaceWarningRef.current?.requestedPath === warning.requestedPath) {
+          acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+        }
+        if (selectionRequest !== workspaceSelectionRequestRef.current) {
+          void refresh()
+          return
+        }
+        const selectRequested =
+          action === "retry" &&
+          !next.startupWorkspaceWarning &&
+          selectionRequest === workspaceSelectionRequestRef.current
+        applyPayload(next, selectRequested ? warning.requestedPath : undefined)
+      } catch (error) {
+        if (mountedRef.current && selectionRequest === workspaceSelectionRequestRef.current)
+          setStartupWorkspaceError(errorMessage(error, lang))
+      } finally {
+        startupWorkspaceBusyRef.current = false
+        if (mountedRef.current) setStartupWorkspaceBusy(false)
+      }
+    },
+    [acceptStartupWorkspaceWarning, applyPayload, lang, refresh],
+  )
 
   const reveal = useCallback(
     (path: string) => {
@@ -1297,7 +1538,13 @@ function App() {
 
   const launchSession = useCallback(
     async (session?: SessionLaunchTarget, initialInput?: string) => {
-      if (!payload || launchingRef.current || isInstallingClientUpdate()) return
+      if (
+        !payload ||
+        startupWorkspaceWarningRef.current ||
+        launchingRef.current ||
+        isInstallingClientUpdate()
+      )
+        return
       const cwd = session?.cwd ?? selectedWorkspace?.path
       if (!cwd) {
         showError(t(lang, "requireProjectDir"))
@@ -1465,6 +1712,7 @@ function App() {
   ])
 
   const openCodexImport = useCallback(async () => {
+    setCodexFailures({})
     setRailAutoOpen(true)
     setCodexOpen(true)
     setCodexLoading(true)
@@ -1487,6 +1735,17 @@ function App() {
     }
     const selected = codexSessions.filter((session) => codexSelected[session.filePath])
     if (selected.length === 0) return
+    const view = codexViewRef.current
+    const targetPath = selectedWorkspace.path
+    const currentView = () =>
+      codexViewRef.current === view &&
+      codexContextRef.current.open &&
+      codexContextRef.current.path === targetPath
+    setCodexFailures((current) => {
+      const next = { ...current }
+      for (const session of selected) delete next[session.filePath]
+      return next
+    })
     setImporting(true)
     try {
       const result = await importSessions(
@@ -1499,7 +1758,7 @@ function App() {
       applyPayload(result.bootstrap)
       const failures = result.items.filter((item) => item.status === "failed")
       const completed = result.items.filter((item) => item.status !== "failed")
-      if (completed.length > 0) {
+      if (currentView() && completed.length > 0) {
         setCodexSelected((current) => {
           const next = { ...current }
           for (const item of completed) delete next[item.sourcePath]
@@ -1508,8 +1767,22 @@ function App() {
       }
       showNotice(summarizeImport(result.items, lang))
       if (failures.length > 0) {
-        showError(failures.map((item) => item.message ?? item.sourcePath).join("\n"))
-      } else {
+        if (currentView()) {
+          setCodexFailures((current) => ({
+            ...current,
+            ...Object.fromEntries(
+              failures.map((item) => {
+                const message = importFailureMessage(item, lang) || t(lang, "importItemFailed")
+                return [
+                  item.sourcePath,
+                  message.slice(0, 2048) + (message.length > 2048 ? "…" : ""),
+                ]
+              }),
+            ),
+          }))
+        }
+        showError(failures.map((item) => importFailureMessage(item, lang)).join("\n"))
+      } else if (currentView()) {
         setCodexOpen(false)
       }
     } catch (error) {
@@ -1567,7 +1840,7 @@ function App() {
       const failure = result.items.find((item) => item.status === "failed")
       showNotice(summarizeImport(result.items, lang))
       if (failure) {
-        showError(failure.message ?? failure.sourcePath)
+        showError(importFailureMessage(failure, lang))
       } else {
         setPendingOmpImportPath(null)
       }
@@ -2096,13 +2369,14 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing) return
+      if (event.defaultPrevented || event.isComposing || startupWorkspaceWarningRef.current) return
       if (
         incidentCenterOpen ||
         resourceHealthOpen ||
         settingsOpen ||
         codexOpen ||
         ompFilePickerOpen ||
+        copySession ||
         pendingOmpImportPath ||
         transcriptSession
       )
@@ -2144,6 +2418,7 @@ function App() {
     openFolder,
     ompFilePickerOpen,
     pendingOmpImportPath,
+    copySession,
     railMode,
     railAutoOpen,
     resourceHealthOpen,
@@ -2155,11 +2430,15 @@ function App() {
     return (
       <SettingsRecoveryScreen
         busy={settingsRecoveryBusy || refreshing}
+        actionError={
+          [settingsRecoveryActionError, settingsRecoveryRefreshError].filter(Boolean).join("\n") ||
+          null
+        }
         language={lang}
         recovery={settingsRecovery}
-        onOpenFolder={() => void openSettingsRecoveryFolder()}
-        onRetry={() => void refresh()}
-        onStartWithDefaults={() => void recoverSettingsWithDefaults()}
+        onOpenFolder={() => void runSettingsRecoveryAction("folder")}
+        onRetry={() => void runSettingsRecoveryAction("retry")}
+        onStartWithDefaults={() => void runSettingsRecoveryAction("defaults")}
       />
     )
   }
@@ -2189,6 +2468,7 @@ function App() {
 
   return (
     <div
+      inert={startupWorkspaceWarning !== null}
       className={`app-shell${payload.runtime.platform === "linux" ? " is-linux" : ""}`}
       style={{ fontFamily: payload.settings.appFontFamily }}
     >
@@ -2238,6 +2518,26 @@ function App() {
             )}
           </div>
         )}
+        {workspaceSaveFailure && workspaceSaveFailure.path === selectedWorkspacePath && (
+          <div
+            className="transcript-truncated app-notice workspace-selection-warning"
+            role="status"
+          >
+            <div className="app-notice-text">
+              <strong>{t(lang, "workspaceSelectionNotSaved")}</strong>
+              <span>{workspaceSaveFailure.path ?? t(lang, "noProject")}</span>
+              <span>{workspaceSaveFailure.message}</span>
+            </div>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={workspaceSaveBusy}
+              onClick={retryWorkspaceSelection}
+            >
+              <Icon name="refresh" size={14} /> {t(lang, "retry")}
+            </button>
+          </div>
+        )}
         {payload.sessionWarnings.length > 0 && (
           <details className="transcript-truncated app-notice app-session-warnings">
             <summary>
@@ -2283,6 +2583,7 @@ function App() {
           autoHidePaused={
             codexOpen ||
             ompFilePickerOpen ||
+            copySession !== null ||
             pendingOmpImportPath !== null ||
             transcriptSession !== null
           }
@@ -2316,6 +2617,23 @@ function App() {
             onClearSearch: () => setSearch(""),
             onDeleteSession: (session) => void deleteOmpSession(session),
             onImportOmp: () => void importOmpFile(),
+            onCopySession: (session) => {
+              if (
+                launchingRef.current ||
+                tabs.some(
+                  (tab) =>
+                    tab.status === "running" &&
+                    tabMatchesSession(tab, session, payload.runtime.platform),
+                )
+              )
+                return
+              setCopySession({
+                session,
+                selectionRequest: workspaceSelectionRequestRef.current,
+                sessionRequest: sessionSelectionRequestRef.current,
+                payloadRevision: payloadRevisionRef.current,
+              })
+            },
             onLaunchSession: (session) => void launchSession(session),
             onLoadTranscript: (session) => void loadTranscript(session),
             onNewSession: () => void launchSession(),
@@ -2412,6 +2730,7 @@ function App() {
           onClose={() => setSettingsOpenedAt(null)}
           onConfigLoaded={(snapshot) => acceptOmpConfig(snapshot, payload.runtime)}
           onError={showError}
+          onNotice={showNotice}
           onSaved={handleSettingsSaved}
           runtime={payload.runtime}
           settings={payload.settings}
@@ -2443,6 +2762,7 @@ function App() {
 
       {codexOpen && (
         <CodexImportModal
+          failures={codexFailures}
           importing={importing}
           language={lang}
           loading={codexLoading}
@@ -2458,6 +2778,47 @@ function App() {
         />
       )}
 
+      {copySession && (
+        <SessionCopyModal
+          key={copySession.session.filePath}
+          session={copySession.session}
+          language={lang}
+          sourceBusy={
+            launching === copySession.session.id ||
+            tabs.some(
+              (tab) =>
+                tab.status === "running" &&
+                tabMatchesSession(tab, copySession.session, payload.runtime.platform),
+            )
+          }
+          onClose={() => {
+            copyCloseFocusRef.current = {
+              workspace: workspaceSelectionRequestRef.current,
+              session: sessionSelectionRequestRef.current,
+            }
+            setCopySession(null)
+          }}
+          onImported={(result) => {
+            if (payloadRevisionRef.current !== copySession.payloadRevision) {
+              void refresh()
+              return
+            }
+            const item = result.items[0]
+            const imported = result.bootstrap.sessions.find(
+              (session) => session.filePath === item?.destinationPath,
+            )
+            const selectCopy =
+              imported &&
+              workspaceSelectionRequestRef.current === copySession.selectionRequest &&
+              sessionSelectionRequestRef.current === copySession.sessionRequest
+            applyPayload(result.bootstrap, selectCopy ? imported.cwd : undefined)
+            if (selectCopy) {
+              setSelectedSessionId(imported.id)
+              setSearch("")
+            }
+          }}
+        />
+      )}
       {pendingOmpImportPath && (
         <ImportSessionModal
           importing={importing}
@@ -2511,6 +2872,20 @@ function App() {
 
         <ToastContainer language={lang} onDismiss={dismissToast} toasts={toastState.items} />
       </div>
+      {startupWorkspaceWarning &&
+        createPortal(
+          <StartupWorkspaceRecovery
+            warning={startupWorkspaceWarning}
+            fallbackPath={selectedWorkspace?.path ?? null}
+            language={lang}
+            busy={startupWorkspaceBusy}
+            error={startupWorkspaceError}
+            onRetry={() => void resolveStartup("retry")}
+            onContinue={() => void resolveStartup("continue")}
+            onChoose={() => void openFolder()}
+          />,
+          document.body,
+        )}
     </div>
   )
 }

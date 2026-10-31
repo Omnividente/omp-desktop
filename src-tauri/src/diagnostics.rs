@@ -282,7 +282,9 @@ fn contains_sensitive_assignment(lower: &str) -> bool {
     let canonical = canonicalize_assignment_text(lower);
     SENSITIVE_ASSIGNMENT_MARKERS.iter().any(|marker| {
         canonical.match_indices(marker).any(|(index, _)| {
-            canonical[index + marker.len()..]
+            // ASCII marker canonicalization preserves byte offsets, not separator whitespace.
+            // Test the suffix in the original text so spaces do not become underscores.
+            lower[index + marker.len()..]
                 .trim_start_matches(|character: char| {
                     character.is_ascii_whitespace()
                         || matches!(character, '\'' | '"' | '`' | ']' | '}')
@@ -381,6 +383,43 @@ mod tests {
         assert!(!redacted.contains("opaque-token"));
         assert!(!redacted.contains("oauth-secret"));
         assert!(!redacted.contains("github-secret"));
+    }
+
+    #[test]
+    fn redacts_recognized_assignments_with_whitespace_before_the_separator() {
+        for line in [
+            "api_key = opaque-value",
+            "API-KEY \t= opaque-value",
+            "api.key\t = opaque-value",
+            "auth token \t: opaque-value",
+            "password\t= opaque-value",
+            r#"{"api_key" : "opaque-value"}"#,
+            "'client_secret' \t= opaque-value",
+            "`access_token` \t: opaque-value",
+            "[provider_env] \t= opaque-value",
+            "{providerEnv} \t: opaque-value",
+            "Ошибка 🔒: OPENAI_API_KEY \t= opaque-value",
+            "前缀 {\"X-Auth-Token\" \t: \"opaque-value\"}",
+        ] {
+            assert_eq!(redact_text(line), "[REDACTED SENSITIVE LINE]", "{line}");
+        }
+    }
+
+    #[test]
+    fn preserves_harmless_assignment_suffixes_and_generic_token_counters() {
+        for line in [
+            "api_key_name = visible",
+            "password_hint : visible",
+            "api_key name = visible",
+            "access_token_count\t= 42",
+            "provider_env_label : visible",
+            "recovery token: 42",
+            "tokens: 15",
+            "ownerToken: 12",
+            "api_key without a separator",
+        ] {
+            assert_eq!(redact_text(line), line);
+        }
     }
 
     #[test]

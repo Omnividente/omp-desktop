@@ -1,11 +1,12 @@
 use crate::{
     diagnostics,
     models::{
-        AppSettings, RuntimeInfo, SettingsWarning, DEFAULT_APP_FONT_FAMILY, DEFAULT_APP_FONT_SIZE,
+        AppSettings, OmpProbeFailure, OmpProbeFailureReason, OmpProbeSource, RuntimeInfo,
+        SettingsWarning, DEFAULT_APP_FONT_FAMILY, DEFAULT_APP_FONT_SIZE,
         DEFAULT_TERMINAL_FONT_FAMILY, DEFAULT_TERMINAL_FONT_SIZE,
     },
     omp_bridge::valid_selector_segment,
-    omp_command::{run_omp_command, OmpOperation},
+    omp_command::{run_omp_command, OmpCommandError, OmpOperation},
     secrets,
     sessions::{atomic_write_file, atomic_write_private_file, path_key},
 };
@@ -159,9 +160,11 @@ where
 pub struct OmpResolution {
     pub executable: String,
     pub version: Option<String>,
+    pub probe_failures: Vec<OmpProbeFailure>,
 }
 
 const OMP_RESOLUTION_TTL: Duration = Duration::from_secs(30);
+const MAX_OMP_PROBE_FAILURES: usize = 5;
 
 #[derive(Clone, Default, PartialEq, Eq)]
 struct OmpResolutionKey {
@@ -841,64 +844,94 @@ where
 }
 
 fn resolve_omp_uncached(_app: &AppHandle, settings: &AppSettings) -> OmpResolution {
-    let mut candidates = Vec::new();
-
     if let Some(configured) = settings
         .omp_executable
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
+        let (version, probe_failures) = match probe_omp(configured) {
+            Ok(version) => (Some(version), Vec::new()),
+            Err(reason) => (
+                None,
+                vec![OmpProbeFailure {
+                    source: OmpProbeSource::Configured,
+                    reason,
+                }],
+            ),
+        };
         return OmpResolution {
             executable: configured.to_owned(),
-            version: probe_omp(configured),
+            version,
+            probe_failures,
         };
     }
 
+    let mut candidates = Vec::new();
     if let Some(from_env) = env::var_os("OMP_EXECUTABLE") {
-        candidates.push(from_env.to_string_lossy().into_owned());
+        candidates.push((
+            from_env.to_string_lossy().into_owned(),
+            OmpProbeSource::Environment,
+        ));
     }
 
     #[cfg(windows)]
     if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
-        candidates.push(
+        candidates.push((
             PathBuf::from(local_app_data)
                 .join("omp")
                 .join("omp.exe")
                 .to_string_lossy()
                 .into_owned(),
-        );
+            OmpProbeSource::LocalInstall,
+        ));
     }
 
     #[cfg(not(windows))]
     if let Ok(home) = _app.path().home_dir() {
-        candidates.push(
+        candidates.push((
             home.join(".local")
                 .join("bin")
                 .join("omp")
                 .to_string_lossy()
                 .into_owned(),
-        );
-        candidates.push(
+            OmpProbeSource::UserLocalBin,
+        ));
+        candidates.push((
             home.join(".npm-global")
                 .join("bin")
                 .join("omp")
                 .to_string_lossy()
                 .into_owned(),
-        );
+            OmpProbeSource::UserNpmBin,
+        ));
     }
 
     #[cfg(not(windows))]
-    candidates.push("/usr/local/bin/omp".to_owned());
-    candidates.push("omp".to_owned());
+    candidates.push((
+        "/usr/local/bin/omp".to_owned(),
+        OmpProbeSource::SystemLocalBin,
+    ));
+    candidates.push(("omp".to_owned(), OmpProbeSource::SearchPath));
 
+    resolve_omp_candidates(candidates, probe_omp)
+}
+
+fn resolve_omp_candidates<F>(
+    candidates: Vec<(String, OmpProbeSource)>,
+    mut probe: F,
+) -> OmpResolution
+where
+    F: FnMut(&str) -> Result<String, OmpProbeFailureReason>,
+{
     let fallback = candidates
         .first()
-        .cloned()
+        .map(|(executable, _)| executable.clone())
         .unwrap_or_else(|| "omp".to_owned());
     let mut seen = HashSet::new();
+    let mut probe_failures = Vec::new();
 
-    for candidate in candidates {
+    for (candidate, source) in candidates {
         let key = if cfg!(windows) {
             candidate.to_lowercase()
         } else {
@@ -908,17 +941,25 @@ fn resolve_omp_uncached(_app: &AppHandle, settings: &AppSettings) -> OmpResoluti
             continue;
         }
 
-        if let Some(version) = probe_omp(&candidate) {
-            return OmpResolution {
-                executable: candidate,
-                version: Some(version),
-            };
+        match probe(&candidate) {
+            Ok(version) => {
+                return OmpResolution {
+                    executable: candidate,
+                    version: Some(version),
+                    probe_failures: Vec::new(),
+                };
+            }
+            Err(reason) if probe_failures.len() < MAX_OMP_PROBE_FAILURES => {
+                probe_failures.push(OmpProbeFailure { source, reason });
+            }
+            Err(_) => {}
         }
     }
 
     OmpResolution {
         executable: fallback,
         version: None,
+        probe_failures,
     }
 }
 
@@ -932,6 +973,7 @@ pub fn runtime_info(app: &AppHandle, settings: &AppSettings) -> Result<RuntimeIn
         omp_available: omp.version.is_some(),
         omp_executable: omp.executable,
         omp_version: omp.version,
+        omp_probe_failures: omp.probe_failures,
         session_root: root.to_string_lossy().into_owned(),
         language: settings.language.clone(),
     })
@@ -1004,9 +1046,9 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(directory.join("settings.json"))
 }
 
-fn probe_omp(executable: &str) -> Option<String> {
+fn probe_omp(executable: &str) -> Result<String, OmpProbeFailureReason> {
     if looks_like_path(executable) && !Path::new(executable).is_file() {
-        return None;
+        return Err(OmpProbeFailureReason::PathUnavailable);
     }
 
     let output = run_omp_command(
@@ -1015,9 +1057,17 @@ fn probe_omp(executable: &str) -> Option<String> {
         &HashMap::new(),
         OmpOperation::Probe,
     )
-    .ok()?;
+    .map_err(|error| match error {
+        OmpCommandError::Spawn { .. } => OmpProbeFailureReason::LaunchFailed,
+        OmpCommandError::Timeout { .. } => OmpProbeFailureReason::Timeout,
+        OmpCommandError::OutputLimit { .. } => OmpProbeFailureReason::OutputLimit,
+        OmpCommandError::Pipe { .. }
+        | OmpCommandError::ReaderSpawn { .. }
+        | OmpCommandError::Wait { .. }
+        | OmpCommandError::Reader { .. } => OmpProbeFailureReason::IoFailed,
+    })?;
     if !output.status.success() {
-        return None;
+        return Err(OmpProbeFailureReason::UnsuccessfulExit);
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1027,6 +1077,7 @@ fn probe_omp(executable: &str) -> Option<String> {
         .map(str::trim)
         .find(|line| !line.is_empty())
         .map(str::to_owned)
+        .ok_or(OmpProbeFailureReason::EmptyVersion)
 }
 
 fn looks_like_path(value: &str) -> bool {
@@ -1038,9 +1089,10 @@ mod tests {
     use super::{
         bounded_settings_reason, ensure_initialized_with, normalize_persisted_proxy_providers,
         normalize_session_pin_keys, primary_provider_pin_overlay, proxy_provider_overlay_for_test,
-        recover_invalid_settings_with, resolve_omp_cached, resolve_transaction,
-        save_settings_to_path, start_with_defaults_at_with, AppSettings, OmpResolution,
-        OmpResolutionCache, OmpResolutionKey, SettingsState, MAX_SETTINGS_FAILURE_REASON_CHARS,
+        recover_invalid_settings_with, resolve_omp_cached, resolve_omp_candidates,
+        resolve_transaction, save_settings_to_path, start_with_defaults_at_with, AppSettings,
+        OmpProbeFailure, OmpProbeFailureReason, OmpProbeSource, OmpResolution, OmpResolutionCache,
+        OmpResolutionKey, SettingsState, MAX_SETTINGS_FAILURE_REASON_CHARS,
     };
     use std::{
         cell::Cell,
@@ -1056,6 +1108,7 @@ mod tests {
         OmpResolution {
             executable: executable.to_owned(),
             version: Some("omp/17.1.3".to_owned()),
+            probe_failures: Vec::new(),
         }
     }
 
@@ -1100,6 +1153,47 @@ mod tests {
         }
         assert_eq!(settings.language, "en");
         fs::remove_dir_all(root).expect("font settings fixture should be removable");
+    }
+
+    #[test]
+    fn desktop_theme_survives_partial_saves_and_restart() {
+        use crate::models::DesktopTheme;
+        let root = settings_fixture("desktop-theme");
+        let path = root.join("settings.json");
+        fs::create_dir_all(&root).expect("theme settings fixture should be writable");
+        let mut settings: AppSettings =
+            serde_json::from_str(r#"{"language":"en","terminalFontSize":18}"#).unwrap();
+        assert_eq!(settings.desktop_theme, DesktopTheme::Dark);
+        for (patch, expected) in [
+            (
+                serde_json::json!({"desktopTheme": "light"}),
+                DesktopTheme::Light,
+            ),
+            (serde_json::json!({"appFontSize": 24}), DesktopTheme::Light),
+            (serde_json::json!({}), DesktopTheme::Light),
+            (
+                serde_json::json!({"desktopTheme": null}),
+                DesktopTheme::Light,
+            ),
+            (
+                serde_json::json!({"desktopTheme": "system"}),
+                DesktopTheme::System,
+            ),
+            (
+                serde_json::json!({"desktopTheme": "dark"}),
+                DesktopTheme::Dark,
+            ),
+        ] {
+            let update = serde_json::from_value(patch).unwrap();
+            crate::apply_settings_update(&mut settings, &update);
+            save_settings_to_path(&path, &settings).unwrap();
+            settings = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+            assert_eq!(settings.desktop_theme, expected);
+            assert_eq!(settings.terminal_font_size, 18);
+            assert_eq!(settings.language, "en");
+        }
+        assert_eq!(settings.app_font_size, 24);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1279,6 +1373,82 @@ mod tests {
             BTreeMap::from([(canonical.clone(), "canonical title".to_owned())])
         );
         assert_eq!(settings.primary_provider_pins, BTreeSet::from([canonical]));
+    }
+
+    #[test]
+    fn successful_fallback_clears_failures_and_probes_beyond_the_report_limit() {
+        let candidates = (0..8)
+            .map(|index| (format!("candidate-{index}"), OmpProbeSource::SearchPath))
+            .collect();
+        let mut attempted = Vec::new();
+        let resolution = resolve_omp_candidates(candidates, |candidate| {
+            attempted.push(candidate.to_owned());
+            if candidate == "candidate-7" {
+                Ok("omp/18.14.1".to_owned())
+            } else {
+                Err(OmpProbeFailureReason::LaunchFailed)
+            }
+        });
+
+        assert_eq!(
+            attempted,
+            (0..8)
+                .map(|index| format!("candidate-{index}"))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(resolution.executable, "candidate-7");
+        assert_eq!(resolution.version.as_deref(), Some("omp/18.14.1"));
+        assert!(resolution.probe_failures.is_empty());
+    }
+
+    #[test]
+    fn unavailable_resolution_deduplicates_candidates_and_bounds_only_the_report() {
+        let candidates = vec![
+            ("first".to_owned(), OmpProbeSource::Environment),
+            ("first".to_owned(), OmpProbeSource::LocalInstall),
+            ("second".to_owned(), OmpProbeSource::UserLocalBin),
+            ("third".to_owned(), OmpProbeSource::UserNpmBin),
+            ("fourth".to_owned(), OmpProbeSource::SystemLocalBin),
+            ("fifth".to_owned(), OmpProbeSource::LocalInstall),
+            ("sixth".to_owned(), OmpProbeSource::SearchPath),
+        ];
+        let mut attempted = Vec::new();
+        let resolution = resolve_omp_candidates(candidates, |candidate| {
+            attempted.push(candidate.to_owned());
+            Err(OmpProbeFailureReason::EmptyVersion)
+        });
+
+        assert_eq!(
+            attempted,
+            ["first", "second", "third", "fourth", "fifth", "sixth"]
+        );
+        assert_eq!(resolution.executable, "first");
+        assert_eq!(resolution.version, None);
+        assert_eq!(
+            resolution.probe_failures,
+            vec![
+                OmpProbeFailure {
+                    source: OmpProbeSource::Environment,
+                    reason: OmpProbeFailureReason::EmptyVersion
+                },
+                OmpProbeFailure {
+                    source: OmpProbeSource::UserLocalBin,
+                    reason: OmpProbeFailureReason::EmptyVersion
+                },
+                OmpProbeFailure {
+                    source: OmpProbeSource::UserNpmBin,
+                    reason: OmpProbeFailureReason::EmptyVersion
+                },
+                OmpProbeFailure {
+                    source: OmpProbeSource::SystemLocalBin,
+                    reason: OmpProbeFailureReason::EmptyVersion
+                },
+                OmpProbeFailure {
+                    source: OmpProbeSource::LocalInstall,
+                    reason: OmpProbeFailureReason::EmptyVersion
+                },
+            ]
+        );
     }
 
     #[test]

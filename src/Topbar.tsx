@@ -96,7 +96,7 @@ export function Topbar({
           type="button"
         >
           <span />
-          {runtime.ompVersion ?? t(language, "notFound")}
+          {runtime.ompVersion ?? t(language, "ompUnavailable")}
         </button>
         {checkingUpdate && (
           <span aria-live="polite" className="update-check-pill">

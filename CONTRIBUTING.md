@@ -11,11 +11,15 @@ Thank you for helping improve OMP Desktop.
 
 ## Development setup
 
-Install Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.84 or newer, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then install the locked frontend dependencies:
+Install Node.js 22.13.0 or newer on the 22.x line (or Node.js 24+), Rust 1.95 or newer, and the [Tauri 2 platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then install the locked frontend dependencies:
 
 ```bash
 npm ci
 ```
+
+The frontend uses Vite 8 with `@vitejs/plugin-react` 6; update these together because plugin-react 6 requires Vite 8. Both require Node.js `^20.19.0 || >=22.12.0`, so the repository's Node.js requirement above remains unchanged (jsdom 29 still requires at least 22.13.0 on Node.js 22). Vitest 4.1.10 supports Vite 8 without an upgrade. Vite 8 uses Rolldown/Oxc; keep the React and xterm chunk groups in `vite.config.ts` under `build.rolldownOptions.output.codeSplitting`, not the removed object form of `manualChunks`.
+
+The existing locked native graph already requires Rust 1.95 through `sysinfo` 0.39.6; this compiler floor is not introduced by the Vite migration.
 
 Run the desktop application during development with:
 
@@ -55,25 +59,22 @@ it does not implicitly authorize commits, pushes, a GitHub PR or merge. Pin the
 base, preserve unrelated work, and report verification and limitations. Publish
 only when the owner separately authorizes the relevant Git/GitHub operations.
 
-Keep the three agent modes separate: Jules discovery is read-only; a separately
-approved Jules implementation proposes into `autonomous/lab`; an explicitly
-authorized Dot task uses its own `dot/<task-id>-<slug>` branch and a **Draft** PR
-into `main` through the current GitHub plugin, without Codex or ChatGPT Work.
-See [Dot workflow](docs/dot/WORKFLOW.md) for full evidence, overlap/rename checks,
-branch leases, scope limits and unknown-acknowledgement handling. Standing R1 is
-**NOT ACTIVE**; documenting its template activates neither R1 nor a product pilot.
+Dot performs independent product research and prepares authorized changes in
+separate `dot/*` branches as **Draft** pull requests into `main`. Preserve the
+original authorship and decisions of existing proposals, avoid duplicate PRs,
+and include exact base/head revisions, independent review and test limitations.
 
-Draft publication, owner acceptance of an exact head SHA, merge, packaging,
-release and installation are separate permissions. Dot never approves or marks
-its PR ready, merges, enables auto-merge or dispatches Actions. The owner records
-acceptance outside the Dot-editable PR body and performs the separately approved
-merge after exact-revision required checks and any local/native acceptance.
-Accepted Jules proposals do not automatically become accepted product on `main`.
+Read the [owner proposal decisions](https://github.com/Omnividente/omp-desktop/issues/177)
+before selecting or resubmitting work. Acceptance is recorded with the actual
+integration PR and `main` commit; a source PR closed as integrated is not rejected
+and does not claim its original head was merged unchanged. Rejections distinguish
+the disproved claim or unsafe implementation from any valid finding and state the
+new evidence needed for reconsideration. Preserve proposal IDs and attribution.
 
-The first maintainer PR introducing event isolation still runs under the old
-graph. Before publishing it, obtain the separate bootstrap decision in the
-[Dot workflow](docs/dot/WORKFLOW.md#first-maintainer-pr-bootstrap-and-cutover).
-A blocked NEXT is not a safety switch; no live recovery is authorized here.
+Draft publication, owner acceptance, merge, packaging, release and installation
+are separate permissions. Do not self-approve, enable auto-merge or bypass
+required checks. Keep the source history and evidence of uncertain operations;
+reconcile an uncertain write read-only before considering any further action.
 
 Source publication does **not** authorize a version bump, installer build, tag,
 GitHub Release or replacement of an installed Desktop. Perform each only under

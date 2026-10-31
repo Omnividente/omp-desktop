@@ -123,6 +123,23 @@ export function ProjectRail({
     }
   }, [])
 
+  useEffect(() => {
+    const cancelRenameFocus = (event: Event) => {
+      const pending = renameFocusRef.current
+      if (!pending || event.target === pending.input) return
+      // Input removal can itself leave focus on body; explicit navigation cannot.
+      if (event.type === "focusin" && event.target === document.body && !pending.input.isConnected)
+        return
+      renameFocusRef.current = null
+    }
+    document.addEventListener("focusin", cancelRenameFocus)
+    document.addEventListener("pointerdown", cancelRenameFocus)
+    return () => {
+      document.removeEventListener("focusin", cancelRenameFocus)
+      document.removeEventListener("pointerdown", cancelRenameFocus)
+    }
+  }, [])
+
   useLayoutEffect(() => {
     const pending = removalFocusRef.current
     if (!pending || workspaces.some((workspace) => workspace.key === pending.key)) return
@@ -134,7 +151,12 @@ export function ProjectRail({
 
   useLayoutEffect(() => {
     const pending = renameFocusRef.current
-    if (!pending || (renamingWorkspaceKey === pending.key && pending.input.isConnected)) return
+    if (!pending) return
+    if (renamingWorkspaceKey === pending.key && pending.input.isConnected) {
+      // A failed save leaves the editor open; do not retain a future focus claim.
+      if (workspaceBusyKey !== pending.key) renameFocusRef.current = null
+      return
+    }
     renameFocusRef.current = null
     if (document.activeElement !== document.body && document.activeElement !== pending.input) return
     const target = pending.row?.isConnected
@@ -241,10 +263,13 @@ export function ProjectRail({
                       autoFocus
                       className="project-rename"
                       onBlur={() => onSubmitWorkspaceRename(workspace)}
-                      onChange={(event) => onWorkspaceNameChange(event.target.value)}
+                      onChange={(event) => {
+                        renameFocusRef.current = null
+                        onWorkspaceNameChange(event.target.value)
+                      }}
                       onKeyDown={(event) => {
                         if (
-                          event.key === "Escape" &&
+                          (event.key === "Escape" || event.key === "Enter") &&
                           document.activeElement === event.currentTarget
                         ) {
                           renameFocusRef.current = {
