@@ -269655,7 +269655,7 @@
       "id": "research-transcript-links-ux-26",
       "title": "Investigate Transcript rendering, scrolling and content links: Interaction clarity and accessibility",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "a11y",
         "i18n",
@@ -269787,16 +269787,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "18197156194465431951",
         "dispatch_key": "ec441c5d23a135ef2b0ff45f",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-ec441c5d23a135ef2b0ff45f",
         "started_at": "2026-10-31T00:04:47.506831Z",
-        "finished_at": "",
+        "finished_at": "2026-10-31T00:35:38.343099Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "no_change",
+        "note": "completed Jules session without a pull request",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -269967,13 +269967,34 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-31T00:17:16.444083Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-31T00:35:38.343099Z"
+      },
+      "research_result": {
+        "summary": "Investigated the clear search behavior in the TranscriptModal. While clicking the empty-state 'Clear' button correctly clears the search input, the focus is correctly moved to the search input as verified by testing on main. The current main branch successfully handles this scenario, returning focus to the searchbox after the empty-state 'Clear' is clicked. This investigation aligns with the rejection rationale in the provided context for task discovery-7a751ac6a14ae022, which stated that 'TranscriptModal attaches searchRef to the actual search input and clearSearch clears then focuses it'. I also confirmed no new UX defects within the target paths under investigation.",
+        "observations": [
+          {
+            "scenario": "Clicking the 'Clear' button in the empty state of TranscriptModal when a search query filters out all entries.",
+            "evidence": "Tested the behavior using a simulated TranscriptModal state with a non-empty transcript Search string but empty visibleEntries. When the empty state 'Clear' button is clicked, onClearSearch is called, and the document.activeElement is successfully returned as the searchbox input element.",
+            "result": "The focus is successfully restored to the searchbox input element. This is functioning as expected and matches the prior rejection rationale. (Evidence mode: mock_or_model)"
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-31T00:35:38.343099Z",
+        "source": {
+          "activity_id": "sessions/18197156194465431951/activities/5260ca3ad78f46d3bb4112413d9b3493",
+          "report_sha256": "a6d7b89245ce4df6c05aa506554262355cb52a27ce49982e6680adc24c758dd0",
+          "activity_created_at": "2026-10-31T00:24:49.339818Z",
+          "session_id": "18197156194465431951",
+          "dispatch_key": "ec441c5d23a135ef2b0ff45f"
+        },
+        "deferred_findings": []
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-31T00:27:22.386273Z",
+    "last_poll_at": "2026-10-31T00:36:12.754998Z",
     "last_tick_at": "2026-10-31T00:27:41.059112Z",
     "run_id": "41150106130",
     "owner_recovery_requests": [
