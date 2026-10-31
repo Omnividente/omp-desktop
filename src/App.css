@@ -5837,3 +5837,27 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 :root[data-desktop-theme="light"] .terminal-input-help-trigger {
   opacity: 1;
 }
+
+.model-passport {
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.model-passport summary {
+  cursor: pointer;
+}
+
+.model-passport dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px 12px;
+}
+
+.model-passport dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-passport p {
+  line-height: 1.5;
+}

@@ -218,6 +218,15 @@ export interface SettingsUpdate {
   providerEnv?: Record<string, string> | null
 }
 
+export interface OmpModelCost {
+  input?: number
+  output?: number
+  cacheRead?: number
+  cacheWrite?: number
+  longContext?: unknown
+  timeBased?: unknown
+}
+
 export interface OmpModelInfo {
   provider: string
   id: string
@@ -227,6 +236,12 @@ export interface OmpModelInfo {
   status: string
   detail: string | null
   thinking: string[]
+  contextWindow?: number | null
+  maxTokens?: number | null
+  reasoning?: boolean | null
+  input?: string[] | null
+  cost?: OmpModelCost | null
+  pricingStatus?: string | null
   kind?: string
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react"
 import { Icon } from "./Icon"
+import { ModelPassport } from "./ModelPassport"
 import { statusLabel, t, thinkingLevelLabel, type Lang } from "./i18n"
 import type { OmpModelInfo } from "./types"
 
@@ -287,6 +288,10 @@ export function ModelPicker({
         </span>
         <Icon className="model-picker-chevron" name="chevron" size={15} />
       </button>
+
+      {selectedModel && (
+        <ModelPassport key={selectedModel.selector} model={selectedModel} language={language} />
+      )}
 
       {thinkingLevels.length > 0 && (
         <label className="model-picker-thinking">

@@ -566,6 +566,12 @@ pub struct OmpModelInfo {
     pub status: String,
     pub detail: Option<String>,
     pub thinking: Vec<String>,
+    pub context_window: Option<u64>,
+    pub max_tokens: Option<u64>,
+    pub reasoning: Option<bool>,
+    pub input: Option<Vec<String>>,
+    pub cost: Option<serde_json::Value>,
+    pub pricing_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
