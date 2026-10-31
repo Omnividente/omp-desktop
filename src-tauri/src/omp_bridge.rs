@@ -1106,50 +1106,66 @@ fn load_models(
         .ok_or_else(|| "[omp_invalid_json] OMP не вернул массив models".to_owned())?;
 
     Ok(ModelCatalogSnapshot {
-        models: models
-            .iter()
-            .filter_map(|model| {
-                let provider = model.get("provider")?.as_str()?.to_owned();
-                let id = model.get("id")?.as_str()?.to_owned();
-                let selector = model
-                    .get("selector")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| format!("{provider}/{id}"));
-                let name = model
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| id.clone());
-                let thinking = model
-                    .get("thinking")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                Some(OmpModelInfo {
-                    provider,
-                    id,
-                    selector,
-                    name,
-                    kind: model
-                        .get("kind")
-                        .and_then(Value::as_str)
-                        .unwrap_or("chat")
-                        .to_owned(),
-                    available: true,
-                    status: "ok".to_owned(),
-                    detail: None,
-                    thinking,
-                })
-            })
-            .collect(),
+        models: models.iter().filter_map(parse_model).collect(),
         refresh_error,
+    })
+}
+
+fn parse_model(model: &Value) -> Option<OmpModelInfo> {
+    let provider = model.get("provider")?.as_str()?.to_owned();
+    let id = model.get("id")?.as_str()?.to_owned();
+    let selector = model
+        .get("selector")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{provider}/{id}"));
+    let name = model
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| id.clone());
+    let thinking = model
+        .get("thinking")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(OmpModelInfo {
+        provider,
+        id,
+        selector,
+        name,
+        kind: model
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("chat")
+            .to_owned(),
+        available: true,
+        status: "ok".to_owned(),
+        detail: None,
+        thinking,
+        context_window: model.get("contextWindow").and_then(Value::as_u64),
+        max_tokens: model.get("maxTokens").and_then(Value::as_u64),
+        reasoning: model.get("reasoning").and_then(Value::as_bool),
+        input: model
+            .get("input")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items
+                    .iter()
+                    .map(|item| item.as_str().map(str::to_owned))
+                    .collect()
+            }),
+        cost: model.get("cost").filter(|cost| cost.is_object()).cloned(),
+        pricing_status: model
+            .get("pricingStatus")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 
@@ -3071,6 +3087,52 @@ mod tests {
         assert_eq!(fetched.load(Ordering::Relaxed), 1);
     }
 
+    #[test]
+    fn model_passport_accepts_legacy_and_optional_metadata_without_inference() {
+        let legacy =
+            parse_model(&serde_json::json!({"provider": "synthetic", "id": "old"})).unwrap();
+        assert_eq!(legacy.context_window, None);
+        assert_eq!(legacy.max_tokens, None);
+        assert_eq!(legacy.reasoning, None);
+        assert_eq!(legacy.input, None);
+        assert_eq!(legacy.cost, None);
+        assert_eq!(legacy.pricing_status, None);
+        let cost = serde_json::json!({"input": 0, "output": 2.5, "cacheRead": 0.1, "cacheWrite": 0,
+            "longContext": {"inputThreshold": 200000, "input": 4, "output": 5, "cacheRead": 0.2, "cacheWrite": 0}});
+        let current = parse_model(&serde_json::json!({"provider": "synthetic", "id": "new",
+            "contextWindow": 128000, "maxTokens": 8192, "reasoning": false,
+            "input": ["text", "image"], "cost": cost, "pricingStatus": "fixed"}))
+        .unwrap();
+        let wire = serde_json::to_value(current).unwrap();
+        assert_eq!(wire["contextWindow"], 128000);
+        assert_eq!(wire["maxTokens"], 8192);
+        assert_eq!(wire["reasoning"], false);
+        assert_eq!(wire["input"], serde_json::json!(["text", "image"]));
+        assert_eq!(wire["cost"], cost);
+        assert_eq!(wire["pricingStatus"], "fixed");
+    }
+
+    #[test]
+    fn model_passport_preserves_explicit_status_and_drops_invalid_optional_types() {
+        for status in ["fixed", "free", "included", "variable", "unknown", "future"] {
+            let model = parse_model(&serde_json::json!({"provider": "synthetic", "id": "x",
+                "cost": {"input": 0, "output": 0}, "pricingStatus": status}))
+            .unwrap();
+            assert_eq!(model.pricing_status.as_deref(), Some(status));
+        }
+        let model = parse_model(&serde_json::json!({"provider": "synthetic", "id": "x",
+            "contextWindow": -1, "maxTokens": "8192", "reasoning": "true",
+            "input": ["text", 1], "cost": [], "pricingStatus": false}))
+        .unwrap();
+        assert_eq!(model.context_window, None);
+        assert_eq!(model.max_tokens, None);
+        assert_eq!(model.reasoning, None);
+        assert_eq!(model.input, None);
+        assert_eq!(model.cost, None);
+        assert_eq!(model.pricing_status, None);
+        assert!(parse_model(&serde_json::json!({"provider": "synthetic"})).is_none());
+    }
+
     fn model(provider: &str, id: &str) -> OmpModelInfo {
         OmpModelInfo {
             provider: provider.to_owned(),
@@ -3082,6 +3144,12 @@ mod tests {
             status: "ok".to_owned(),
             detail: None,
             thinking: Vec::new(),
+            context_window: None,
+            max_tokens: None,
+            reasoning: None,
+            input: None,
+            cost: None,
+            pricing_status: None,
         }
     }
 
