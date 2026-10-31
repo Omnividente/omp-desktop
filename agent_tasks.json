@@ -269992,6 +269992,215 @@
         },
         "deferred_findings": []
       }
+    },
+    {
+      "id": "research-sessions-persistence-performance-27",
+      "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
+      "task_type": "project_discovery",
+      "status": "todo",
+      "focus": [
+        "perf",
+        "quality",
+        "refactor"
+      ],
+      "risk": "low",
+      "priority": 10,
+      "target_paths": [
+        "src/SessionControls.tsx",
+        "src/SessionList.tsx",
+        "src/SessionRow.tsx",
+        "src/ImportSessionModal.tsx",
+        "src/CodexImportModal.tsx",
+        "src-tauri/src/sessions.rs",
+        "src-tauri/src/session_lease.rs"
+      ],
+      "created_at": "2026-10-31T00:35:38Z",
+      "evidence": {
+        "source": "autonomous_research",
+        "detail": "Read-only scoped investigation; do not change product files or open a PR. Choose one realistic large-input or repeated-interaction scenario in this area. Measure latency, allocations, retained resources or bounded work with a reproducible synthetic fixture and explicit baseline; report measurements even when no regression exists. On a revisit vary the workload or pursue a recorded hypothesis instead of repeating the same benchmark. Use isolated synthetic data, never live sessions or credentials. Record observed findings or explicit no-change with evidence in AUTONOMOUS_RESEARCH_BEGIN/END and concrete proposals in AUTONOMOUS_TASKS_BEGIN/END. No release, updater, control or secret changes."
+      },
+      "research": {
+        "area_id": "sessions-persistence",
+        "perspective_id": "performance",
+        "fingerprint": "f2fdb771e4e350191d5131a23d51224306738870333f293da79799c6d65b0011",
+        "cycle": 27,
+        "previous_reports": [
+          {
+            "summary": "Investigated session import performance and accessibility. Observed that rapid keyboard navigation in CodexImportModal using End/ArrowUp bursts can lead to loss of focus due to layout effect timing. Verified that SessionList empty state lacks aria-live and role attributes. Confirmed that parseBackendError fails to extract bracket codes from objects with a message string.",
+            "observations": [
+              {
+                "scenario": "Rapid keyboard navigation in CodexImportModal",
+                "evidence": "Ran a synthetic test simulating rapid sequential key presses (End followed by multiple ArrowUp keys) before React layout effects can settle.",
+                "result": "Focus was lost (active element became body instead of the correct input element) when simulating burst keyboard navigation."
+              },
+              {
+                "scenario": "SessionList empty state accessibility",
+                "evidence": "Ran a synthetic jsdom test rendering SessionList with empty sessions and searched for `.sidebar-empty`.",
+                "result": "The `.sidebar-empty` element was rendered but lacked `role` or `aria-live` attributes, meaning screen readers are not notified when the session list becomes empty."
+              },
+              {
+                "scenario": "parseBackendError object handling",
+                "evidence": "Ran a synthetic test passing `{ message: \"[session_lease_active] Failed to import\" }` to `errorMessage`.",
+                "result": "It returned the unlocalized raw string because `normalizeBackendError` returns early without parsing bracket codes in `message`."
+              },
+              {
+                "scenario": "App.tsx unlocalized direct rendering",
+                "evidence": "Inspected src/App.tsx lines 1511 and 1570 where `ImportItemResult` messages are displayed via `showError`.",
+                "result": "Failure messages are displayed directly rather than wrapped in `errorMessage(..., lang)`, showing raw backend bracket codes to the user."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming sessions has a similar focus loss issue during burst events."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-30T02:38:08.554983Z",
+            "source": {
+              "activity_id": "sessions/6430530523088291643/activities/be52d7e6e5e143fbb409b14919972ba6",
+              "report_sha256": "d76323708c8513e7e0fecd2bdafe5997461a12701c2c8dde3083b3c187e70526",
+              "activity_created_at": "2026-10-30T02:30:24.074580Z",
+              "session_id": "6430530523088291643",
+              "dispatch_key": "03e660305df016075e3a061b"
+            },
+            "deferred_findings": [
+              {
+                "title": "Localize session import failures that contain bracket codes",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders `failures.map((item) => item.message ?? item.sourcePath).join('\\\\n')` and `failure.message ?? failure.sourcePath` without passing them through `errorMessage`. Even if it did, `parseBackendError` passing a failure item with a `message` property containing a bracket code does not currently resolve the bracket code (it only works for raw strings).\", \"reproduction\": {\"actual\": \"The UI shows `[session_lease_active] Failed...` directly. `parseBackendError({ message: \\\"[session_lease_active] Failed...\\\" })` does not parse the bracket code.\", \"expected\": \"The error is localized, e.g. `This session is already open in another OMP Desktop process`. `parseBackendError` extracts the bracket code from the object's `message`.\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`\", \"Attempt to render it in the UI via `App.tsx` session import flows.\", \"Observe that the message is raw and unlocalized.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx",
+                  "src/api.ts"
+                ],
+                "acceptance": [
+                  "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user instead of displaying the raw message.",
+                  "The UI displays the correct error message via `errorMessage` in `App.tsx` for import failures.",
+                  "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+                ]
+              },
+              {
+                "title": "Add role=status to SessionList empty state for screen reader announcements",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via inspection that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes (`role` or `aria-live`), meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The `.sidebar-empty` element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The `.sidebar-empty` element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\", \"Inspect its ARIA attributes.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionList.tsx"
+                ],
+                "acceptance": [
+                  "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`",
+                  "Screen readers announce the empty state text when it dynamically appears upon selecting an empty workspace or searching."
+                ]
+              },
+              {
+                "title": "Fix rapid keyboard navigation state in CodexImportModal",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-79e95afa0e2bb482; not established as a duplicate. {\"detail\": \"Observed via a synthetic jsdom test that pressing `End` followed by `ArrowUp` before layout effects settle causes the `activeElement` to revert to `body`.\", \"reproduction\": {\"actual\": \"Focus is lost to the document body during rapid burst navigation.\", \"expected\": \"Focus correctly lands on the resulting item element.\", \"steps\": [\"Render `CodexImportModal` with synthetic sessions.\", \"Focus the first element.\", \"Fire an `End` keydown event followed rapidly by an `ArrowUp` keydown event.\", \"Observe `document.activeElement` becomes the `body`.\"]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/CodexImportModal.tsx"
+                ],
+                "acceptance": [
+                  "Rapid burst navigation keys (e.g. End then ArrowUp) successfully resolve to the correct element in focus without getting lost to the body."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated session import error localization, accessibility of the session list empty state, and rapid keyboard navigation in the Codex import modal.",
+            "observations": [
+              {
+                "scenario": "errorMessage incorrectly handles object with message property containing a bracket code",
+                "evidence": "Ran a synthetic test passing `{ message: \"[session_lease_active] Failed...\" }` to `errorMessage(..., \"en\")`.",
+                "result": "The message was not localized. The raw `[session_lease_active] Failed...` was returned instead because `parseBackendError` returns early when it receives an object without checking its message string for a bracket code."
+              },
+              {
+                "scenario": "App.tsx renders unlocalized failed import item messages directly",
+                "evidence": "Inspected `src/App.tsx` lines 1511 and 1570, which handle failures from `importSessions` or `importPendingOmp` and tested rendering them in a Vitest DOM environment.",
+                "result": "Any backend error in a failed import result (which provides the error message as a string via `ImportItemResult.message` like `[session_lease_active] Failed...`) will bypass localization and be shown directly to the user because they use `item.message` or `failure.message` directly instead of passing it to `errorMessage(failure, lang)`."
+              },
+              {
+                "scenario": "SessionList empty state lacks aria-live and role attributes",
+                "evidence": "Ran a synthetic jsdom test rendering SessionList with empty sessions and searched for `.sidebar-empty`.",
+                "result": "The `.sidebar-empty` element was rendered but lacked `role` or `aria-live` attributes, meaning screen readers are not notified when the session list becomes empty."
+              },
+              {
+                "scenario": "Rapid keyboard navigation in CodexImportModal loses focus",
+                "evidence": "Ran a synthetic jsdom test rendering CodexImportModal and simulating rapid sequential key presses (End followed by ArrowUp) before React layout effects can settle using `vi.mock` for `window.matchMedia` and `ResizeObserver`.",
+                "result": "Focus was lost (active element became body instead of the correct input element) when simulating burst keyboard navigation. The `ArrowUp` keydown event fired while `pendingFocusRef.current` was still set to the `End` target, causing `focusAdjacent` to calculate the next position from the old index and use `scrollToIndex` which defers focus, resulting in `document.activeElement` becoming `document.body`."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming sessions has a similar focus loss issue during burst events."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-30T03:39:43.255028Z",
+            "source": {
+              "activity_id": "sessions/12537400167701021456/activities/5a783bbfc14b403a954c9e2deeaa3775",
+              "report_sha256": "58411a5f7975217c9aff0b4b3b648a2b9c6162ef67efbe653c106af3814b7301",
+              "activity_created_at": "2026-10-30T03:28:29.166243Z",
+              "session_id": "12537400167701021456",
+              "dispatch_key": "cecf3fbf8f906e46dd34423b"
+            },
+            "deferred_findings": [
+              {
+                "title": "Localize session import failures that contain bracket codes",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders failure messages without passing them through `errorMessage` during import failures, causing raw bracket codes (e.g. `[session_lease_active] Failed...`) to be displayed to the user. Additionally, verified that `parseBackendError` inside `api.ts` does not correctly handle errors when the bracket code is inside an object's `message` property.\", \"reproduction\": {\"actual\": \"The UI shows raw unlocalized `[session_lease_active] Failed...` message directly. `parseBackendError` does not parse bracket codes in object messages.\", \"expected\": \"The error is properly localized. `parseBackendError` resolves bracket codes present in an object's `message` string.\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`.\", \"Observe that the UI shows the raw message.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via execution of Vitest jsdom scenarios that `importPendingOmp` and `importCodexSelected` render the unlocalized string from the backend error and that `api.errorMessage` ignores bracket codes in `Error` objects and generic objects wrapping a `message` string.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0, 1], \"primary_decision_task_id\": \"\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/App.tsx",
+                  "src/api.ts"
+                ],
+                "acceptance": [
+                  "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user.",
+                  "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+                ]
+              },
+              {
+                "title": "Add role=status to SessionList empty state for screen reader announcements",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via synthetic jsdom test that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes (`role` or `aria-live`), meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The `.sidebar-empty` element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The `.sidebar-empty` element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\", \"Inspect its ARIA attributes.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via execution of Vitest jsdom scenario that the `.sidebar-empty` container lacks ARIA live region attributes.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [2], \"primary_decision_task_id\": \"\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/SessionList.tsx"
+                ],
+                "acceptance": [
+                  "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`.",
+                  "Screen readers announce the empty state text when it dynamically appears."
+                ]
+              },
+              {
+                "title": "Fix rapid keyboard navigation state in CodexImportModal",
+                "reason": "possible_duplicate",
+                "evidence": "Possible overlap with existing task discovery-79e95afa0e2bb482; not established as a duplicate. {\"detail\": \"Observed via a synthetic jsdom test that pressing `End` followed by `ArrowUp` before layout effects settle causes the `activeElement` to revert to `body`.\", \"reproduction\": {\"actual\": \"Focus is lost to the document body during rapid burst navigation.\", \"expected\": \"Focus correctly lands on the resulting item element.\", \"steps\": [\"Render `CodexImportModal` with synthetic sessions.\", \"Focus the first element.\", \"Fire an `End` keydown event followed rapidly by an `ArrowUp` keydown event.\", \"Observe `document.activeElement` becomes the `body`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus loss was verified to still exist under the current implementation (a85e3a0) with a test that successfully reproduced the loss of focus when doing burst navigation, contradicting the triage assessment that the threading issue was unverified.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [3], \"primary_decision_task_id\": \"discovery-09e445abc32b2e75\", \"responses\": [{\"decision_context_id\": \"87fa30a4887bc62421b61ee32143287f691904830db03acb703cf4e50380b20f\", \"decision_task_id\": \"discovery-09e445abc32b2e75\", \"why_previous_reason_no_longer_explains\": \"The triage reported that CodexImportModal burst focuses index198 of 200 successfully on Chrome and 7ca97d3, but the synthetic test on 91413f1 verified that if the burst events happen close enough together (before the layout effect fires), the component sets `pendingFocusRef.current` and relies on `scrollToIndex`, causing the activeElement to resolve to `body` when the native `focus()` call cannot immediately execute.\"}]}, \"source\": \"autonomous_research\"}",
+                "target_paths": [
+                  "src/CodexImportModal.tsx"
+                ],
+                "acceptance": [
+                  "Rapid burst navigation keys (e.g. End then ArrowUp) successfully resolve to the correct element in focus without getting lost to the body."
+                ]
+              }
+            ]
+          },
+          {
+            "summary": "Investigated session deletion lease lock cleanup and persistence reliability.",
+            "observations": [
+              {
+                "scenario": "Session deletion and lease cleanup",
+                "evidence": "Reviewed `delete_session` in `src-tauri/src/sessions.rs` and the related test `delete_session_removes_jsonl_and_artifacts_but_rejects_external_files`.",
+                "result": "Observed that `delete_session` does not manually remove the `.lease` file, and confirmed via the owner triage decision (`4d96189dd071255f3dc7cd0c3f45c3a34764aef99e13defcf3f8a676b2a23971`) that this is an intentional safety feature, as sidecars do not participate in JSONL scanning and the stable lock inode protects concurrent owners."
+              }
+            ],
+            "next_hypotheses": [
+              "Investigate if renaming sessions properly preserves their lease files without conflicts."
+            ],
+            "proposed_task_ids": [],
+            "completed_at": "2026-10-30T04:23:32.224378Z",
+            "source": {
+              "activity_id": "sessions/15903600011365572270/activities/a3642f9aef4c4c588bce8c0b2b9855c0",
+              "report_sha256": "4c3c6dc70672ee52366b1c71427cbd378afa2ba86c17175b59c29b80504d7c68",
+              "activity_created_at": "2026-10-30T04:16:53.357562Z",
+              "session_id": "15903600011365572270",
+              "dispatch_key": "8d96c8b70092a9c47fda4701"
+            },
+            "deferred_findings": []
+          }
+        ]
+      }
     }
   ],
   "controller": {
