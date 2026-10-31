@@ -1,5 +1,5 @@
 import { expect, it } from "vitest"
-import { modelMetadataNumber, modelPricingStatus } from "./modelPassport"
+import { modelMetadataNumber, modelPricingStatus } from "./modelPassportMetadata"
 import type { OmpModelInfo } from "./types"
 
 const legacy: OmpModelInfo = {

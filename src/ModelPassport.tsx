@@ -1,6 +1,6 @@
 import { Fragment } from "react"
 import { t, type Lang } from "./i18n"
-import { modelMetadataNumber, modelPricingStatus } from "./modelPassport"
+import { modelMetadataNumber, modelPricingStatus } from "./modelPassportMetadata"
 import type { OmpModelInfo } from "./types"
 
 export function ModelPassport({ model, language }: { model: OmpModelInfo; language: Lang }) {
