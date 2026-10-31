@@ -270848,7 +270848,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-31T01:29:23.849361Z"
+        "observed_at": "2026-10-31T01:29:23.849361Z",
+        "released_attempt_ref": "autonomous/attempt-bc75ec8415481f458a7ed167"
       },
       "research_result": {
         "summary": "Investigated ResourceHealthPanel missing warning action text for unavailable volumes, and clearResolvedRuntimeIncidents discarding terminalEnded incidents. Verified that ResourceHealthPanel fails to render an action hint if the only warnings are unavailable volumes, while resourceWarningCount still counts them. Verified that clearResolvedRuntimeIncidents indiscriminately deletes 'terminalEnded' resolved incidents.",
