@@ -270962,7 +270962,7 @@
       "id": "research-diagnostics-resources-behavior-26",
       "title": "Investigate Runtime incidents and resource health: Observable behavior and contracts",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "blocked",
       "focus": [
         "quality",
         "bugfix",
@@ -271131,7 +271131,7 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatching",
+        "state": "quarantined",
         "session_id": "",
         "dispatch_key": "f3695b45c1df6f3577ca8bc1",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
@@ -271139,8 +271139,8 @@
         "started_at": "2026-10-31T01:29:23.849361Z",
         "finished_at": "",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "stale",
+        "note": "attempt_ref_unconfirmed",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -271310,7 +271310,8 @@
               ]
             }
           ]
-        }
+        },
+        "quarantined_at": "2026-10-31T01:29:23.849361Z"
       }
     }
   ],
