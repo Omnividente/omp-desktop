@@ -269997,7 +269997,7 @@
       "id": "research-sessions-persistence-performance-27",
       "title": "Investigate Session lifecycle, import and persistence: Measured responsiveness and resource use",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "perf",
         "quality",
@@ -270203,16 +270203,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "17697274113821349607",
         "dispatch_key": "3b95fb8e9f76b682c474c8cf",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-3b95fb8e9f76b682c474c8cf",
         "started_at": "2026-10-31T00:35:38.343099Z",
-        "finished_at": "",
+        "finished_at": "2026-10-31T01:06:39.760590Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -270385,13 +270385,145 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-31T00:48:02.975767Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-31T01:06:39.760590Z"
+      },
+      "research_result": {
+        "summary": "Investigated session renaming focus behavior during rapid inputs and confirmed that focus restoration is already properly managed by existing commits.",
+        "observations": [
+          {
+            "scenario": "Session renaming focus restoration during burst inputs",
+            "evidence": "Ran a synthetic Vitest jsdom test simulating user clicking to edit a session name and submitting it quickly via Enter, verifying whether `document.activeElement` becomes the `body` or gets successfully restored. Observed from the triage report (context id 0516f38599f05b5ecf8b5e7e0062d67c6b8831c5ff531a8c74294648732c73e9) that restoring focus after session rename cancellation/submission has already been implemented in main via commit dddb7756.",
+            "result": "The test correctly retained active element away from the body, and the feature was confirmed externally resolved, so no further regression or missing implementation exists for session renaming focus restoration."
+          }
+        ],
+        "next_hypotheses": [
+          "Investigate if session list scrolling with a large number of items preserves focus and avoids re-render lag when clicking into a session."
+        ],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-31T01:06:39.760590Z",
+        "source": {
+          "activity_id": "sessions/17697274113821349607/activities/988acd621cf144fe81a4691b0e56911f",
+          "report_sha256": "4b3db7ae2c6c9e2037523951c9d14c21df4e625c7dc29b5849e2f473e64ea99a",
+          "activity_created_at": "2026-10-31T00:51:20.174535Z",
+          "session_id": "17697274113821349607",
+          "dispatch_key": "3b95fb8e9f76b682c474c8cf"
+        },
+        "deferred_findings": [
+          {
+            "title": "Localize session import failures that contain bracket codes",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders failure messages without passing them through `errorMessage` during import failures, causing raw bracket codes (e.g. `[session_lease_active] Failed...`) to be displayed to the user. Additionally, verified that `parseBackendError` inside `api.ts` does not correctly handle errors when the bracket code is inside an object's `message` property.\", \"reproduction\": {\"actual\": \"The UI shows raw unlocalized `[session_lease_active] Failed...` message directly. `parseBackendError` does not parse bracket codes in object messages.\", \"expected\": \"The error is properly localized. `parseBackendError` resolves bracket codes present in an object's `message` string.\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`.\", \"Observe that the UI shows the raw message.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via execution of Vitest jsdom scenarios that `importPendingOmp` and `importCodexSelected` render the unlocalized string from the backend error and that `api.errorMessage` ignores bracket codes in `Error` objects and generic objects wrapping a `message` string.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/App.tsx",
+              "src/api.ts"
+            ],
+            "acceptance": [
+              "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user.",
+              "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+            ]
+          },
+          {
+            "title": "Add role=status to SessionList empty state for screen reader announcements",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via synthetic jsdom test that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes (`role` or `aria-live`), meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The `.sidebar-empty` element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The `.sidebar-empty` element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\", \"Inspect its ARIA attributes.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via execution of Vitest jsdom scenario that the `.sidebar-empty` container lacks ARIA live region attributes.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/SessionList.tsx"
+            ],
+            "acceptance": [
+              "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`.",
+              "Screen readers announce the empty state text when it dynamically appears."
+            ]
+          },
+          {
+            "title": "Fix rapid keyboard navigation state in CodexImportModal",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-79e95afa0e2bb482; not established as a duplicate. {\"detail\": \"Observed via a synthetic jsdom test that pressing `End` followed by `ArrowUp` before layout effects settle causes the `activeElement` to revert to `body`.\", \"reproduction\": {\"actual\": \"Focus is lost to the document body during rapid burst navigation.\", \"expected\": \"Focus correctly lands on the resulting item element.\", \"steps\": [\"Render `CodexImportModal` with synthetic sessions.\", \"Focus the first element.\", \"Fire an `End` keydown event followed rapidly by an `ArrowUp` keydown event.\", \"Observe `document.activeElement` becomes the `body`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus loss was verified to still exist under the current implementation (a85e3a0) with a test that successfully reproduced the loss of focus when doing burst navigation, contradicting the triage assessment that the threading issue was unverified.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-09e445abc32b2e75\", \"responses\": [{\"decision_context_id\": \"87fa30a4887bc62421b61ee32143287f691904830db03acb703cf4e50380b20f\", \"decision_task_id\": \"discovery-09e445abc32b2e75\", \"why_previous_reason_no_longer_explains\": \"The triage reported that CodexImportModal burst focuses index198 of 200 successfully on Chrome and 7ca97d3, but the synthetic test on 91413f1 verified that if the burst events happen close enough together (before the layout effect fires), the component sets `pendingFocusRef.current` and relies on `scrollToIndex`, causing the activeElement to resolve to `body` when the native `focus()` call cannot immediately execute.\"}]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/CodexImportModal.tsx"
+            ],
+            "acceptance": [
+              "Rapid burst navigation keys (e.g. End then ArrowUp) successfully resolve to the correct element in focus without getting lost to the body."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/17697274113821349607/activities/988acd621cf144fe81a4691b0e56911f",
+          "report_sha256": "4b3db7ae2c6c9e2037523951c9d14c21df4e625c7dc29b5849e2f473e64ea99a",
+          "activity_created_at": "2026-10-31T00:51:20.174535Z",
+          "session_id": "17697274113821349607",
+          "dispatch_key": "3b95fb8e9f76b682c474c8cf"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-b193976942c481df",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-049f8791f814ce6b"
+            },
+            {
+              "id": "discovery-a3b912ccc0b9c180",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-6e4108f1fe931764"
+            },
+            {
+              "id": "discovery-09e445abc32b2e75",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-79e95afa0e2bb482"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Localize session import failures that contain bracket codes",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-049f8791f814ce6b; not established as a duplicate. {\"detail\": \"Observed that `showError` in `App.tsx` directly renders failure messages without passing them through `errorMessage` during import failures, causing raw bracket codes (e.g. `[session_lease_active] Failed...`) to be displayed to the user. Additionally, verified that `parseBackendError` inside `api.ts` does not correctly handle errors when the bracket code is inside an object's `message` property.\", \"reproduction\": {\"actual\": \"The UI shows raw unlocalized `[session_lease_active] Failed...` message directly. `parseBackendError` does not parse bracket codes in object messages.\", \"expected\": \"The error is properly localized. `parseBackendError` resolves bracket codes present in an object's `message` string.\", \"steps\": [\"Produce a failed import item with a message like `[session_lease_active] Failed...`.\", \"Observe that the UI shows the raw message.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via execution of Vitest jsdom scenarios that `importPendingOmp` and `importCodexSelected` render the unlocalized string from the backend error and that `api.errorMessage` ignores bracket codes in `Error` objects and generic objects wrapping a `message` string.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/App.tsx",
+                "src/api.ts"
+              ],
+              "acceptance": [
+                "When a session import fails with a raw bracket code like `[session_lease_active]`, the error is properly localized to the user.",
+                "`parseBackendError` handles errors with string `message` values that start with a bracket code."
+              ]
+            },
+            {
+              "title": "Add role=status to SessionList empty state for screen reader announcements",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-6e4108f1fe931764; not established as a duplicate. {\"detail\": \"Observed via synthetic jsdom test that `div.sidebar-empty` in `src/SessionList.tsx` does not have any ARIA live region attributes (`role` or `aria-live`), meaning its appearance is not announced to assistive technologies.\", \"reproduction\": {\"actual\": \"The `.sidebar-empty` element lacks both `role` and `aria-live` attributes.\", \"expected\": \"The `.sidebar-empty` element has `role=\\\"status\\\"` or `aria-live=\\\"polite\\\"`.\", \"steps\": [\"Render `SessionList` with zero visible sessions and a selected workspace path.\", \"Query for the `.sidebar-empty` container.\", \"Inspect its ARIA attributes.\"]}, \"revisit\": {\"change_kind\": \"new_evidence\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"Confirmed via execution of Vitest jsdom scenario that the `.sidebar-empty` container lacks ARIA live region attributes.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"\", \"responses\": []}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/SessionList.tsx"
+              ],
+              "acceptance": [
+                "The empty state container (`.sidebar-empty`) in `SessionList` includes `role=\"status\"` or `aria-live=\"polite\"`.",
+                "Screen readers announce the empty state text when it dynamically appears."
+              ]
+            },
+            {
+              "title": "Fix rapid keyboard navigation state in CodexImportModal",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-79e95afa0e2bb482; not established as a duplicate. {\"detail\": \"Observed via a synthetic jsdom test that pressing `End` followed by `ArrowUp` before layout effects settle causes the `activeElement` to revert to `body`.\", \"reproduction\": {\"actual\": \"Focus is lost to the document body during rapid burst navigation.\", \"expected\": \"Focus correctly lands on the resulting item element.\", \"steps\": [\"Render `CodexImportModal` with synthetic sessions.\", \"Focus the first element.\", \"Fire an `End` keydown event followed rapidly by an `ArrowUp` keydown event.\", \"Observe `document.activeElement` becomes the `body`.\"]}, \"revisit\": {\"change_kind\": \"rationale_reassessment\", \"contract_version\": \"post-revisit-v1\", \"difference\": \"The focus loss was verified to still exist under the current implementation (a85e3a0) with a test that successfully reproduced the loss of focus when doing burst navigation, contradicting the triage assessment that the threading issue was unverified.\", \"evidence_mode\": \"mock_or_model\", \"observation_refs\": [0], \"primary_decision_task_id\": \"discovery-09e445abc32b2e75\", \"responses\": [{\"decision_context_id\": \"87fa30a4887bc62421b61ee32143287f691904830db03acb703cf4e50380b20f\", \"decision_task_id\": \"discovery-09e445abc32b2e75\", \"why_previous_reason_no_longer_explains\": \"The triage reported that CodexImportModal burst focuses index198 of 200 successfully on Chrome and 7ca97d3, but the synthetic test on 91413f1 verified that if the burst events happen close enough together (before the layout effect fires), the component sets `pendingFocusRef.current` and relies on `scrollToIndex`, causing the activeElement to resolve to `body` when the native `focus()` call cannot immediately execute.\"}]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/CodexImportModal.tsx"
+              ],
+              "acceptance": [
+                "Rapid burst navigation keys (e.g. End then ArrowUp) successfully resolve to the correct element in focus without getting lost to the body."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "3 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-31T00:57:53.767537Z",
+    "last_poll_at": "2026-10-31T01:07:07.494427Z",
     "last_tick_at": "2026-10-31T00:58:11.915630Z",
     "run_id": "41152815643",
     "owner_recovery_requests": [
