@@ -13,6 +13,7 @@ mod secrets;
 mod session_lease;
 mod sessions;
 mod settings;
+mod startup_workspace;
 mod terminal;
 mod update;
 #[cfg(feature = "updater-e2e")]
@@ -23,6 +24,7 @@ use models::{
     AppError, AppSettings, BootstrapPayload, CodexSessionSummary, ImportBatchPayload,
     ImportSessionRequest, OmpConfigSnapshot, OmpUpdateInfo, ResourceHealthSnapshot,
     SessionTranscript, SettingsPatch, SettingsSavePayload, SettingsSaveRequest, SettingsUpdate,
+    StartupWorkspaceWarning,
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
@@ -31,6 +33,7 @@ use settings::{
     start_with_defaults_prepared, update_provider_secrets, with_settings_transaction,
     SettingsState, SettingsTransaction,
 };
+use startup_workspace::{Resolution, StartupWorkspaceIntent};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
@@ -39,33 +42,41 @@ use terminal::TerminalState;
 
 const SINGLE_INSTANCE_EVENT: &str = "single-instance";
 
-struct StartupWorkspace(Mutex<Option<String>>);
+struct StartupWorkspace(Mutex<StartupWorkspaceIntent>);
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum StartupWorkspaceAction {
+    Retry,
+    Continue,
+}
 
 fn startup_workspace(args: &[String]) -> Option<String> {
     for (index, arg) in args.iter().enumerate().skip(1) {
-        let arg = arg.trim();
-        if matches!(arg, "--project" | "-p" | "--workspace" | "-w") {
-            if let Some(value) = args.get(index + 1).map(|value| value.trim()) {
-                if !value.is_empty() && !value.starts_with('-') {
+        if arg == "--" {
+            break;
+        }
+        if matches!(arg.as_str(), "--project" | "-p" | "--workspace" | "-w") {
+            if let Some(value) = args.get(index + 1) {
+                if !value.trim().is_empty() && !value.starts_with('-') {
                     return Some(value.to_owned());
                 }
             }
         } else if let Some((flag, value)) = arg.split_once('=') {
             if matches!(flag, "--project" | "-p" | "--workspace" | "-w") && !value.trim().is_empty()
             {
-                return Some(value.trim().to_owned());
+                return Some(value.to_owned());
             }
         }
     }
     for (index, arg) in args.iter().enumerate().skip(1) {
-        let arg = arg.trim();
         if arg == "--" {
             return args
                 .get(index + 1)
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty());
+                .filter(|value| !value.trim().is_empty())
+                .cloned();
         }
-        if arg.is_empty()
+        if arg.trim().is_empty()
             || arg.starts_with('-')
             || matches!(arg.to_ascii_lowercase().as_str(), "run" | "dev" | "open")
         {
@@ -166,8 +177,18 @@ fn handle_second_instance(app: &AppHandle, args: Vec<String>, cwd: String) {
 
 #[cfg(test)]
 mod single_instance_tests {
-    use super::{resolve_launch_workspace, startup_workspace};
-    use std::path::PathBuf;
+    use super::{
+        add_workspace_to_settings, normalize_workspace_name, remove_workspace_from_settings,
+        rename_workspace_in_settings, resolve_launch_workspace,
+        select_startup_workspace_in_settings, startup_workspace, workspace_path_key, AppSettings,
+    };
+    use crate::{sessions::path_key, startup_workspace::StartupWorkspaceIntent};
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn explicit_startup_project_takes_precedence_over_positional_arguments() {
@@ -180,6 +201,34 @@ mod single_instance_tests {
         ]
         .map(str::to_owned);
         assert_eq!(startup_workspace(&args).as_deref(), Some("chosen-project"));
+    }
+
+    #[test]
+    fn startup_project_treats_post_delimiter_flags_as_literal_paths() {
+        let cases = [
+            (
+                vec!["omp-desktop", "--", "--project=repo"],
+                "--project=repo",
+            ),
+            (
+                vec!["omp-desktop", "--", "wanted", "--project=other"],
+                "wanted",
+            ),
+            (
+                vec![
+                    "omp-desktop",
+                    "--project",
+                    "preferred",
+                    "--",
+                    "--project=other",
+                ],
+                "preferred",
+            ),
+        ];
+        for (args, expected) in cases {
+            let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+            assert_eq!(startup_workspace(&args).as_deref(), Some(expected));
+        }
     }
 
     #[test]
@@ -269,6 +318,236 @@ mod single_instance_tests {
     fn relative_launch_path_does_not_fall_back_when_caller_directory_is_missing() {
         assert!(resolve_launch_workspace("repo", "relative/caller").is_err());
     }
+
+    #[test]
+    fn startup_paths_preserve_whitespace_in_every_argument_form() {
+        for path in [
+            " project",
+            "project ",
+            "\tproject\t",
+            "project\u{a0}",
+            " open ",
+        ] {
+            for flag in ["--project", "-p", "--workspace", "-w"] {
+                let args = ["omp-desktop", flag, path].map(str::to_owned);
+                assert_eq!(startup_workspace(&args).as_deref(), Some(path));
+                let args = vec!["omp-desktop".to_owned(), format!("{flag}={path}")];
+                assert_eq!(startup_workspace(&args).as_deref(), Some(path));
+            }
+            for args in [
+                vec!["omp-desktop", path],
+                vec!["omp-desktop", "open", path],
+                vec!["omp-desktop", "--", path],
+            ] {
+                let args = args.into_iter().map(str::to_owned).collect::<Vec<_>>();
+                assert_eq!(startup_workspace(&args).as_deref(), Some(path));
+            }
+        }
+    }
+
+    #[test]
+    fn blank_paths_are_not_startup_or_workspace_targets() {
+        for path in ["", " ", "\t", " \t\r\n", "\u{a0}"] {
+            for args in [
+                vec!["omp-desktop".to_owned(), path.to_owned()],
+                vec!["omp-desktop".to_owned(), "--".to_owned(), path.to_owned()],
+                vec!["omp-desktop".to_owned(), "-p".to_owned(), path.to_owned()],
+                vec!["omp-desktop".to_owned(), format!("--project={path}")],
+            ] {
+                assert_eq!(startup_workspace(&args), None);
+            }
+            assert!(workspace_path_key(path).is_err());
+            let mut settings = AppSettings::default();
+            assert!(add_workspace_to_settings(&mut settings, path).is_err());
+            assert!(settings.recent_workspaces.is_empty());
+        }
+        assert_eq!(normalize_workspace_name(" \tПроект\n ").unwrap(), "Проект");
+        assert!(normalize_workspace_name(" \t\n ").is_err());
+    }
+
+    static NEXT_WORKSPACE_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    struct WorkspaceFixture(PathBuf);
+
+    impl WorkspaceFixture {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "omp-workspace-identity-{}-{}-{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos(),
+                NEXT_WORKSPACE_FIXTURE.fetch_add(1, Ordering::Relaxed),
+            ));
+            fs::create_dir(&root).unwrap();
+            // On Windows this supplies a verbatim path. Ordinary Win32 paths may
+            // normalize trailing ASCII spaces before they reach the filesystem.
+            Self(fs::canonicalize(root).unwrap())
+        }
+
+        fn path(&self, name: &str) -> String {
+            self.0.join(name).to_str().unwrap().to_owned()
+        }
+    }
+
+    impl Drop for WorkspaceFixture {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+
+    fn assert_whitespace_workspace_is_distinct(name: &str) {
+        let fixture = WorkspaceFixture::new();
+        let neighbor = fixture.path("project");
+        let selected = fixture.path(name);
+        fs::create_dir(&neighbor).unwrap();
+        fs::create_dir(&selected).unwrap();
+        fs::write(PathBuf::from(&neighbor).join("identity"), "neighbor").unwrap();
+        fs::write(PathBuf::from(&selected).join("identity"), "selected").unwrap();
+        let neighbor_key = workspace_path_key(&neighbor).unwrap();
+        let selected_key = workspace_path_key(&selected).unwrap();
+        assert_ne!(neighbor_key, selected_key);
+
+        let mut settings = AppSettings {
+            recent_workspaces: vec![neighbor.clone(), selected.clone()],
+            hidden_workspaces: vec![neighbor.clone(), selected.clone()],
+            last_workspace: Some(neighbor.clone()),
+            ..AppSettings::default()
+        };
+        settings
+            .workspace_names
+            .insert(neighbor_key.clone(), "Neighbor".to_owned());
+        settings
+            .workspace_names
+            .insert(selected_key.clone(), "Old".to_owned());
+        add_workspace_to_settings(&mut settings, &selected).unwrap();
+        assert_eq!(
+            settings.recent_workspaces,
+            [selected.clone(), neighbor.clone()]
+        );
+        assert_eq!(&settings.hidden_workspaces, std::slice::from_ref(&neighbor));
+        assert_eq!(settings.last_workspace.as_deref(), Some(neighbor.as_str()));
+
+        rename_workspace_in_settings(
+            &mut settings,
+            workspace_path_key(&selected).unwrap(),
+            normalize_workspace_name(" \tChosen\n ").unwrap(),
+        );
+        assert_eq!(settings.workspace_names[&selected_key], "Chosen");
+        assert_eq!(settings.workspace_names[&neighbor_key], "Neighbor");
+        assert_eq!(settings.last_workspace.as_deref(), Some(neighbor.as_str()));
+
+        let mut selected_last = settings.clone();
+        selected_last.last_workspace = Some(selected.clone());
+        remove_workspace_from_settings(&mut selected_last, selected_key.clone());
+        assert_eq!(selected_last.last_workspace, None);
+        remove_workspace_from_settings(&mut settings, workspace_path_key(&selected).unwrap());
+        assert_eq!(&settings.recent_workspaces, std::slice::from_ref(&neighbor));
+        assert!(!settings.workspace_names.contains_key(&selected_key));
+        assert_eq!(settings.workspace_names[&neighbor_key], "Neighbor");
+        assert_eq!(settings.last_workspace.as_deref(), Some(neighbor.as_str()));
+        assert_eq!(settings.hidden_workspaces, [neighbor.clone(), selected_key]);
+
+        let args = ["omp-desktop", "--project", selected.as_str()].map(str::to_owned);
+        let requested = startup_workspace(&args).unwrap();
+        assert_eq!(requested, selected);
+        let resolved = resolve_launch_workspace(&requested, fixture.0.to_str().unwrap()).unwrap();
+        assert_eq!(resolved, PathBuf::from(&selected));
+        let mut intent = StartupWorkspaceIntent::new(Some(requested));
+        let (_, warning) = intent
+            .load(
+                |path| select_startup_workspace_in_settings(&mut settings, path),
+                || panic!("an available exact startup path must not load the prior workspace"),
+            )
+            .unwrap();
+        assert!(warning.is_none());
+        assert!(!intent.is_pending());
+        assert_eq!(settings.last_workspace.as_deref(), Some(selected.as_str()));
+        assert_eq!(
+            settings.recent_workspaces,
+            [selected.clone(), neighbor.clone()]
+        );
+        assert_eq!(
+            fs::read_to_string(PathBuf::from(neighbor).join("identity")).unwrap(),
+            "neighbor"
+        );
+        assert_eq!(
+            fs::read_to_string(PathBuf::from(selected).join("identity")).unwrap(),
+            "selected"
+        );
+    }
+
+    #[test]
+    fn whitespace_named_workspace_actions_preserve_the_neighbor() {
+        // NBSP is also legal in ordinary Windows filenames; ASCII trailing
+        // spaces below are exercised only through the fixture's verbatim path.
+        for name in ["project ", "project\u{a0}"] {
+            assert_whitespace_workspace_is_distinct(name);
+        }
+        #[cfg(unix)]
+        assert_whitespace_workspace_is_distinct("project\t");
+    }
+
+    #[test]
+    fn missing_exact_startup_path_never_selects_the_trimmed_neighbor() {
+        let fixture = WorkspaceFixture::new();
+        let neighbor = fixture.path("project");
+        fs::create_dir(&neighbor).unwrap();
+        let mut settings = AppSettings {
+            recent_workspaces: vec![neighbor.clone()],
+            last_workspace: Some(neighbor.clone()),
+            ..AppSettings::default()
+        };
+        // A legal NBSP suffix avoids ordinary Windows trailing-space aliases.
+        let missing = fixture.path("project\u{a0}");
+        assert!(add_workspace_to_settings(&mut settings, &missing).is_err());
+        let mut intent = StartupWorkspaceIntent::new(Some(missing.clone()));
+        let (_, warning) = intent
+            .load(
+                |path| select_startup_workspace_in_settings(&mut settings, path),
+                || Ok(()),
+            )
+            .unwrap();
+        assert_eq!(warning.unwrap().requested_path, missing);
+        assert!(intent.is_pending());
+        assert_eq!(settings.last_workspace.as_deref(), Some(neighbor.as_str()));
+        assert_eq!(settings.recent_workspaces, [neighbor]);
+    }
+
+    #[test]
+    fn adding_ordinary_workspace_retains_existing_alias_and_recent_limit_rules() {
+        let fixture = WorkspaceFixture::new();
+        let workspace = fixture.path("project");
+        fs::create_dir(&workspace).unwrap();
+        let alias = PathBuf::from(&workspace)
+            .join(".")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let mut settings = AppSettings {
+            recent_workspaces: std::iter::once(alias.clone())
+                .chain((0..30).map(|index| fixture.path(&format!("other-{index}"))))
+                .collect(),
+            hidden_workspaces: vec![alias],
+            ..AppSettings::default()
+        };
+        add_workspace_to_settings(&mut settings, &workspace).unwrap();
+        assert_eq!(settings.recent_workspaces.len(), 24);
+        assert_eq!(settings.recent_workspaces[0], workspace);
+        assert_eq!(settings.recent_workspaces[1], fixture.path("other-0"));
+        assert_eq!(settings.recent_workspaces[23], fixture.path("other-22"));
+        let key = path_key(&workspace);
+        assert_eq!(
+            settings
+                .recent_workspaces
+                .iter()
+                .filter(|path| path_key(path) == key)
+                .count(),
+            1
+        );
+        assert!(settings.hidden_workspaces.is_empty());
+    }
 }
 
 pub(crate) async fn run_blocking<T, F>(
@@ -311,24 +590,69 @@ fn load_workspace_bootstrap(app: &AppHandle) -> Result<BootstrapPayload, String>
         .0
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let (bootstrap, warning) = requested.load(
+        |path| apply_startup_workspace(app, path),
+        || load_prior_workspace_bootstrap(app),
+    )?;
+    Ok(with_startup_workspace_warning(bootstrap, warning))
+}
+
+fn apply_startup_workspace(app: &AppHandle, path: &str) -> Result<BootstrapPayload, String> {
     let settings = app.state::<SettingsState>();
-    let bootstrap = if let Some(path) = requested
-        .as_ref()
-        .filter(|path| PathBuf::from(path.as_str()).is_dir())
-    {
-        with_settings_transaction(app, &settings, |transaction| {
-            let snapshot = transaction.candidate_mut();
-            add_workspace_to_settings(snapshot, path)?;
-            snapshot.last_workspace = Some(path.clone());
-            commit_workspace_settings(app, transaction)
-        })?
-    } else {
-        let snapshot = settings_snapshot(app, &settings)?;
-        build_bootstrap(app, &snapshot)?
-    };
-    // Consume only after success, so settings recovery can retry the explicit launch intent.
-    *requested = None;
-    Ok(bootstrap)
+    with_settings_transaction(app, &settings, |transaction| {
+        let snapshot = transaction.candidate_mut();
+        select_startup_workspace_in_settings(snapshot, path)?;
+        commit_workspace_settings(app, transaction)
+    })
+}
+
+fn load_prior_workspace_bootstrap(app: &AppHandle) -> Result<BootstrapPayload, String> {
+    let settings = app.state::<SettingsState>();
+    let snapshot = settings_snapshot(app, &settings)?;
+    build_bootstrap(app, &snapshot)
+}
+
+fn with_startup_workspace_warning(
+    mut bootstrap: BootstrapPayload,
+    warning: Option<startup_workspace::Warning>,
+) -> BootstrapPayload {
+    bootstrap.startup_workspace_warning = warning.map(|warning| StartupWorkspaceWarning {
+        requested_path: warning.requested_path,
+        message: models::sanitize_error_text(&warning.message),
+    });
+    bootstrap
+}
+
+#[tauri::command]
+async fn resolve_startup_workspace(
+    requested_path: String,
+    action: StartupWorkspaceAction,
+    app: AppHandle,
+) -> Result<BootstrapPayload, AppError> {
+    run_blocking(
+        "восстановления проекта запуска",
+        "startup_workspace_resolution_failed",
+        "Не удалось обработать проект запуска",
+        move || {
+            let startup = app.state::<StartupWorkspace>();
+            let mut requested = startup
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let resolution = match action {
+                StartupWorkspaceAction::Retry => Resolution::Retry,
+                StartupWorkspaceAction::Continue => Resolution::Continue,
+            };
+            let (bootstrap, warning) = requested.resolve(
+                &requested_path,
+                resolution,
+                |path| apply_startup_workspace(&app, path),
+                || load_prior_workspace_bootstrap(&app),
+            )?;
+            Ok(with_startup_workspace_warning(bootstrap, warning))
+        },
+    )
+    .await
 }
 
 #[tauri::command]
@@ -362,26 +686,35 @@ async fn add_workspace(path: String, app: AppHandle) -> Result<BootstrapPayload,
         "workspace_add_failed",
         "Не удалось добавить проект",
         move || {
-            // A forwarded launch or folder pick supersedes a not-yet-consumed initial argument.
+            // Only a successful forwarded launch or folder pick supersedes the initial argument.
             let startup = app.state::<StartupWorkspace>();
             let mut requested = startup
                 .0
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            *requested = None;
-            let state = app.state::<SettingsState>();
-            with_settings_transaction(&app, &state, |transaction| {
-                add_workspace_to_settings(transaction.candidate_mut(), &path)?;
-                commit_workspace_settings(&app, transaction)
+            requested.supersede(|| {
+                let state = app.state::<SettingsState>();
+                with_settings_transaction(&app, &state, |transaction| {
+                    add_workspace_to_settings(transaction.candidate_mut(), &path)?;
+                    commit_workspace_settings(&app, transaction)
+                })
             })
         },
     )
     .await
 }
 
+// Paths are identities, unlike display names. Trimming is only a blank-input check.
+fn workspace_path_key(path: &str) -> Result<String, String> {
+    if path.trim().is_empty() {
+        return Err("Путь проекта не может быть пустым".to_owned());
+    }
+    Ok(path_key(path))
+}
+
 fn add_workspace_to_settings(snapshot: &mut AppSettings, path: &str) -> Result<(), String> {
-    let workspace = PathBuf::from(path.trim());
-    if !workspace.is_dir() {
+    let workspace = Path::new(path);
+    if path.trim().is_empty() || !workspace.is_dir() {
         return Err(format!("Папка проекта не найдена: {}", workspace.display()));
     }
     let workspace = workspace.to_string_lossy().into_owned();
@@ -397,6 +730,15 @@ fn add_workspace_to_settings(snapshot: &mut AppSettings, path: &str) -> Result<(
     Ok(())
 }
 
+fn select_startup_workspace_in_settings(
+    snapshot: &mut AppSettings,
+    path: &str,
+) -> Result<(), String> {
+    add_workspace_to_settings(snapshot, path)?;
+    snapshot.last_workspace = Some(path.to_owned());
+    Ok(())
+}
+
 #[tauri::command]
 async fn save_workspace_selection(path: Option<String>, app: AppHandle) -> Result<(), AppError> {
     run_blocking(
@@ -404,6 +746,16 @@ async fn save_workspace_selection(path: Option<String>, app: AppHandle) -> Resul
         "workspace_selection_save_failed",
         "Не удалось запомнить выбранный проект",
         move || {
+            // A queued frontend fallback selection is not acknowledgement of a launch failure.
+            // Keep the same startup -> settings lock order as bootstrap and folder selection.
+            let startup = app.state::<StartupWorkspace>();
+            let requested = startup
+                .0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if requested.is_pending() {
+                return Ok(());
+            }
             let state = app.state::<SettingsState>();
             with_settings_transaction(&app, &state, |transaction| {
                 let snapshot = transaction.candidate_mut();
@@ -467,14 +819,11 @@ async fn rename_workspace(
         "workspace_rename_failed",
         "Не удалось переименовать проект",
         move || {
-            let key = path_key(path.trim());
+            let key = workspace_path_key(&path)?;
             let name = normalize_workspace_name(&name)?;
             let state = app.state::<SettingsState>();
             with_settings_transaction(&app, &state, |transaction| {
-                transaction
-                    .candidate_mut()
-                    .workspace_names
-                    .insert(key, name);
+                rename_workspace_in_settings(transaction.candidate_mut(), key, name);
                 commit_workspace_settings(&app, transaction)
             })
         },
@@ -489,30 +838,37 @@ async fn remove_workspace(path: String, app: AppHandle) -> Result<BootstrapPaylo
         "workspace_remove_failed",
         "Не удалось удалить проект из списка",
         move || {
-            let key = path_key(path.trim());
+            let key = workspace_path_key(&path)?;
             let state = app.state::<SettingsState>();
             with_settings_transaction(&app, &state, |transaction| {
-                let snapshot = transaction.candidate_mut();
-                snapshot
-                    .recent_workspaces
-                    .retain(|existing| path_key(existing) != key);
-                snapshot.workspace_names.remove(&key);
-                if snapshot
-                    .last_workspace
-                    .as_ref()
-                    .is_some_and(|path| path_key(path) == key)
-                {
-                    snapshot.last_workspace = None;
-                }
-                snapshot
-                    .hidden_workspaces
-                    .retain(|hidden| path_key(hidden) != key);
-                snapshot.hidden_workspaces.push(key);
+                remove_workspace_from_settings(transaction.candidate_mut(), key);
                 commit_workspace_settings(&app, transaction)
             })
         },
     )
     .await
+}
+
+fn rename_workspace_in_settings(snapshot: &mut AppSettings, key: String, name: String) {
+    snapshot.workspace_names.insert(key, name);
+}
+
+fn remove_workspace_from_settings(snapshot: &mut AppSettings, key: String) {
+    snapshot
+        .recent_workspaces
+        .retain(|existing| path_key(existing) != key);
+    snapshot.workspace_names.remove(&key);
+    if snapshot
+        .last_workspace
+        .as_ref()
+        .is_some_and(|path| path_key(path) == key)
+    {
+        snapshot.last_workspace = None;
+    }
+    snapshot
+        .hidden_workspaces
+        .retain(|hidden| path_key(hidden) != key);
+    snapshot.hidden_workspaces.push(key);
 }
 
 fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
@@ -538,6 +894,9 @@ fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     }
     if let SettingsPatch::Set(value) = &update.terminal_font_size {
         snapshot.terminal_font_size = normalize_terminal_font_size(*value);
+    }
+    if let SettingsPatch::Set(Some(desktop_theme)) = update.desktop_theme {
+        snapshot.desktop_theme = desktop_theme;
     }
     if let SettingsPatch::Set(Some(rail_mode)) = update.rail_mode {
         snapshot.rail_mode = rail_mode;
@@ -658,7 +1017,7 @@ async fn start_with_defaults(app: AppHandle) -> Result<BootstrapPayload, AppErro
                 .0
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .is_some();
+                .is_pending();
             if startup_pending {
                 load_workspace_bootstrap(&app)
             } else {
@@ -942,8 +1301,8 @@ pub fn run() {
             }
             app.manage(SettingsState::new_uninitialized());
             app.manage(omp_bridge::ModelCatalogState::default());
-            app.manage(StartupWorkspace(Mutex::new(startup_workspace(
-                &std::env::args().collect::<Vec<_>>(),
+            app.manage(StartupWorkspace(Mutex::new(StartupWorkspaceIntent::new(
+                startup_workspace(&std::env::args().collect::<Vec<_>>()),
             ))));
             app.manage(TerminalState::default());
             #[cfg(feature = "updater-e2e")]
@@ -952,6 +1311,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             bootstrap,
+            resolve_startup_workspace,
             open_settings_folder,
             add_workspace,
             rename_workspace,
@@ -975,6 +1335,7 @@ pub fn run() {
             terminal::discard_switch_input_recovery,
             terminal::set_terminal_primary_provider_pin,
             terminal::attach_terminal,
+            terminal::save_terminal_capture,
             terminal::detach_terminal,
             terminal::write_terminal,
             terminal::write_terminal_binary,

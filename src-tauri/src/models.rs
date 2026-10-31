@@ -152,6 +152,26 @@ pub enum RailMode {
     AutoHide,
 }
 
+/// Desktop chrome preference; independent of terminal and OMP TUI colors.
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DesktopTheme {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+
+fn deserialize_stored_desktop_theme<'de, D>(deserializer: D) -> Result<DesktopTheme, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    // Recover this preference alone, without discarding unrelated stored settings.
+    // SettingsUpdate deliberately uses the strict enum deserializer instead.
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -175,6 +195,8 @@ pub struct AppSettings {
     pub proxy_providers: BTreeSet<String>,
     #[serde(default)]
     pub rail_mode: RailMode,
+    #[serde(default, deserialize_with = "deserialize_stored_desktop_theme")]
+    pub desktop_theme: DesktopTheme,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_app_font_family")]
@@ -209,6 +231,7 @@ impl Default for AppSettings {
             primary_provider_pins: BTreeSet::new(),
             proxy_providers: BTreeSet::new(),
             rail_mode: RailMode::default(),
+            desktop_theme: DesktopTheme::default(),
             language: default_language(),
             app_font_family: default_app_font_family(),
             app_font_size: default_app_font_size(),
@@ -239,6 +262,7 @@ impl fmt::Debug for AppSettings {
             )
             .field("proxy_provider_count", &self.proxy_providers.len())
             .field("rail_mode", &self.rail_mode)
+            .field("desktop_theme", &self.desktop_theme)
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
             .field("app_font_size", &self.app_font_size)
@@ -318,8 +342,46 @@ pub struct SettingsUpdate {
     pub terminal_font_size: SettingsPatch<u16>,
     #[serde(default)]
     pub rail_mode: SettingsPatch<RailMode>,
+    /// Missing and null leave the preference unchanged, like rail_mode.
+    #[serde(default)]
+    pub desktop_theme: SettingsPatch<DesktopTheme>,
     #[serde(default)]
     pub provider_env: SettingsPatch<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OmpProbeSource {
+    Configured,
+    Environment,
+    #[cfg(any(windows, test))]
+    LocalInstall,
+    #[cfg(any(not(windows), test))]
+    UserLocalBin,
+    #[cfg(any(not(windows), test))]
+    UserNpmBin,
+    #[cfg(any(not(windows), test))]
+    SystemLocalBin,
+    SearchPath,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OmpProbeFailureReason {
+    PathUnavailable,
+    LaunchFailed,
+    Timeout,
+    OutputLimit,
+    IoFailed,
+    UnsuccessfulExit,
+    EmptyVersion,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpProbeFailure {
+    pub source: OmpProbeSource,
+    pub reason: OmpProbeFailureReason,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -330,6 +392,7 @@ pub struct RuntimeInfo {
     pub omp_available: bool,
     pub omp_executable: String,
     pub omp_version: Option<String>,
+    pub omp_probe_failures: Vec<OmpProbeFailure>,
     pub session_root: String,
     pub language: String,
 }
@@ -432,12 +495,21 @@ pub struct SessionScanWarning {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StartupWorkspaceWarning {
+    pub requested_path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BootstrapPayload {
     pub settings: AppSettings,
     pub runtime: RuntimeInfo,
     pub workspaces: Vec<WorkspaceSummary>,
     pub sessions: Vec<SessionSummary>,
     pub session_warnings: Vec<SessionScanWarning>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub startup_workspace_warning: Option<StartupWorkspaceWarning>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -734,9 +806,59 @@ pub struct SessionTranscript {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppError, AppSettings, RailMode, SettingsPatch, SettingsUpdate, DEFAULT_APP_FONT_FAMILY,
-        MAX_APP_ERROR_DETAILS_CHARS,
+        AppError, AppSettings, DesktopTheme, RailMode, SettingsPatch, SettingsUpdate,
+        DEFAULT_APP_FONT_FAMILY, MAX_APP_ERROR_DETAILS_CHARS,
     };
+
+    #[test]
+    fn startup_workspace_warning_has_explicit_camel_case_wire_fields() {
+        let warning = super::StartupWorkspaceWarning {
+            requested_path: "/fixture/missing-project".to_owned(),
+            message: "Unavailable".to_owned(),
+        };
+        assert_eq!(
+            serde_json::to_value(warning).unwrap(),
+            serde_json::json!({
+                "requestedPath": "/fixture/missing-project",
+                "message": "Unavailable",
+            })
+        );
+    }
+
+    #[test]
+    fn startup_workspace_warning_is_absent_from_ordinary_bootstrap_payloads() {
+        let mut bootstrap = super::BootstrapPayload {
+            settings: AppSettings::default(),
+            runtime: super::RuntimeInfo {
+                platform: "linux".to_owned(),
+                arch: "x86_64".to_owned(),
+                omp_available: false,
+                omp_executable: "omp".to_owned(),
+                omp_version: None,
+                omp_probe_failures: Vec::new(),
+                session_root: "/fixture/sessions".to_owned(),
+                language: "en".to_owned(),
+            },
+            workspaces: Vec::new(),
+            sessions: Vec::new(),
+            session_warnings: Vec::new(),
+            startup_workspace_warning: None,
+        };
+        assert!(serde_json::to_value(&bootstrap)
+            .unwrap()
+            .get("startupWorkspaceWarning")
+            .is_none());
+        bootstrap.startup_workspace_warning = Some(super::StartupWorkspaceWarning {
+            requested_path: "/fixture/missing-project".to_owned(),
+            message: "Unavailable".to_owned(),
+        });
+        let value = serde_json::to_value(&bootstrap).unwrap();
+        assert_eq!(
+            value["startupWorkspaceWarning"]["requestedPath"],
+            "/fixture/missing-project"
+        );
+        assert!(value["settings"].get("startupWorkspaceWarning").is_none());
+    }
 
     #[test]
     fn app_settings_never_serialize_provider_secret_values() {
@@ -828,6 +950,77 @@ mod tests {
             serde_json::from_str(&serialized).expect("settings should deserialize");
 
         assert_eq!(restored.rail_mode, RailMode::AutoHide);
+    }
+
+    #[test]
+    fn desktop_theme_legacy_and_invalid_storage_preserve_other_settings() {
+        let legacy: AppSettings =
+            serde_json::from_str(r#"{"language":"en","appFontSize":24}"#).unwrap();
+        assert_eq!(legacy.desktop_theme, DesktopTheme::Dark);
+        for invalid in [
+            serde_json::json!("sepia"),
+            serde_json::json!(null),
+            serde_json::json!(7),
+            serde_json::json!(true),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ] {
+            let settings: AppSettings = serde_json::from_value(serde_json::json!({
+                "desktopTheme": invalid, "language": "en", "appFontSize": 24,
+                "lastWorkspace": "/synthetic/work", "workspaceNames": {"synthetic": "Kept"}
+            }))
+            .unwrap();
+            assert_eq!(settings.desktop_theme, DesktopTheme::Dark);
+            assert_eq!(settings.language, "en");
+            assert_eq!(settings.app_font_size, 24);
+            assert_eq!(settings.last_workspace.as_deref(), Some("/synthetic/work"));
+            assert_eq!(
+                settings
+                    .workspace_names
+                    .get("synthetic")
+                    .map(String::as_str),
+                Some("Kept")
+            );
+        }
+    }
+
+    #[test]
+    fn desktop_theme_round_trip_and_strict_patch_validation() {
+        for (wire, theme) in [
+            ("dark", DesktopTheme::Dark),
+            ("light", DesktopTheme::Light),
+            ("system", DesktopTheme::System),
+        ] {
+            let settings: AppSettings =
+                serde_json::from_value(serde_json::json!({"desktopTheme": wire})).unwrap();
+            assert_eq!(settings.desktop_theme, theme);
+            assert_eq!(
+                serde_json::to_value(&settings).unwrap()["desktopTheme"],
+                wire
+            );
+            let patch: SettingsUpdate =
+                serde_json::from_value(serde_json::json!({"desktopTheme": wire})).unwrap();
+            assert!(
+                matches!(patch.desktop_theme, SettingsPatch::Set(Some(value)) if value == theme)
+            );
+        }
+        for invalid in [
+            serde_json::json!("sepia"),
+            serde_json::json!("Dark"),
+            serde_json::json!(7),
+            serde_json::json!(true),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ] {
+            assert!(serde_json::from_value::<SettingsUpdate>(
+                serde_json::json!({"desktopTheme": invalid})
+            )
+            .is_err());
+        }
+        let absent: SettingsUpdate = serde_json::from_str("{}").unwrap();
+        assert!(matches!(absent.desktop_theme, SettingsPatch::Missing));
+        let null: SettingsUpdate = serde_json::from_str(r#"{"desktopTheme":null}"#).unwrap();
+        assert!(matches!(null.desktop_theme, SettingsPatch::Set(None)));
     }
 
     #[test]

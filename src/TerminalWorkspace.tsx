@@ -83,6 +83,64 @@ export function TerminalWorkspace({
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
   const previousTabCountRef = useRef(tabs.length)
+  const tabStripRef = useRef<HTMLDivElement>(null)
+  const activeHeaderRef = useRef<HTMLDivElement>(null)
+  const previousActiveTabRef = useRef<string | null>(null)
+  const lastRevealSequenceRef = useRef<number | null>(null)
+
+  useLayoutEffect(() => {
+    const selectionChanged = previousActiveTabRef.current !== activeTabId
+    previousActiveTabRef.current = activeTabId
+    const sequence = focusRequest?.sequence
+    const newerRequest =
+      sequence !== undefined &&
+      Number.isFinite(sequence) &&
+      (lastRevealSequenceRef.current === null || sequence > lastRevealSequenceRef.current)
+    if (newerRequest) lastRevealSequenceRef.current = sequence
+    if (!selectionChanged && !(newerRequest && focusRequest?.terminalId === activeTabId)) return
+
+    const strip = tabStripRef.current
+    const header = activeHeaderRef.current
+    if (!activeTabId || !strip || !header) return
+    const stripRect = strip.getBoundingClientRect()
+    const headerRect = header.getBoundingClientRect()
+    const { clientLeft, clientWidth, scrollLeft, scrollWidth } = strip
+    if (
+      ![
+        stripRect.left,
+        stripRect.right,
+        stripRect.width,
+        headerRect.left,
+        headerRect.right,
+        headerRect.width,
+        clientLeft,
+        clientWidth,
+        scrollLeft,
+        scrollWidth,
+      ].every(Number.isFinite) ||
+      stripRect.width <= 0 ||
+      stripRect.right <= stripRect.left ||
+      headerRect.width <= 0 ||
+      headerRect.right <= headerRect.left ||
+      clientLeft < 0 ||
+      clientWidth <= 0 ||
+      scrollWidth < clientWidth
+    )
+      return
+
+    const viewportLeft = stripRect.left + clientLeft
+    const viewportRight = viewportLeft + clientWidth
+    let nextScrollLeft = scrollLeft
+    if (headerRect.width > clientWidth || headerRect.left < viewportLeft) {
+      nextScrollLeft += headerRect.left - viewportLeft
+    } else if (headerRect.right > viewportRight) {
+      nextScrollLeft += headerRect.right - viewportRight
+    }
+    nextScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, nextScrollLeft))
+    if (Number.isFinite(nextScrollLeft) && nextScrollLeft !== scrollLeft) {
+      strip.scrollLeft = nextScrollLeft
+    }
+  }, [activeTabId, focusRequest?.terminalId, focusRequest?.sequence])
 
   useEffect(() => {
     const cancelFocusRestoration = (event: Event) => {
@@ -166,7 +224,7 @@ export function TerminalWorkspace({
     >
       <div className="terminal-workspace">
         <div className="terminal-tabs">
-          <div className="terminal-tabs-scroll">
+          <div className="terminal-tabs-scroll" ref={tabStripRef}>
             {tabs.map((tab) => {
               const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
               const visualStatus =
@@ -191,6 +249,7 @@ export function TerminalWorkspace({
                   className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity} is-runtime-${runtimeStatus}`}
                   draggable
                   key={tab.id}
+                  ref={tab.id === activeTabId ? activeHeaderRef : null}
                   onDragOver={(event) => event.preventDefault()}
                   onDragStart={(event) => {
                     event.dataTransfer.setData("text/plain", tab.id)

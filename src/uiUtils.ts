@@ -29,11 +29,11 @@ export function formatTerminalExitLine(event: PtyExitEvent, language: Lang): str
 const relativeFormatters = {
   en: {
     relative: new Intl.RelativeTimeFormat("en", { numeric: "auto" }),
-    date: new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }),
+    date: new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }),
   },
   ru: {
     relative: new Intl.RelativeTimeFormat("ru", { numeric: "auto" }),
-    date: new Intl.DateTimeFormat("ru", { day: "numeric", month: "short" }),
+    date: new Intl.DateTimeFormat("ru", { day: "numeric", month: "short", timeZone: "UTC" }),
   },
 } satisfies Record<Lang, { relative: Intl.RelativeTimeFormat; date: Intl.DateTimeFormat }>
 
@@ -48,7 +48,11 @@ export function formatRelative(timestamp: number, lang: Lang): string {
   if (absolute < 3_600) return relativeTime.format(Math.round(seconds / 60), "minute")
   if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour")
   if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day")
-  return calendarDate.format(timestamp)
+  // EN/RU show only Gregorian month/day here. Project the live local fields into
+  // a neutral leap year so cached UTC formatters retain Feb 29, even after a
+  // system-zone change. Local fields also preserve historical sub-minute offsets.
+  const localDate = new Date(timestamp)
+  return calendarDate.format(Date.UTC(2000, localDate.getMonth(), localDate.getDate()))
 }
 
 export function normalizedPath(path: string, platform: string): string {

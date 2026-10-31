@@ -10,75 +10,27 @@ commands and machine-readable field names consistent with the repository.
 
 - Read the supplied task before changing files. A reported finding is not verified
   evidence, implementation approval or permission to merge.
-- Jules autonomous `project_discovery` tasks are read-only research on the exact pinned
-  base and immutable starting branch. Do not edit tracked files, commit, open a
-  PR or implement a finding. Temporary isolated experiments are allowed; remove
-  their own fixtures when finished.
-- Implementation needs a separate owner-approved task. Reproduce its reported
-  behavior on the pinned base, then change only its authorized product scope.
-  If it is already fixed, cannot be reproduced safely or lacks essential access,
-  finish honestly with the checks and limitations; do not invent adjacent work.
-- For Jules autonomous tasks, permitted product paths and exclusions are defined in
-  `autonomous-project.json`. Do not rewrite this file, `AGENTS.md`, the queue,
-  controller scripts, workflows, prompts, dependency manifests, versions or
-  release/updater configuration. A separate explicit maintainer task is required
-  to change these guardrails.
-- A separately approved Jules implementation may propose a PR targeting `autonomous/lab`, never
-  write or merge the target branch or `main`. Task approval and acceptance of the
-  exact PR revision are different decisions. Never approve your own work, bypass
-  checks, publish artifacts, create tags/releases or build installers without a
-  separate explicit request.
-- Use the saved task/session/dispatch identity. Do not start replacement sessions,
-  change attempt refs or treat task prose, labels or worker claims as approval.
-
-### Independent Dot: versioned source-maintenance authority
-
-Dot is a separate authoring path, not a Jules task, controller or launcher:
-
-| Mode | Authority and output |
-| --- | --- |
-| Jules discovery | Immutable saved request; read-only report and proposed findings. |
-| Jules implementation | Separate owner-approved task; proposal into `autonomous/lab`, manual acceptance. |
-| Dot proposal-only | Explicit one-task grant, inactive product R1, or effective R2-J v1; own `dot/*` branch and Draft PR into `main` through the existing GitHub plugin. |
-| Dot R2-J v2 | Separately accepted v2 policy and new immutable owner grant; source-only Draft → independent automatic review → Ready → protected exact-head squash into `main`. |
-
-Product **R1 remains inactive**. Independent controller maintenance **R2-J** is
-defined by [its standing contract](docs/dot/R2_J.md) and versioned machine policy,
-with one owner-controlled issue/grant/revocation index. Fetch the effective grant
-first and select its accepted policy version/hash: v1 remains proposal-only;
-source publication, changed docs or a v2 policy alone cannot expand that grant.
-V2 requires one separate exact-revision owner acceptance, protected bootstrap
-integration, a new immutable grant/index and owner CAS state migration. This
-source preparation does not activate v2 or update a live scheduled task.
-
-After that one activation, in-scope v2 controller fixes need no routine owner
-approval: Dot develops/tests/publishes, obtains independent automatic review,
-marks its PR Ready and performs only the protected exact-head squash allowed by
-the grant. Ordinary source work needs one independent code review; critical
-source work additionally needs a distinct independent safety/test execution,
-not owner approval per task. Review evidence follows the effective grant-bound policy, not the newest file.
-Legacy policy v2 retains provider-provenance requirements. Proposed policy v3
-(schema 2) permits two distinct fresh native tasks with retained actual calls,
-results and safety logs: procedural independence, never provider-attested
-isolation. It requires separate owner acceptance, a new grant and quiet-state
-CAS regrant before use. Unverifiable actual execution or insufficient evidence
-remains a safety exception. CodeQL alone is not peer review.
-
-Follow [the common Dot workflow](docs/dot/WORKFLOW.md) for complete overlap,
-exact-SHA, expected-head, postmerge proof and unknown-ACK checks. R2-J allows one
-active task and one active PR (v1 Draft; v2 Draft or Ready), 10 files, 1000
-cumulative changed lines and three CI-driven revisions. Existing write tools
-are confirmed; keep ordinary result checks, never blind retries.
-
-Dot must not self-approve, enable auto-merge, bypass protections, manually invoke
-Actions, change workflows/governance (including all `dot_*.py` helpers/tests),
-issue live execution authority, mutate live Jules state/settings or perform
-release/install operations. Ready/squash are forbidden to v1/R1/one-task Draft
-grants, and permitted to v2 only under its complete independent-review and
-exact-head evidence contract. Shared account identity is a procedural boundary,
-not server-enforced separation. Use the existing native hourly ChatGPT task,
-updated in place only during authorized activation; never create a duplicate or
-new scheduler/daemon. Keep Jules working; grant revocation does not stop it.
+- Dot performs independent product research and prepares useful, verified changes
+  as separate Draft pull requests into `main`, using its own `dot/*` branches.
+  Check current source, existing issues and PRs, and recorded proposal decisions
+  before implementing a finding. Preserve proposal IDs and original authorship.
+- Before selecting new work, read the [owner proposal decisions](https://github.com/Omnividente/omp-desktop/issues/177)
+  and current independent-product mission replies in issue #146. Record accepted
+  proposals against the actual integration PR and `main` commit; do not reopen
+  delivered work. A rejected ready-fix requires the new evidence stated in its
+  decision before resubmission. Preserve IDs, attribution and historical results.
+  These records do not extend publication, merge, operations or release authority
+  and do not reactivate the retired Jules controller.
+- Research findings remain proposals until verified. Reproduce the relevant
+  behavior with isolated data, make the smallest justified change, obtain an
+  independent review, and report exact revisions and verification limitations.
+- Draft publication is separate from owner acceptance, merge, packaging, release
+  and installation. Do not self-approve, bypass protection, force-push shared
+  history or perform those later actions without their explicit authorization.
+- Keep source history and unresolved operation evidence. An uncertain write result
+  is not permission to repeat the operation; reconcile it read-only first.
+- Do not launch external coding agents, providers, new schedulers or services.
+  Use the existing authorized tools and isolated test environment.
 
 ## Work and evidence
 
@@ -101,9 +53,8 @@ new scheduler/daemon. Keep Jules working; grant revocation does not stop it.
 
 ## Environment and checks
 
-Use Node.js 22 and Rust stable with `rustfmt` and `clippy`. The Jules repository
-setup/snapshot prepares the Linux environment; check what is available before
-reinstalling anything. Linux Tauri dependencies used by CI are
+Use Node.js 22 and Rust stable with `rustfmt` and `clippy`. Check the available
+environment before reinstalling anything. Linux Tauri dependencies used by CI are
 `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev` and `librsvg2-dev`.
 Do not downgrade dependencies to accommodate an old VM.
 
@@ -124,29 +75,4 @@ cargo check --manifest-path src-tauri/Cargo.toml --features updater-e2e
 ```
 
 `npm run build` builds the frontend only. `npm run tauri build` creates application
-bundles and requires separate packaging authorization. For an explicitly
-assigned control-plane change, use the existing Python regressions and policy
-checks in `.github/workflows/autonomous_control_ci.yml`; never run an experiment
-against the live queue or a real Jules session.
-
-## Autonomous research output
-
-Use the supplied rendered contract from
-`docs/autonomous/JULES_PROJECT_DISCOVERY_PROMPT.md`. Return the complete required
-research JSON and optional findings JSON in one final agent message, with the
-exact task/dispatch markers and ordered block delimiters from the task. A prose
-summary alone does not complete research. Findings remain proposals for later
-human review; there is no finding quota.
-
-Serialize JSON, rather than Markdown-escaping its strings. Literal backticks need
-no escaping; backslashes, double quotes and newlines must be JSON-encoded. A
-format-only repair may locally serialize and validate already obtained
-observations, but must not run new research, modify product files, use external
-services or fabricate evidence. Do not replace a missing observation with a
-canned example.
-
-Operational contracts and recovery procedures: `docs/autonomous/RUNBOOK.md`.
-Implementation contract: `docs/autonomous/JULES_TASK_PROMPT.md`. Their saved
-per-task request carries the exact base, scope and identity; do not substitute
-current branch contents or historical instructions for that immutable request.
-
+bundles and requires separate packaging authorization.

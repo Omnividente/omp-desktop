@@ -13,6 +13,7 @@ import type {
   SettingsSaveRequest,
   SettingsUnavailableDetails,
   TerminalAttachment,
+  TerminalCapture,
   TerminalStarted,
   TerminalRuntime,
   SwitchInputRecoveryMetadata,
@@ -66,6 +67,13 @@ export function subscribeSettingsUnavailable(listener: SettingsUnavailableListen
 
 export function bootstrap(): Promise<BootstrapPayload> {
   return invokeBootstrap("bootstrap")
+}
+
+export function resolveStartupWorkspace(
+  requestedPath: string,
+  action: "retry" | "continue",
+): Promise<BootstrapPayload> {
+  return invokeBootstrap("resolve_startup_workspace", { requestedPath, action })
 }
 
 export function startWithDefaults(): Promise<BootstrapPayload> {
@@ -180,6 +188,10 @@ export function attachTerminal(
 
 export function detachTerminal(terminalId: string, attachmentId: string): Promise<void> {
   return invoke("detach_terminal", { request: { terminalId, attachmentId } })
+}
+
+export function saveTerminalCapture(terminalId: string): Promise<TerminalCapture> {
+  return invoke("save_terminal_capture", { terminalId })
 }
 
 export function writeTerminal(terminalId: string, data: string): Promise<void> {
@@ -306,6 +318,10 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   resource_health_failed: {
     ru: "Не удалось проверить системные ресурсы",
     en: "Failed to check system resources",
+  },
+  terminal_capture_failed: {
+    ru: "Не удалось сохранить вывод терминала",
+    en: "Failed to save terminal output",
   },
   session_active_rename: {
     ru: "Сначала остановите активную сессию OMP",

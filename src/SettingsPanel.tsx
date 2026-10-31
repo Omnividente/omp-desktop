@@ -22,6 +22,7 @@ import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
 import type {
   AppSettings,
+  DesktopTheme,
   SettingsSavePayload,
   OmpConfigSnapshot,
   OmpAccountUsageInfo,
@@ -36,6 +37,108 @@ import type {
   RuntimeInfo,
 } from "./types"
 
+function SettingsDiscardConfirmation({
+  language,
+  onKeepEditing,
+  onDiscard,
+}: {
+  language: Lang
+  onKeepEditing: () => void
+  onDiscard: () => void
+}) {
+  const dialogRef = useRef<HTMLElement>(null)
+  const keepEditingRef = useRef<HTMLButtonElement>(null)
+  const handleKeyDown = useModalFocus(dialogRef, onKeepEditing)
+  useLayoutEffect(() => {
+    keepEditingRef.current?.focus({ preventScroll: true })
+  }, [])
+  return (
+    <div
+      className="settings-backdrop"
+      style={{ alignItems: "center", justifyContent: "center" }}
+      role="presentation"
+      onMouseDown={(event) => {
+        event.stopPropagation()
+        onKeepEditing()
+      }}
+    >
+      <section
+        className="settings-panel"
+        style={{
+          width: "min(440px, calc(100vw - 32px))",
+          height: "auto",
+          maxHeight: "calc(100vh - 32px)",
+          overflowY: "auto",
+        }}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="settings-discard-title"
+        aria-describedby="settings-discard-description"
+        ref={dialogRef}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="settings-header">
+          <div>
+            <h2 id="settings-discard-title">{t(language, "settingsDiscardTitle")}</h2>
+            <p id="settings-discard-description">{t(language, "settingsDiscardDescription")}</p>
+          </div>
+        </header>
+        <footer className="settings-actions">
+          <button
+            className="button primary"
+            type="button"
+            ref={keepEditingRef}
+            onClick={onKeepEditing}
+          >
+            {t(language, "settingsKeepEditing")}
+          </button>
+          <button className="button secondary" type="button" onClick={onDiscard}>
+            {t(language, "settingsDiscardChanges")}
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+const OMP_PROBE_SOURCE_LABELS = {
+  configured: "ompProbeSourceConfigured",
+  environment: "ompProbeSourceEnvironment",
+  localInstall: "ompProbeSourceLocalInstall",
+  userLocalBin: "ompProbeSourceUserLocalBin",
+  userNpmBin: "ompProbeSourceUserNpmBin",
+  systemLocalBin: "ompProbeSourceSystemLocalBin",
+  searchPath: "ompProbeSourceSearchPath",
+} as const
+
+const OMP_PROBE_REASON_LABELS = {
+  pathUnavailable: "ompProbePathUnavailable",
+  launchFailed: "ompProbeLaunchFailed",
+  timeout: "ompProbeTimeout",
+  outputLimit: "ompProbeOutputLimit",
+  ioFailed: "ompProbeIoFailed",
+  unsuccessfulExit: "ompProbeUnsuccessfulExit",
+  emptyVersion: "ompProbeEmptyVersion",
+} as const
+
+function ompProbeFailureMessage(value: unknown, language: Lang): string {
+  const failure =
+    value !== null && typeof value === "object" ? (value as Record<string, unknown>) : undefined
+  const source = failure?.source
+  const reason = failure?.reason
+  const sourceKey =
+    typeof source === "string" && Object.hasOwn(OMP_PROBE_SOURCE_LABELS, source)
+      ? OMP_PROBE_SOURCE_LABELS[source as keyof typeof OMP_PROBE_SOURCE_LABELS]
+      : "ompProbeSourceUnknown"
+  const reasonKey =
+    typeof reason === "string" && Object.hasOwn(OMP_PROBE_REASON_LABELS, reason)
+      ? OMP_PROBE_REASON_LABELS[reason as keyof typeof OMP_PROBE_REASON_LABELS]
+      : "ompProbeUnknown"
+  return `${t(language, sourceKey)}: ${t(language, reasonKey)}`
+}
+
 interface SettingsPanelProps {
   settings: AppSettings
   runtime: RuntimeInfo
@@ -44,6 +147,7 @@ interface SettingsPanelProps {
   onSaved: (payload: SettingsSavePayload) => void
   onConfigLoaded?: (snapshot: OmpConfigSnapshot) => void
   onError: (message: string) => void
+  onNotice?: (message: string) => void
 }
 
 const CONFIG_REFRESH_COOLDOWN_MS = 30_000
@@ -78,6 +182,26 @@ function agentOverridesEqual(left: string[] | null, right: string[] | null): boo
 }
 function providerEnvDraft(keys: string[], current: Record<string, string> = {}) {
   return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
+}
+
+type SubmittedConfigDraft = Pick<
+  OmpConfigSnapshot,
+  "advisorEnabled" | "autoResume" | "defaultThinkingLevel" | "proxyProviders" | "disabledProviders"
+> & { removedCustomProviders: string[]; proxyDisableRevisions: ReadonlyMap<string, number> }
+
+function reconcileProviderList(
+  current: string[],
+  submitted: string[],
+  committed: string[],
+  editedProviders?: ReadonlySet<string>,
+) {
+  return [...new Set([...committed, ...current])]
+    .filter((provider) =>
+      editedProviders?.has(provider) || current.includes(provider) !== submitted.includes(provider)
+        ? current.includes(provider)
+        : committed.includes(provider),
+    )
+    .sort()
 }
 
 type SettingsSection = "general" | "behavior" | "operations" | "models" | "providers"
@@ -258,17 +382,21 @@ export function SettingsPanel({
   onSaved,
   onConfigLoaded,
   onError,
+  onNotice,
 }: SettingsPanelProps) {
   const lang = (settings.language === "en" ? "en" : "ru") as Lang
   const panelRef = useRef<HTMLElement>(null)
 
-  const handleModalKeyDown = useModalFocus(panelRef, onClose)
+  const [discardOpen, setDiscardOpen] = useState(false)
+  const dismissTriggerRef = useRef<HTMLElement | null>(null)
 
   const [executable, setExecutable] = useState(settings.ompExecutable ?? "")
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
+  const [desktopTheme, setDesktopTheme] = useState<DesktopTheme>(settings.desktopTheme ?? "dark")
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveSucceeded, setSaveSucceeded] = useState(false)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [loadingSlow, setLoadingSlow] = useState(false)
   const [ompConfig, setOmpConfig] = useState<OmpConfigSnapshot | null>(initialOmpConfig)
@@ -303,6 +431,7 @@ export function SettingsPanel({
   const [proxyProviders, setProxyProviders] = useState<string[]>(
     initialOmpConfig?.proxyProviders ?? [],
   )
+  const proxyDisableRevisionsRef = useRef(new Map<string, number>())
   const [disabledProviders, setDisabledProviders] = useState<string[]>(
     initialOmpConfig?.disabledProviders ?? [],
   )
@@ -324,6 +453,7 @@ export function SettingsPanel({
   const providerEnvKeysRef = useRef(settings.providerEnvKeys)
   const [newKeyName, setNewKeyName] = useState("OPENAI_API_KEY")
   const [newKeyValue, setNewKeyValue] = useState("")
+  const [addedKeyName, setAddedKeyName] = useState("OPENAI_API_KEY")
   const [activeSection, setActiveSection] = useState<SettingsSection>("general")
   const [operationDrafts, setOperationDrafts] = useState<Record<string, OperationalDraft>>({})
   const [operationSearch, setOperationSearch] = useState("")
@@ -338,7 +468,16 @@ export function SettingsPanel({
       selectors,
     }))
 
-  const acceptConfig = (snapshot: OmpConfigSnapshot | null) => {
+  const acceptConfig = (snapshot: OmpConfigSnapshot | null, submitted?: SubmittedConfigDraft) => {
+    const disabledSinceSubmission = submitted
+      ? new Set(
+          [...proxyDisableRevisionsRef.current]
+            .filter(
+              ([provider, revision]) => revision !== submitted.proxyDisableRevisions.get(provider),
+            )
+            .map(([provider]) => provider),
+        )
+      : undefined
     setOmpConfig(snapshot)
     setOperationDrafts({})
     const drafts: Record<string, string> = {}
@@ -346,14 +485,46 @@ export function SettingsPanel({
     setRoleDrafts(drafts)
     setAgentDrafts({})
     setOpenRole(null)
-    setAdvisorEnabled(snapshot?.advisorEnabled ?? false)
-    setAutoResume(snapshot?.autoResume ?? false)
-    setThinkingLevel(snapshot?.defaultThinkingLevel ?? "medium")
+    // A save advances the baseline, but controls that remain editable may have newer drafts.
+    setAdvisorEnabled((current) =>
+      submitted && current !== submitted.advisorEnabled
+        ? current
+        : (snapshot?.advisorEnabled ?? false),
+    )
+    setAutoResume((current) =>
+      submitted && current !== submitted.autoResume ? current : (snapshot?.autoResume ?? false),
+    )
+    setThinkingLevel((current) =>
+      submitted && current !== submitted.defaultThinkingLevel
+        ? current
+        : (snapshot?.defaultThinkingLevel ?? "medium"),
+    )
     setModelFallbackEnabled(snapshot?.modelFallbackEnabled ?? true)
     setFallbackChains(fallbackDraftsFromSnapshot(snapshot?.fallbackChains ?? {}))
-    setProxyProviders(snapshot?.proxyProviders ?? [])
-    setDisabledProviders(snapshot?.disabledProviders ?? [])
-    setRemovedCustomProviders([])
+    setProxyProviders((current) =>
+      submitted
+        ? reconcileProviderList(
+            current,
+            submitted.proxyProviders,
+            snapshot?.proxyProviders ?? [],
+            disabledSinceSubmission,
+          )
+        : (snapshot?.proxyProviders ?? []),
+    )
+    setDisabledProviders((current) =>
+      submitted
+        ? reconcileProviderList(
+            current,
+            submitted.disabledProviders,
+            snapshot?.disabledProviders ?? [],
+          )
+        : (snapshot?.disabledProviders ?? []),
+    )
+    setRemovedCustomProviders((current) =>
+      submitted
+        ? current.filter((provider) => !submitted.removedCustomProviders.includes(provider))
+        : [],
+    )
     setClockNow(Date.now())
   }
 
@@ -654,6 +825,7 @@ export function SettingsPanel({
     }
     setProviderEnv((current) => ({ ...current, [key]: value }))
     setNewKeyValue("")
+    setAddedKeyName(key)
   }
 
   const setProviderProxyMode = (provider: string, enabled: boolean) => {
@@ -667,8 +839,15 @@ export function SettingsPanel({
       if (enabled) return current.filter((candidate) => candidate !== provider)
       return current.includes(provider) ? current : [...current, provider].sort()
     })
-    if (!enabled)
+    if (!enabled) {
+      // Disabling clears proxy mode even if this panel's draft already shows it as off.
+      const revisions = proxyDisableRevisionsRef.current
+      proxyDisableRevisionsRef.current = new Map(revisions).set(
+        provider,
+        (revisions.get(provider) ?? 0) + 1,
+      )
       setProxyProviders((current) => current.filter((candidate) => candidate !== provider))
+    }
   }
 
   const removeCustomProvider = async (provider: string) => {
@@ -697,6 +876,7 @@ export function SettingsPanel({
       (executable.trim() || null) !== settings.ompExecutable ||
       (sessionRoot.trim() || null) !== settings.sessionRoot ||
       language !== settings.language ||
+      desktopTheme !== (settings.desktopTheme ?? "dark") ||
       appFontFamily !== settings.appFontFamily ||
       appFontSize !== settings.appFontSize ||
       terminalFontFamily !== settings.terminalFontFamily ||
@@ -754,6 +934,7 @@ export function SettingsPanel({
     agentChanges,
     customProviderStarted,
     disabledProviders,
+    desktopTheme,
     appFontFamily,
     appFontSize,
     autoResume,
@@ -775,12 +956,41 @@ export function SettingsPanel({
     thinkingLevel,
   ])
 
+  // Save eligibility does not include a provider-key entry until Add is pressed.
+  // Protect that meaningful input too, without changing the save payload or button.
+  const hasUnsavedDraft =
+    hasChanges ||
+    newKeyValue.trim() !== "" ||
+    (newKeyName.trim() !== "" && newKeyName.trim() !== addedKeyName)
+  const requestDismiss = () => {
+    // An in-flight write is not cancelled by closing. Never queue a close for its ACK.
+    if (saving || discardOpen) return
+    if (!hasUnsavedDraft) {
+      onClose()
+      return
+    }
+    dismissTriggerRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setDiscardOpen(true)
+  }
+  // Keep the original opener for this entire panel lifetime. The confirmation is
+  // a sibling, so its events never reach this hidden/inert section's handler.
+  const handleModalKeyDown = useModalFocus(panelRef, requestDismiss)
+  useLayoutEffect(() => {
+    if (discardOpen) return
+    const trigger = dismissTriggerRef.current
+    dismissTriggerRef.current = null
+    if (trigger?.isConnected) trigger.focus({ preventScroll: true })
+  }, [discardOpen])
+
   const save = async () => {
+    const proxyDisableRevisions = proxyDisableRevisionsRef.current
     const reloadConfigOnFailure = loadingConfig && ompConfig === null
     const generation = invalidateConfig()
     setLoadingConfig(false)
     setSaving(true)
     setSaveError(null)
+    setSaveSucceeded(false)
     try {
       if (customProviderStarted && !customProviderReady) {
         throw new Error(t(language, "customProviderFieldsRequired"))
@@ -820,6 +1030,7 @@ export function SettingsPanel({
           ompExecutable: executable.trim() || null,
           sessionRoot: sessionRoot.trim() || null,
           language,
+          desktopTheme,
           appFontFamily,
           appFontSize,
           terminalFontFamily,
@@ -888,12 +1099,31 @@ export function SettingsPanel({
         runtime.ompVersion === nextRuntime.ompVersion
       configRuntimeRef.current = nextRuntime
       onSaved(result)
-      if (disposedRef.current) return
+      if (disposedRef.current) {
+        // This result belongs to the submitted snapshot, not a reopened panel's draft.
+        const savedLanguage = result.bootstrap.settings.language === "en" ? "en" : "ru"
+        onNotice?.(t(savedLanguage, "settingsSaveSucceeded"))
+        return
+      }
       setConfigError(null)
       setLoadingConfig(false)
       if (result.ompConfig) {
-        if (includeOmpConfig || !sameRuntime || !ompConfig) acceptConfig(result.ompConfig)
-        else acceptCatalog(result.ompConfig)
+        if (includeOmpConfig || !sameRuntime || !ompConfig) {
+          acceptConfig(
+            result.ompConfig,
+            includeOmpConfig && sameRuntime
+              ? {
+                  advisorEnabled,
+                  autoResume,
+                  defaultThinkingLevel: thinkingLevel,
+                  proxyProviders,
+                  disabledProviders,
+                  removedCustomProviders,
+                  proxyDisableRevisions,
+                }
+              : undefined,
+          )
+        } else acceptCatalog(result.ompConfig)
         if (customProviderReady) {
           setCustomProviderId((current) => (current === customProviderId ? "" : current))
           setCustomProviderUrl((current) => (current === customProviderUrl ? "" : current))
@@ -915,6 +1145,7 @@ export function SettingsPanel({
           return next
         })
       }
+      setSaveSucceeded(true)
     } catch (error) {
       const message = errorMessage(error, language, { includeDetails: true })
       if (!settingsUnavailableDetails(error)) onError(message)
@@ -956,13 +1187,17 @@ export function SettingsPanel({
   return (
     <div
       className={`settings-backdrop${runtime.platform === "linux" ? " is-linux" : ""}`}
-      onMouseDown={onClose}
+      onMouseDown={requestDismiss}
       role="presentation"
     >
       <section
+        hidden={discardOpen}
+        inert={discardOpen}
+        style={discardOpen ? { display: "none" } : undefined}
         aria-labelledby="settings-title"
         aria-modal="true"
         className="settings-panel"
+        lang={language}
         ref={panelRef}
         tabIndex={-1}
         onKeyDown={handleModalKeyDown}
@@ -976,7 +1211,7 @@ export function SettingsPanel({
           </div>
           <button
             className="icon-button"
-            onClick={onClose}
+            onClick={requestDismiss}
             title={t(language, "close")}
             type="button"
           >
@@ -1081,9 +1316,20 @@ export function SettingsPanel({
               </span>
               <div>
                 <strong>
-                  {runtime.ompAvailable ? t(language, "ompConnected") : t(language, "ompMissing")}
+                  {runtime.ompAvailable
+                    ? t(language, "ompConnected")
+                    : t(language, "ompUnavailable")}
                 </strong>
                 <span>{runtime.ompVersion ?? t(language, "ompPathHelp")}</span>
+                {!runtime.ompAvailable &&
+                  Array.isArray(runtime.ompProbeFailures) &&
+                  runtime.ompProbeFailures.length > 0 && (
+                    <ul aria-label={t(language, "ompProbeSummary")}>
+                      {runtime.ompProbeFailures.slice(0, 5).map((failure, index) => (
+                        <li key={index}>{ompProbeFailureMessage(failure, language)}</li>
+                      ))}
+                    </ul>
+                  )}
               </div>
               {runtime.ompAvailable && (
                 <button
@@ -1177,6 +1423,26 @@ export function SettingsPanel({
                       <Icon className="select-chevron" name="chevron" size={14} />
                     </div>
                     <p className="field-help">{t(language, "languageHelp")}</p>
+
+                    <label className="field-label" htmlFor="desktop-theme-select">
+                      {t(language, "desktopTheme")}
+                    </label>
+                    <div className="path-field select-field">
+                      <select
+                        id="desktop-theme-select"
+                        aria-describedby="desktop-theme-help"
+                        onChange={(event) => setDesktopTheme(event.target.value as DesktopTheme)}
+                        value={desktopTheme}
+                      >
+                        <option value="dark">{t(language, "desktopThemeDark")}</option>
+                        <option value="light">{t(language, "desktopThemeLight")}</option>
+                        <option value="system">{t(language, "desktopThemeSystem")}</option>
+                      </select>
+                      <Icon className="select-chevron" name="chevron" size={14} />
+                    </div>
+                    <p className="field-help" id="desktop-theme-help">
+                      {t(language, "desktopThemeHelp")}
+                    </p>
 
                     <label className="field-label" htmlFor="app-font-family">
                       {t(language, "appFontFamily")}
@@ -2389,6 +2655,18 @@ export function SettingsPanel({
           </div>
         )}
 
+        <div
+          className={`settings-save-status${saving || saveSucceeded ? " settings-state" : ""}`}
+          role="status"
+          aria-atomic="true"
+        >
+          {saving
+            ? t(language, "saving")
+            : saveSucceeded
+              ? t(language, "settingsSaveSucceeded")
+              : ""}
+        </div>
+
         <footer className="settings-actions">
           <button className="button secondary" onClick={onClose} type="button">
             {t(language, "cancel")}
@@ -2403,6 +2681,15 @@ export function SettingsPanel({
           </button>
         </footer>
       </section>
+      {discardOpen && (
+        <SettingsDiscardConfirmation
+          language={language}
+          onKeepEditing={() => setDiscardOpen(false)}
+          onDiscard={() => {
+            if (!saving) onClose()
+          }}
+        />
+      )}
     </div>
   )
 }

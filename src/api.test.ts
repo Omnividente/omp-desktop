@@ -7,6 +7,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 import {
   backendErrorCode,
   bootstrap,
+  resolveStartupWorkspace,
+  addWorkspace,
+  startTerminal,
   errorMessage,
   deleteSession,
   discardSwitchInputRecovery,
@@ -171,5 +174,53 @@ describe("backend error codes", () => {
       request,
       undefined,
     )
+  })
+})
+
+describe("startup workspace resolution ordering", () => {
+  it("serializes resolution with snapshots but keeps independent terminal IPC live", async () => {
+    let release!: (value: unknown) => void
+    const pending = new Promise((resolve) => {
+      release = resolve
+    })
+    invokeMock.mockImplementation((command) =>
+      command === "resolve_startup_workspace" ? pending : Promise.resolve({}),
+    )
+    const resolution = resolveStartupWorkspace("/fixture/requested", "continue")
+    const next = addWorkspace("/fixture/newer")
+    await startTerminal("/fixture/existing", null)
+    expect(invokeMock.mock.calls.map(([command]) => command)).not.toContain("add_workspace")
+    expect(invokeMock).toHaveBeenCalledWith(
+      "resolve_startup_workspace",
+      { requestedPath: "/fixture/requested", action: "continue" },
+      undefined,
+    )
+    expect(invokeMock.mock.calls.map(([command]) => command)).toContain("start_terminal")
+    release({})
+    await resolution
+    await next
+    expect(invokeMock.mock.calls.map(([command]) => command)).toEqual([
+      "start_terminal",
+      "resolve_startup_workspace",
+      "add_workspace",
+    ])
+  })
+
+  it("releases the snapshot queue after failed retry and passes the exact expected path", async () => {
+    invokeMock
+      .mockRejectedValueOnce(new Error("prior snapshot unavailable"))
+      .mockResolvedValueOnce({})
+    const path = "./fixture/with spaces/../requested"
+    const retry = resolveStartupWorkspace(path, "retry")
+    const next = bootstrap()
+    await expect(retry).rejects.toThrow("prior snapshot unavailable")
+    await next
+    expect(invokeMock).toHaveBeenNthCalledWith(
+      1,
+      "resolve_startup_workspace",
+      { requestedPath: path, action: "retry" },
+      undefined,
+    )
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "bootstrap", undefined, undefined)
   })
 })

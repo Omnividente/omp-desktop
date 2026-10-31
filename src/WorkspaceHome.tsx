@@ -120,7 +120,7 @@ export function WorkspaceHome({
         <article>
           <span>Runtime</span>
           <strong className="stat-text">
-            {runtime.ompVersion?.replace(/^omp(?:\s+|\/)/i, "") ?? t(lang, "notFound")}
+            {runtime.ompVersion?.replace(/^omp(?:\s+|\/)/i, "") ?? t(lang, "ompUnavailable")}
           </strong>
           <small>
             {runtime.platform} · {runtime.arch}

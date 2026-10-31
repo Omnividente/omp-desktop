@@ -13,12 +13,15 @@ import { t } from "./i18n"
 import { SessionRow } from "./SessionRow"
 import { useVirtualList } from "./useVirtualList"
 import {
+  type FlattenedSessionTreeItem,
   buildSessionTree,
   filterSessionTree,
   flattenSessionTree,
   sessionGroupExpansionIds,
   tabMatchesSession,
 } from "./uiUtils"
+
+const sessionItemKey = (item: FlattenedSessionTreeItem): string => item.session.id
 
 export interface SessionListProps {
   lang: Lang
@@ -36,6 +39,7 @@ export interface SessionListProps {
   tabs: TerminalTab[]
   platform: string
   onSelectSession: (session: SessionSummary) => void
+  onCopySession?: (session: SessionSummary) => void
   onLaunchSession: (session: SessionSummary) => void
   onNewSession: () => void
   onLoadTranscript: (session: SessionSummary) => void
@@ -69,6 +73,7 @@ export function SessionList({
   tabs,
   platform,
   onSelectSession,
+  onCopySession,
   onLaunchSession,
   onNewSession,
   onLoadTranscript,
@@ -87,6 +92,13 @@ export function SessionList({
 }: SessionListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
+  const sessionRowsRef = useRef(new Map<string, HTMLDivElement>())
+  const searchSelectionRef = useRef<{
+    id: string
+    workspace: string | null
+    origin: HTMLElement
+    restoreFocus: boolean
+  } | null>(null)
   const actionFocusRef = useRef<{
     id: string
     workspace: string | null
@@ -115,6 +127,19 @@ export function SessionList({
 
   useEffect(() => {
     const cancelActionFocus = (event: Event) => {
+      const selection = searchSelectionRef.current
+      if (
+        selection &&
+        event.target !== selection.origin &&
+        !selection.origin.contains(event.target as Node) &&
+        !(
+          event.type === "focusin" &&
+          event.target === document.body &&
+          !selection.origin.isConnected
+        )
+      ) {
+        searchSelectionRef.current = null
+      }
       const pending = actionFocusRef.current
       if (
         !pending ||
@@ -188,12 +213,78 @@ export function SessionList({
   }, [selectedSessionId, sessionTree])
 
   // Session cards are fixed-height in App.css: 55px row + 2px separation.
-  const { virtualItems, totalHeight } = useVirtualList(flattenedSessions, listRef, {
+  const { virtualItems, totalHeight, scrollToIndex } = useVirtualList(flattenedSessions, listRef, {
     estimatedRowHeight: 57,
     overscan: 8,
-    getItemKey: (item) => item.session.id,
+    getItemKey: sessionItemKey,
   })
   const lastVirtualItem = virtualItems.at(-1)
+
+  // Selection clears the filter in App. Reveal that exact result once, rather
+  // than following selection during polling, ordinary scrolling or tab changes.
+  const selectSession = (session: SessionSummary) => {
+    const origin = sessionRowsRef.current
+      .get(session.id)
+      ?.querySelector<HTMLElement>(".session-select")
+    searchSelectionRef.current =
+      searchActive && origin
+        ? {
+            id: session.id,
+            workspace: selectedWorkspacePath,
+            origin,
+            restoreFocus: document.activeElement === origin,
+          }
+        : null
+    if (searchActive) {
+      const ancestors = sessionGroupExpansionIds(sessionTree, session.id)
+      setExpandedSessionIds((current) => new Set([...current, ...ancestors]))
+    }
+    onSelectSession(session)
+  }
+
+  useLayoutEffect(() => {
+    const pending = searchSelectionRef.current
+    const list = listRef.current
+    if (!pending || !list) return
+    if (
+      pending.workspace !== selectedWorkspacePath ||
+      selectedSessionId !== pending.id ||
+      !allSessions.some((session) => session.id === pending.id)
+    ) {
+      searchSelectionRef.current = null
+      return
+    }
+    if (searchActive) return
+    const index = flattenedSessions.findIndex((item) => item.session.id === pending.id)
+    if (index < 0) return
+    const item = virtualItems.find((item) => item.index === index)
+    const viewportHeight = list.clientHeight || 480
+    const paddingTop = Number.parseFloat(getComputedStyle(list).paddingTop) || 0
+    if (
+      !item ||
+      paddingTop + item.offset < list.scrollTop ||
+      paddingTop + item.offset + Math.min(item.height, viewportHeight) >
+        list.scrollTop + viewportHeight
+    ) {
+      // scrollToIndex publishes the new window synchronously; focus its real
+      // control on the following commit, never a row that is about to unmount.
+      scrollToIndex(index)
+      // The shared virtualizer uses content offsets, not this list's padding.
+      // Include its leading inset even at the final row's content-only clamp.
+      list.scrollTop += paddingTop
+      return
+    }
+    const target = sessionRowsRef.current
+      .get(pending.id)
+      ?.querySelector<HTMLElement>(".session-select")
+    searchSelectionRef.current = null
+    if (
+      pending.restoreFocus &&
+      (document.activeElement === document.body || document.activeElement === pending.origin)
+    ) {
+      target?.focus({ preventScroll: true })
+    }
+  })
 
   const showEmpty = Boolean(selectedWorkspacePath) && flattenedSessions.length === 0
 
@@ -311,7 +402,14 @@ export function SessionList({
               }
 
               return (
-                <div key={session.id} style={{ height: vi.height, display: "flow-root" }}>
+                <div
+                  key={session.id}
+                  ref={(element) => {
+                    if (element) sessionRowsRef.current.set(session.id, element)
+                    else sessionRowsRef.current.delete(session.id)
+                  }}
+                  style={{ height: vi.height, display: "flow-root" }}
+                >
                   <SessionRow
                     busy={busy}
                     actionsDisabled={deletingSessionId !== null}
@@ -343,7 +441,7 @@ export function SessionList({
                       if (renaming) return
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault()
-                        onSelectSession(session)
+                        selectSession(session)
                       }
                     }}
                     onToggleChildren={() => {
@@ -354,10 +452,18 @@ export function SessionList({
                         return next
                       })
                     }}
+                    onCopyToWorkspace={
+                      onCopySession
+                        ? (event) => {
+                            event.stopPropagation()
+                            onCopySession(session)
+                          }
+                        : undefined
+                    }
                     onLaunch={() => onLaunchSession(session)}
                     onRenameChange={onRenameValueChange}
                     onRenameKeyDown={keyDown}
-                    onSelect={() => onSelectSession(session)}
+                    onSelect={() => selectSession(session)}
                     onStartRename={(e) => {
                       e.stopPropagation()
                       onStartRename(session)

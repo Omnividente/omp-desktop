@@ -15,6 +15,54 @@ const keydown: ShortcutEvent = {
 }
 
 describe("agent terminal desktop shortcuts", () => {
+  it.each([
+    ["QWERTY", "KeyZ"],
+    ["QWERTZ", "KeyY"],
+    ["AZERTY", "KeyW"],
+  ])("uses logical Ctrl/Cmd+Z for undo on %s", (_layout, code) => {
+    for (const key of ["z", "Z"]) {
+      for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+        const event = { ...keydown, key, code, ...modifier }
+        expect(terminalShortcutInput(event, true)).toBe("\x1f")
+        expect(terminalShortcutInput(event, false)).toBeNull()
+      }
+    }
+  })
+
+  it.each([
+    ["y", "KeyZ"],
+    ["Y", "KeyZ"],
+    ["w", "KeyZ"],
+    ["W", "KeyZ"],
+    ["a", "KeyQ"],
+    ["q", "KeyA"],
+  ])("leaves logical Latin Ctrl+%s at %s to xterm", (key, code) => {
+    expect(terminalShortcutInput({ ...keydown, key, code, ctrlKey: true }, true)).toBeNull()
+    expect(terminalShortcutInput({ ...keydown, key, code, metaKey: true }, true)).toBeNull()
+  })
+
+  it("does not extend logical undo to shifted, composed or other modified events", () => {
+    const unchanged: Partial<ShortcutEvent>[] = [
+      {},
+      { ctrlKey: true, shiftKey: true },
+      { metaKey: true, shiftKey: true },
+      { ctrlKey: true, altKey: true },
+      { metaKey: true, altKey: true },
+      { ctrlKey: true, metaKey: true },
+      { ctrlKey: true, isComposing: true },
+      { ctrlKey: true, key: "Dead" },
+      { ctrlKey: true, key: "Process" },
+      { ctrlKey: true, key: "Unidentified" },
+      { ctrlKey: true, type: "keyup" },
+      { ctrlKey: true, type: "keypress" },
+    ]
+    for (const event of unchanged) {
+      expect(
+        terminalShortcutInput({ ...keydown, key: "z", code: "KeyW", ...event }, true),
+      ).toBeNull()
+    }
+  })
+
   it("emits OMP undo rather than suspend without inventing redo or replacing yank", () => {
     expect(terminalShortcutInput({ ...keydown, key: "z", code: "KeyZ", ctrlKey: true }, true)).toBe(
       "\x1f",
