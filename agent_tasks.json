@@ -270386,7 +270386,8 @@
           ]
         },
         "session_state": "COMPLETED",
-        "observed_at": "2026-10-31T01:06:39.760590Z"
+        "observed_at": "2026-10-31T01:06:39.760590Z",
+        "released_attempt_ref": "autonomous/attempt-3b95fb8e9f76b682c474c8cf"
       },
       "research_result": {
         "summary": "Investigated session renaming focus behavior during rapid inputs and confirmed that focus restoration is already properly managed by existing commits.",
