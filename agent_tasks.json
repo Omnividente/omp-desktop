@@ -270526,7 +270526,7 @@
       "id": "research-diagnostics-resources-reliability-26",
       "title": "Investigate Runtime incidents and resource health: Failure recovery and persistence",
       "task_type": "project_discovery",
-      "status": "in_progress",
+      "status": "done",
       "focus": [
         "quality",
         "bugfix",
@@ -270667,16 +270667,16 @@
       },
       "execution": {
         "attempts": 1,
-        "state": "dispatched",
+        "state": "completed",
         "session_id": "6204137642637269169",
         "dispatch_key": "bc75ec8415481f458a7ed167",
         "base_sha": "91413f1bc945f64dbdec02f3c3adf9da41b12b7c",
         "starting_branch": "autonomous/attempt-bc75ec8415481f458a7ed167",
         "started_at": "2026-10-31T01:06:39.760590Z",
-        "finished_at": "",
+        "finished_at": "2026-10-31T01:29:23.849361Z",
         "pull_request": 0,
-        "outcome": "",
-        "note": "",
+        "outcome": "researched",
+        "note": "completed Jules session without a pull request; skipped findings: possible_duplicate",
         "research_request": {
           "contract_version": "post-revisit-v1",
           "controller_sha": "243cbafc5f1a5345be73d401613c2606152382c7",
@@ -270847,13 +270847,119 @@
             }
           ]
         },
-        "session_state": "IN_PROGRESS",
-        "observed_at": "2026-10-31T01:19:56.019655Z"
+        "session_state": "COMPLETED",
+        "observed_at": "2026-10-31T01:29:23.849361Z"
+      },
+      "research_result": {
+        "summary": "Investigated ResourceHealthPanel missing warning action text for unavailable volumes, and clearResolvedRuntimeIncidents discarding terminalEnded incidents. Verified that ResourceHealthPanel fails to render an action hint if the only warnings are unavailable volumes, while resourceWarningCount still counts them. Verified that clearResolvedRuntimeIncidents indiscriminately deletes 'terminalEnded' resolved incidents.",
+        "observations": [
+          {
+            "scenario": "Handling of unavailable volumes in ResourceHealthPanel action hint",
+            "evidence": "In src/ResourceHealthPanel.tsx, the action hint is determined using `snapshot?.memory.severity === \"warning\" || snapshot?.volumes.some((volume) => volume.severity === \"warning\")`. This misses `unavailableVolumes.length > 0`. Meanwhile, in src/resourceHealth.ts, `resourceWarningCount` correctly includes `snapshot.unavailableVolumes.length`. If a snapshot has only unavailable volumes warning, `severity` could be warning, `resourceWarningCount` > 0, but no `action` string is set.",
+            "result": "ResourceHealthPanel does not display a warning action hint if the only issue is an unavailable volume, whereas the warning count badge does include it."
+          },
+          {
+            "scenario": "clearResolvedRuntimeIncidents drops terminalEnded incidents",
+            "evidence": "In src/runtimeIncidents.ts, `clearResolvedRuntimeIncidents` simply filters incidents by `incident.status === 'active'`. It unconditionally drops incidents that were ended by `endRuntimeIncidentTerminal` (resolutionReason: 'terminalEnded').",
+            "result": "clearResolvedRuntimeIncidents unconditionally discards terminalEnded incidents even though they might need retention."
+          }
+        ],
+        "next_hypotheses": [],
+        "proposed_task_ids": [],
+        "completed_at": "2026-10-31T01:29:23.849361Z",
+        "source": {
+          "activity_id": "sessions/6204137642637269169/activities/04a76524d3ae403eb5da636f0164f9e8",
+          "report_sha256": "6658c00035055f4b6a1374a5f7ff0b4a80ce9ef7c770c17d05ababf3cec8f62a",
+          "activity_created_at": "2026-10-31T01:22:26.660793Z",
+          "session_id": "6204137642637269169",
+          "dispatch_key": "bc75ec8415481f458a7ed167"
+        },
+        "deferred_findings": [
+          {
+            "title": "Fix missing warning action hint for unavailable volumes in ResourceHealthPanel",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-04b1aa42e9768478; not established as a duplicate. {\"detail\": \"Observed that ResourceHealthPanel.tsx checks memory severity and volume severity for the action hint, but forgets to check if unavailable volumes exist, causing a missing action string when only unavailable volumes trigger the warning state.\", \"reproduction\": {\"actual\": \"The action string is null and not rendered.\", \"expected\": \"The warning action string ('resourceWarningAction') is visible.\", \"steps\": [\"Render ResourceHealthPanel with a snapshot containing only `unavailableVolumes` and no other warnings.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/ResourceHealthPanel.tsx"
+            ],
+            "acceptance": [
+              "When only unavailable volumes exist in the resource snapshot (and memory/other volumes are ok), the warning action hint is displayed.",
+              "The resourceWarningCount and the ResourceHealthPanel severity/action hint are consistently based on all warning conditions including unavailable volumes."
+            ]
+          },
+          {
+            "title": "Fix clearResolvedRuntimeIncidents aggressively dropping incidents resolved by terminalEnded",
+            "reason": "possible_duplicate",
+            "evidence": "Possible overlap with existing task discovery-f9b6cb727c2f67a7; not established as a duplicate. {\"detail\": \"Observed that clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant.\", \"reproduction\": {\"actual\": \"Incident is completely removed from the state because clearResolvedRuntimeIncidents filters for strictly status === 'active'.\", \"expected\": \"Incident is retained because it was resolved with terminalEnded reason.\", \"steps\": [\"Initialize a RuntimeIncidentState with an active incident.\", \"Call endRuntimeIncidentTerminal to resolve the incident.\", \"Call clearResolvedRuntimeIncidents.\"]}, \"source\": \"autonomous_research\"}",
+            "target_paths": [
+              "src/runtimeIncidents.ts"
+            ],
+            "acceptance": [
+              "clearResolvedRuntimeIncidents correctly retains terminalEnded incidents until they age out.",
+              "Unit tests pass demonstrating retention of terminalEnded incidents during cleanup."
+            ]
+          }
+        ]
+      },
+      "discovery_import": {
+        "source": {
+          "activity_id": "sessions/6204137642637269169/activities/04a76524d3ae403eb5da636f0164f9e8",
+          "report_sha256": "6658c00035055f4b6a1374a5f7ff0b4a80ce9ef7c770c17d05ababf3cec8f62a",
+          "activity_created_at": "2026-10-31T01:22:26.660793Z",
+          "session_id": "6204137642637269169",
+          "dispatch_key": "bc75ec8415481f458a7ed167"
+        },
+        "result": {
+          "changed": true,
+          "added": [],
+          "duplicates": [],
+          "skipped": [
+            {
+              "id": "discovery-a8945ee39c6ee4b2",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-04b1aa42e9768478"
+            },
+            {
+              "id": "discovery-23c9f84acf0873f1",
+              "reason": "possible_duplicate",
+              "existing_task_id": "discovery-f9b6cb727c2f67a7"
+            }
+          ],
+          "deferred": [
+            {
+              "title": "Fix missing warning action hint for unavailable volumes in ResourceHealthPanel",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-04b1aa42e9768478; not established as a duplicate. {\"detail\": \"Observed that ResourceHealthPanel.tsx checks memory severity and volume severity for the action hint, but forgets to check if unavailable volumes exist, causing a missing action string when only unavailable volumes trigger the warning state.\", \"reproduction\": {\"actual\": \"The action string is null and not rendered.\", \"expected\": \"The warning action string ('resourceWarningAction') is visible.\", \"steps\": [\"Render ResourceHealthPanel with a snapshot containing only `unavailableVolumes` and no other warnings.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/ResourceHealthPanel.tsx"
+              ],
+              "acceptance": [
+                "When only unavailable volumes exist in the resource snapshot (and memory/other volumes are ok), the warning action hint is displayed.",
+                "The resourceWarningCount and the ResourceHealthPanel severity/action hint are consistently based on all warning conditions including unavailable volumes."
+              ]
+            },
+            {
+              "title": "Fix clearResolvedRuntimeIncidents aggressively dropping incidents resolved by terminalEnded",
+              "reason": "possible_duplicate",
+              "evidence": "Possible overlap with existing task discovery-f9b6cb727c2f67a7; not established as a duplicate. {\"detail\": \"Observed that clearResolvedRuntimeIncidents indiscriminately removes all resolved incidents, discarding the terminalEnded state even if that terminal's metadata is still relevant.\", \"reproduction\": {\"actual\": \"Incident is completely removed from the state because clearResolvedRuntimeIncidents filters for strictly status === 'active'.\", \"expected\": \"Incident is retained because it was resolved with terminalEnded reason.\", \"steps\": [\"Initialize a RuntimeIncidentState with an active incident.\", \"Call endRuntimeIncidentTerminal to resolve the incident.\", \"Call clearResolvedRuntimeIncidents.\"]}, \"source\": \"autonomous_research\"}",
+              "target_paths": [
+                "src/runtimeIncidents.ts"
+              ],
+              "acceptance": [
+                "clearResolvedRuntimeIncidents correctly retains terminalEnded incidents until they age out.",
+                "Unit tests pass demonstrating retention of terminalEnded incidents during cleanup."
+              ]
+            }
+          ],
+          "unverified_count": 0,
+          "status": "ok",
+          "detail": "2 task entry/entries parsed"
+        }
       }
     }
   ],
   "controller": {
-    "last_poll_at": "2026-10-31T01:20:27.270272Z",
+    "last_poll_at": "2026-10-31T01:29:53.312838Z",
     "last_tick_at": "2026-10-31T01:20:46.502519Z",
     "run_id": "41154724378",
     "owner_recovery_requests": [
