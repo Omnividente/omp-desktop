@@ -1,3 +1,4 @@
+import { terminalMotion } from "./terminalMotion"
 import { useEffect, useId, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import type { UnlistenFn } from "@tauri-apps/api/event"
@@ -162,6 +163,7 @@ export function TerminalView({
     }
 
     const isLinuxRuntime = platform === "linux"
+    const motion = terminalMotion(platform)
     let hoveredLink: string | null = null
     const leaveLink = () => {
       hoveredLink = null
@@ -194,7 +196,7 @@ export function TerminalView({
       letterSpacing: 0,
       lineHeight: 1.18,
       scrollback: 12_000,
-      smoothScrollDuration: isLinuxRuntime ? 0 : 90,
+      smoothScrollDuration: motion.duration(),
       linkHandler: {
         activate: activateLink,
         hover: hoverLink,
@@ -236,6 +238,9 @@ export function TerminalView({
         leave: leaveLink,
       }),
     )
+    const disposeMotion = motion.subscribe((duration) => {
+      terminal.options.smoothScrollDuration = duration
+    })
     terminal.open(container)
     if (isLinuxRuntime) terminal.element?.setAttribute(WEBGL_SIMPLE_COLOR_ATTRIBUTE, "")
     const markDomFallback = () => {
@@ -787,6 +792,7 @@ export function TerminalView({
         unlisten()
       }
       terminalRef.current = null
+      disposeMotion()
       terminal.dispose()
     }
   }, [platform, tab.id, tab.kind, tab.preserveFocusOnAttach])
