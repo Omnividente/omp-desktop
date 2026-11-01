@@ -5379,6 +5379,26 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   gap: 8px;
 }
 
+.incident-capture-help {
+  margin: 0;
+  padding: 12px 24px;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.incident-capture-status {
+  min-width: 0;
+}
+
+.incident-capture-truncation {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .incident-capture-result {
   margin: 0;
   overflow: hidden;
