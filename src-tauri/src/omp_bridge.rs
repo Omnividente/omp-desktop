@@ -2,9 +2,9 @@ use crate::{
     diagnostics,
     models::{
         sanitize_error_text, AppSettings, BootstrapPayload, OmpAccountLimitInfo,
-        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpAgentInfo, OmpConfigSaveRequest,
-        OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo, OmpModelInfo, OmpOperationalChange,
-        OmpRoleInfo, OmpUpdateInfo, SettingsPatch,
+        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpAgentDefinition, OmpAgentDefinitionField,
+        OmpAgentInfo, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo,
+        OmpModelInfo, OmpOperationalChange, OmpRoleInfo, OmpUpdateInfo, SettingsPatch,
     },
     omp_command::{run_omp_command, OmpOperation},
     operational_config::{self, OperationalTransaction},
@@ -2136,6 +2136,124 @@ pub(crate) fn model_patterns(value: &Value) -> Option<Vec<String>> {
     })
 }
 
+// Project only a small declaration allowlist. Do not expose system prompts,
+// schema contents, full source paths, or infer runtime defaults/permissions.
+fn agent_definition_field(value: Option<&Value>, key: &str) -> OmpAgentDefinitionField {
+    let field = |state: &str, text: Option<String>| OmpAgentDefinitionField {
+        state: state.to_owned(),
+        text,
+    };
+    let Some(value) = value else {
+        return field("absent", None);
+    };
+    if value.is_null() {
+        return field("null", None);
+    }
+    if key == "output" {
+        let (kind, empty) = match value {
+            Value::Object(map) => (format!("object ({} fields)", map.len()), map.is_empty()),
+            Value::Array(values) => (format!("array ({} items)", values.len()), values.is_empty()),
+            Value::String(text) => ("string".to_owned(), text.is_empty()),
+            Value::Bool(_) => ("boolean".to_owned(), false),
+            Value::Number(_) => ("number".to_owned(), false),
+            Value::Null => unreachable!(),
+        };
+        return field(if empty { "empty" } else { "value" }, Some(kind));
+    }
+    let supported = match key {
+        "tools" | "spawns" => {
+            value.is_string()
+                || value
+                    .as_array()
+                    .is_some_and(|items| items.iter().all(Value::is_string))
+        }
+        "thinkingLevel" => value.is_string(),
+        "blocking" | "structured" => value.is_boolean() || value.is_string(),
+        _ => false,
+    };
+    if !supported {
+        return field("unsupported", None);
+    }
+    if value.as_str() == Some("*") {
+        return field("wildcard", Some("*".to_owned()));
+    }
+    if value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty) {
+        return field("empty", Some(value.to_string()));
+    }
+    // Serialize individual small values only; never serialize an unbounded array
+    // to truncate it afterwards. The existing frontmatter parser is unchanged.
+    let (bounded, list_truncated) = if let Some(items) = value.as_array() {
+        (
+            Value::Array(
+                items
+                    .iter()
+                    .take(16)
+                    .map(|item| {
+                        Value::String(
+                            item.as_str()
+                                .unwrap_or_default()
+                                .chars()
+                                .take(121)
+                                .collect(),
+                        )
+                    })
+                    .collect(),
+            ),
+            items.len() > 16
+                || items
+                    .iter()
+                    .take(16)
+                    .any(|item| item.as_str().is_some_and(|text| text.chars().count() > 120)),
+        )
+    } else if let Some(text) = value.as_str() {
+        (
+            Value::String(text.chars().take(121).collect()),
+            text.chars().count() > 120,
+        )
+    } else {
+        (value.clone(), false)
+    };
+    let text = bounded.to_string();
+    let truncated = list_truncated || text.chars().count() > 512;
+    field(
+        if truncated { "truncated" } else { "value" },
+        Some(text.chars().take(512).collect()),
+    )
+}
+
+fn agent_definition_metadata(value: &Value, path: &Path) -> OmpAgentDefinition {
+    let fields = [
+        "tools",
+        "spawns",
+        "thinkingLevel",
+        "output",
+        "blocking",
+        "structured",
+    ]
+    .into_iter()
+    .map(|key| (key.to_owned(), agent_definition_field(value.get(key), key)))
+    .collect();
+    OmpAgentDefinition {
+        source_file_truncated: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.chars().count() > 120),
+        source_file: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect(),
+        observed_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_millis().min(u64::MAX as u128) as u64)
+            .unwrap_or(0),
+        context_cwd: None,
+        fields,
+    }
+}
+
 fn read_agent_definition(path: &Path, source: &str) -> Result<OmpAgentInfo, String> {
     let file = fs::File::open(path).map_err(|_| "Не удалось прочитать определение агента")?;
     let mut lines = BufReader::new(file).lines();
@@ -2183,6 +2301,7 @@ fn read_agent_definition(path: &Path, source: &str) -> Result<OmpAgentInfo, Stri
         name: name.to_owned(),
         description: description.to_owned(),
         source: source.to_owned(),
+        definition: Some(agent_definition_metadata(&value, path)),
         enabled: true,
         model_override: None,
         default_model_selectors: value
@@ -2372,12 +2491,18 @@ fn load_agents(
             name,
             description: "".to_owned(),
             source: "configured".to_owned(),
+            definition: None,
             enabled: true,
             model_override: None,
             default_model_selectors: Vec::new(),
         });
     }
     for agent in agents.values_mut() {
+        if let Some(definition) = &mut agent.definition {
+            // Catalog discovery context, not the cwd or permission set of a
+            // running session. Cached bundled observation time stays unchanged.
+            definition.context_cwd = settings.last_workspace.clone();
+        }
         agent.enabled = !disabled.is_some_and(|names| {
             names
                 .iter()
@@ -3813,5 +3938,98 @@ providers:
                 "raw identity leaked into account snapshot"
             );
         }
+    }
+    #[test]
+    fn agent_definition_passport_distinguishes_raw_declarations() {
+        let value = serde_json::json!({"tools":[], "spawns":"*", "thinkingLevel":"", "output":null, "blocking":false});
+        let passport = agent_definition_metadata(&value, Path::new("/synthetic/private/agent.md"));
+        assert_eq!(passport.source_file, "agent.md");
+        assert!(!passport.source_file_truncated);
+        let long_name = "x".repeat(121);
+        let clipped = agent_definition_metadata(&value, Path::new(&long_name));
+        assert!(clipped.source_file_truncated);
+        assert_eq!(clipped.source_file.chars().count(), 120);
+        assert!(passport.observed_at > 0);
+        assert!(passport.context_cwd.is_none());
+        for (key, state) in [
+            ("tools", "empty"),
+            ("spawns", "wildcard"),
+            ("thinkingLevel", "empty"),
+            ("output", "null"),
+            ("blocking", "value"),
+            ("structured", "absent"),
+        ] {
+            assert_eq!(passport.fields[key].state, state);
+        }
+        assert_eq!(passport.fields["blocking"].text.as_deref(), Some("false"));
+        let no_inference = agent_definition_metadata(
+            &serde_json::json!({"tools":["task"]}),
+            Path::new("agent.md"),
+        );
+        assert_eq!(no_inference.fields["spawns"].state, "absent");
+    }
+
+    #[test]
+    fn agent_definition_passport_bounds_text_and_hides_output_contents() {
+        let value = serde_json::json!({"tools":["x".repeat(5000)], "spawns":42, "output":{"private_schema_key":"SYNTHETIC_SECRET"}, "systemPrompt":"SYNTHETIC_PROMPT"});
+        let passport = agent_definition_metadata(&value, Path::new("agent.md"));
+        assert_eq!(passport.fields["tools"].state, "truncated");
+        assert!(
+            passport.fields["tools"]
+                .text
+                .as_ref()
+                .unwrap()
+                .chars()
+                .count()
+                <= 512
+        );
+        assert_eq!(passport.fields["spawns"].state, "unsupported");
+        assert_eq!(
+            passport.fields["output"].text.as_deref(),
+            Some("object (1 fields)")
+        );
+        let json = serde_json::to_string(&passport).unwrap();
+        for secret in ["private_schema_key", "SYNTHETIC_SECRET", "SYNTHETIC_PROMPT"] {
+            assert!(!json.contains(secret));
+        }
+        assert_eq!(
+            agent_definition_field(Some(&serde_json::json!({})), "output").state,
+            "empty"
+        );
+        assert_eq!(
+            agent_definition_field(Some(&serde_json::json!("")), "output").state,
+            "empty"
+        );
+    }
+
+    #[test]
+    fn agent_definition_passport_reads_distinct_same_name_sources() {
+        let directory = std::env::temp_dir().join(format!(
+            "omp-passport-test-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let cleanup = AgentExportDirectory(directory);
+        let a = cleanup.0.join("a.md");
+        let b = cleanup.0.join("b.md");
+        fs::write(&a, "---\nname: sample\ndescription: A\ntools: []\nspawns: '*'\nblocking: false\n---\nSYNTHETIC_PRIVATE_PROMPT_A\n").unwrap();
+        fs::write(&b, "---\nname: sample\ndescription: B\ntools: [read]\nspawns: []\noutput: {private_schema: SYNTHETIC_SECRET}\nstructured: true\n---\nSYNTHETIC_PRIVATE_PROMPT_B\n").unwrap();
+        let first = read_agent_definition(&a, "project").unwrap();
+        let second = read_agent_definition(&b, "user").unwrap();
+        assert_eq!(first.name, second.name);
+        assert_eq!(first.source, "project");
+        assert_eq!(second.source, "user");
+        let first = first.definition.unwrap();
+        let second = second.definition.unwrap();
+        assert_eq!(first.source_file, "a.md");
+        assert_eq!(second.source_file, "b.md");
+        assert_eq!(first.fields["tools"].state, "empty");
+        assert_eq!(second.fields["spawns"].state, "empty");
+        assert_eq!(second.fields["structured"].text.as_deref(), Some("true"));
+        let json = serde_json::to_string(&second).unwrap();
+        assert!(!json.contains("SYNTHETIC_SECRET"));
+        assert!(!json.contains("SYNTHETIC_PRIVATE_PROMPT"));
+        assert!(!json.contains(&cleanup.0.to_string_lossy().to_string()));
     }
 }

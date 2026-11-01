@@ -239,7 +239,21 @@ export interface OmpRoleInfo {
   detail: string | null
 }
 
+export interface OmpAgentDefinitionField {
+  state: string
+  text: string | null
+}
+
+export interface OmpAgentDefinition {
+  sourceFile: string
+  sourceFileTruncated?: boolean
+  observedAt: number
+  contextCwd: string | null
+  fields: Record<string, OmpAgentDefinitionField>
+}
+
 export interface OmpAgentInfo {
+  definition?: OmpAgentDefinition | null
   name: string
   description: string
   source: string

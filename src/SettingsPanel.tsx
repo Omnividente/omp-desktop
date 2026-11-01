@@ -18,6 +18,7 @@ import {
   thinkingLevelLabel,
   type Lang,
 } from "./i18n"
+import { AgentDefinitionPassport } from "./AgentDefinitionPassport"
 import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
 import type {
@@ -2035,6 +2036,7 @@ export function SettingsPanel({
                                     : t(language, "agentRuntimeDefault")}
                                 </dd>
                               </dl>
+                              <AgentDefinitionPassport agent={agent} language={language} />
                               <fieldset
                                 className="agent-controls"
                                 disabled={!ompConfig.agentSettingsSupported}
