@@ -393,6 +393,9 @@ export const UI_TEXT = {
     incidentClearResolved: "Очистить разрешённые",
     incidentTerminalClosed: "Терминал завершён или закрыт",
     incidentOpenTerminal: "Открыть терминал",
+    incidentCaptureHelp:
+      "Сохраняется только доступное окно вывода терминала, не вся история. Сырой вывод может содержать секреты: проверьте и отредактируйте файлы перед передачей.",
+    incidentCaptureTruncated: "Начало вывода отброшено: {bytes} байт.",
     incidentCaptureSave: "Сохранить сырой вывод",
     incidentCaptureSaving: "Сохранение…",
     incidentCaptureSaved: "Сохранено {size}: {path}",
@@ -1044,6 +1047,9 @@ export const UI_TEXT = {
     incidentClearResolved: "Clear resolved",
     incidentTerminalClosed: "Terminal ended or closed",
     incidentOpenTerminal: "Open terminal",
+    incidentCaptureHelp:
+      "Only the retained terminal output window is saved, not the full history. Raw output may contain secrets: inspect and redact the files before sharing.",
+    incidentCaptureTruncated: "Earlier output was dropped: {bytes} bytes.",
     incidentCaptureSave: "Save raw output",
     incidentCaptureSaving: "Saving…",
     incidentCaptureSaved: "Saved {size}: {path}",
