@@ -10,6 +10,7 @@ import { forgetTerminalContinuity } from "./terminalContinuity"
 
 const terminalState = vi.hoisted(() => ({
   selection: "",
+  initialScrollDuration: undefined as unknown,
   focus: vi.fn(),
   paste: vi.fn(),
   clear: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock("@xterm/xterm", () => ({
     options: Record<string, unknown>
     private readonly input = document.createElement("textarea")
     constructor(options: Record<string, unknown>) {
+      terminalState.initialScrollDuration = options.smoothScrollDuration
       this.options = options
       terminalState.instance = this
     }
@@ -508,4 +510,83 @@ it("replays a new display and de-duplicates live events received while attachmen
   expect(terminalState.written.join("")).toBe(
     "old retained output\r\nduring attach\r\nafter snapshot\r\n",
   )
+})
+
+async function renderMotionTerminal(platform = "windows") {
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={tab}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform={platform}
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    ),
+  )
+}
+
+function mockMotion(reduced: boolean) {
+  let listener: (() => void) | undefined
+  const add = vi.fn((_event: unknown, callback?: () => void) => {
+    listener = callback
+  })
+  const remove = vi.fn()
+  const query = { matches: reduced, addEventListener: add, removeEventListener: remove }
+  const matchMedia = vi.fn(() => query)
+  vi.stubGlobal("matchMedia", matchMedia)
+  return { query, matchMedia, add, remove, notify: () => listener?.() }
+}
+
+it("honors reduced motion and changes xterm scrolling without replacing its instance", async () => {
+  const media = mockMotion(true)
+  await renderMotionTerminal()
+  const terminal = terminalState.instance!
+  expect(terminalState.initialScrollDuration).toBe(0)
+  expect(terminal.options.smoothScrollDuration).toBe(0)
+  expect(media.matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)")
+  const attachments = vi.mocked(attachTerminal).mock.calls.length
+  media.query.matches = false
+  act(() => media.notify())
+  expect(terminal.options.smoothScrollDuration).toBe(90)
+  media.query.matches = true
+  act(() => media.notify())
+  expect(terminal.options.smoothScrollDuration).toBe(0)
+  expect(terminalState.instance).toBe(terminal)
+  expect(vi.mocked(attachTerminal).mock.calls.length).toBe(attachments)
+  await act(async () => root.render(null))
+  expect(media.remove).toHaveBeenCalledTimes(1)
+  expect(media.remove).toHaveBeenCalledWith("change", media.add.mock.calls[0][1])
+  media.query.matches = false
+  act(() => media.notify())
+  expect(terminal.options.smoothScrollDuration).toBe(0)
+})
+
+it("retains Windows scrolling when no preference is requested", async () => {
+  mockMotion(false)
+  await renderMotionTerminal()
+  expect(terminalState.instance?.options.smoothScrollDuration).toBe(90)
+})
+
+it("keeps Linux scrolling immediate independently of reduced-motion support", async () => {
+  const media = mockMotion(false)
+  await renderMotionTerminal("linux")
+  expect(terminalState.instance?.options.smoothScrollDuration).toBe(0)
+  expect(media.matchMedia).not.toHaveBeenCalled()
+})
+
+it.each([
+  undefined,
+  () => {
+    throw new Error("unsupported")
+  },
+])("retains existing scrolling when media queries are unavailable or throw", async (matchMedia) => {
+  vi.stubGlobal("matchMedia", matchMedia)
+  await renderMotionTerminal()
+  expect(terminalState.instance?.options.smoothScrollDuration).toBe(90)
 })
