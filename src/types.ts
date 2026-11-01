@@ -199,9 +199,16 @@ export interface ImportItemResult {
   message: string | null
 }
 
+export interface ImportRefreshError {
+  code: string
+  message: string
+  details: string | null
+}
+
 export interface ImportBatchPayload {
-  bootstrap: BootstrapPayload
+  bootstrap: BootstrapPayload | null
   items: ImportItemResult[]
+  refreshError?: ImportRefreshError
 }
 
 export interface SettingsUpdate {

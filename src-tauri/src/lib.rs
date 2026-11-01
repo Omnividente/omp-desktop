@@ -1136,8 +1136,11 @@ async fn import_sessions(
             let root = settings::session_root(&app, &snapshot)?;
             let terminals = app.state::<TerminalState>();
             let items = terminals.import_sessions(&requests, &root);
-            let bootstrap = build_bootstrap(&app, &snapshot)?;
-            Ok(ImportBatchPayload { bootstrap, items })
+            let refresh = build_bootstrap(&app, &snapshot);
+            if let Err(error) = &refresh {
+                diagnostics::warn("обновления списка после импорта", error);
+            }
+            Ok(ImportBatchPayload::from_refresh(items, refresh))
         },
     )
     .await

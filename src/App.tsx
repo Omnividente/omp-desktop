@@ -1755,7 +1755,7 @@ function App() {
           mode: importMode,
         })),
       )
-      applyPayload(result.bootstrap)
+      if (result.bootstrap) applyPayload(result.bootstrap)
       const failures = result.items.filter((item) => item.status === "failed")
       const completed = result.items.filter((item) => item.status !== "failed")
       if (currentView() && completed.length > 0) {
@@ -1784,6 +1784,9 @@ function App() {
         showError(failures.map((item) => importFailureMessage(item, lang)).join("\n"))
       } else if (currentView()) {
         setCodexOpen(false)
+      }
+      if (result.refreshError) {
+        showError(errorMessage(result.refreshError, lang, { includeDetails: true }))
       }
     } catch (error) {
       showError(errorMessage(error, lang))
@@ -1836,13 +1839,16 @@ function App() {
           mode: importMode,
         },
       ])
-      applyPayload(result.bootstrap)
+      if (result.bootstrap) applyPayload(result.bootstrap)
       const failure = result.items.find((item) => item.status === "failed")
       showNotice(summarizeImport(result.items, lang))
       if (failure) {
         showError(importFailureMessage(failure, lang))
       } else {
         setPendingOmpImportPath(null)
+      }
+      if (result.refreshError) {
+        showError(errorMessage(result.refreshError, lang, { includeDetails: true }))
       }
     } catch (error) {
       showError(errorMessage(error, lang))
@@ -2799,6 +2805,7 @@ function App() {
             setCopySession(null)
           }}
           onImported={(result) => {
+            if (!result.bootstrap) return
             if (payloadRevisionRef.current !== copySession.payloadRevision) {
               void refresh()
               return

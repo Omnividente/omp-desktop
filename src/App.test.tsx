@@ -3747,4 +3747,80 @@ describe("App lifecycle serialization", () => {
     )
     expect(api.errorMessage(raw, "en")).not.toContain(destination)
   })
+  it.each(["ru", "en"] as const)(
+    "preserves known OMP results when refresh fails (%s)",
+    async (language) => {
+      const payload = { ...bootstrap, settings: { ...bootstrap.settings, language } }
+      vi.mocked(api.bootstrap).mockResolvedValue(payload)
+      const path = "C:/fixture/refresh-import.jsonl"
+      vi.mocked(open).mockResolvedValue(path)
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "import_sessions")
+          return Promise.resolve({
+            bootstrap: null,
+            items: [
+              {
+                sourcePath: path,
+                destinationPath: "C:/fixture/destination.jsonl",
+                status: "imported",
+                message: null,
+              },
+            ],
+            refreshError: {
+              code: "session_import_refresh_failed",
+              message: "Backend fallback",
+              details: "Synthetic scan failure",
+            },
+          } satisfies ImportBatchPayload)
+        throw new Error(command)
+      })
+      await act(async () => root.render(<App />))
+      const sessionsBefore = [...container.querySelectorAll(".session-item")].map(
+        (x) => x.textContent,
+      )
+      await act(async () => element(`[title="${t(language, "importSession")}"]`).click())
+      await act(async () => element('[aria-labelledby="omp-import-title"] .primary').click())
+      expect(container.querySelector('[aria-labelledby="omp-import-title"]')).toBeNull()
+      expect([...container.querySelectorAll(".session-item")].map((x) => x.textContent)).toEqual(
+        sessionsBefore,
+      )
+      expect(container.textContent).toContain(
+        language === "en"
+          ? "the session list could not refresh"
+          : "не удалось обновить список сессий",
+      )
+      expect(container.textContent).toContain("Synthetic scan failure")
+      expect(api.bootstrap).toHaveBeenCalledTimes(1)
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "import_sessions"),
+      ).toHaveLength(1)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps only failed Codex sources selected when refresh fails", async () => {
+    const fixture = await openImportFeedbackFixture(2)
+    fixture.setOutcome(async (batch) => ({
+      bootstrap: null,
+      items: batch.map((request, index) => ({
+        sourcePath: request.path,
+        destinationPath: index === 0 ? "C:/fixture/copied.jsonl" : null,
+        status: index === 0 ? "copied" : "failed",
+        message: index === 0 ? null : "Synthetic item failure",
+      })),
+      refreshError: { code: "session_import_refresh_failed", message: "fallback", details: null },
+    }))
+    await act(async () => element(".codex-import-panel .primary").click())
+    const selected = [...container.querySelectorAll<HTMLInputElement>(".codex-item input")].map(
+      (x) => x.checked,
+    )
+    expect(selected).toEqual([false, true])
+    expect(element(".codex-import-error").textContent).toContain("Synthetic item failure")
+    expect(container.textContent).toContain("не удалось обновить список сессий")
+    expect(fixture.batches).toHaveLength(1)
+    expect(api.bootstrap).toHaveBeenCalledTimes(1)
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(fixture.batches[1].map((x) => x.path)).toEqual([fixture.sources[1]])
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
 })

@@ -550,8 +550,45 @@ pub struct ImportItemResult {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportBatchPayload {
-    pub bootstrap: BootstrapPayload,
+    pub bootstrap: Option<BootstrapPayload>,
     pub items: Vec<ImportItemResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_error: Option<ImportRefreshError>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportRefreshError {
+    pub code: String,
+    pub message: String,
+    pub details: Option<String>,
+}
+
+impl ImportBatchPayload {
+    // Import results describe completed per-file operations. A later view refresh
+    // must not turn those known outcomes into an ambiguous command rejection.
+    pub(crate) fn from_refresh(
+        items: Vec<ImportItemResult>,
+        refresh: Result<BootstrapPayload, String>,
+    ) -> Self {
+        match refresh {
+            Ok(bootstrap) => Self {
+                bootstrap: Some(bootstrap),
+                items,
+                refresh_error: None,
+            },
+            Err(error) => Self {
+                bootstrap: None,
+                items,
+                refresh_error: Some(ImportRefreshError {
+                    code: "session_import_refresh_failed".to_owned(),
+                    message: "Результаты импорта получены, но не удалось обновить список сессий"
+                        .to_owned(),
+                    details: Some(sanitize_error_text(&error)),
+                }),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1141,5 +1178,83 @@ mod tests {
             assert!(!details.contains(remainder));
             assert!(details.chars().count() <= MAX_APP_ERROR_DETAILS_CHARS + 1);
         }
+    }
+}
+#[cfg(test)]
+mod import_batch_tests {
+    use super::*;
+
+    fn items() -> Vec<ImportItemResult> {
+        vec![
+            ImportItemResult {
+                source_path: "synthetic-success".into(),
+                destination_path: Some("synthetic-destination".into()),
+                status: ImportItemStatus::Imported,
+                message: None,
+            },
+            ImportItemResult {
+                source_path: "synthetic-failure".into(),
+                destination_path: None,
+                status: ImportItemStatus::Failed,
+                message: Some("synthetic per-file reason".into()),
+            },
+        ]
+    }
+
+    #[test]
+    fn refresh_failure_preserves_known_import_results_in_serialized_response() {
+        let result =
+            ImportBatchPayload::from_refresh(items(), Err("synthetic scan failure".into()));
+        let value = serde_json::to_value(result).unwrap();
+        assert!(value["bootstrap"].is_null());
+        assert_eq!(value["items"][0]["status"], "imported");
+        assert_eq!(
+            value["items"][0]["destinationPath"],
+            "synthetic-destination"
+        );
+        assert_eq!(value["items"][1]["status"], "failed");
+        assert_eq!(value["items"][1]["message"], "synthetic per-file reason");
+        assert_eq!(
+            value["refreshError"]["code"],
+            "session_import_refresh_failed"
+        );
+        assert_eq!(value["refreshError"]["details"], "synthetic scan failure");
+    }
+
+    #[test]
+    fn successful_refresh_retains_existing_serialized_response_shape() {
+        let bootstrap = BootstrapPayload {
+            settings: AppSettings::default(),
+            runtime: RuntimeInfo {
+                platform: "synthetic".into(),
+                arch: "synthetic".into(),
+                omp_available: false,
+                omp_executable: "not-run".into(),
+                omp_version: None,
+                omp_probe_failures: vec![],
+                session_root: "synthetic-root".into(),
+                language: "en".into(),
+            },
+            workspaces: vec![],
+            sessions: vec![],
+            session_warnings: vec![],
+            startup_workspace_warning: None,
+        };
+        let expected = serde_json::json!({"bootstrap": bootstrap, "items": items()});
+        let actual =
+            serde_json::to_value(ImportBatchPayload::from_refresh(items(), Ok(bootstrap))).unwrap();
+        assert_eq!(actual, expected);
+        assert!(actual.get("refreshError").is_none());
+    }
+    #[test]
+    fn refresh_failure_details_use_existing_sanitization() {
+        let result = ImportBatchPayload::from_refresh(
+            vec![],
+            Err("safe context\naccess_token=synthetic-secret".into()),
+        );
+        let details = result.refresh_error.unwrap().details.unwrap();
+        assert!(details.contains("safe context"));
+        assert!(details.contains("[REDACTED SENSITIVE LINE]"));
+        assert!(!details.contains("synthetic-secret"));
     }
 }
