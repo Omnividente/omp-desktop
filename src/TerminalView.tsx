@@ -322,6 +322,13 @@ export function TerminalView({
       const deleteSelection = event.code === "Backspace" || event.code === "Delete"
       if (tab.kind === "agent" && deleteSelection) {
         const selectAllArmed = selectAllArmedRef.current
+        // Screen selection does not establish the focused editor's editing units
+        // or token boundaries. Keep Copy/Reply available and consume the gesture
+        // instead of synthesizing deletion or falling through to a raw key.
+        if (terminal.hasSelection()) {
+          clearArmedSelection()
+          return consume()
+        }
         const input =
           selectAllArmed || (terminal.hasSelection() && mouseSelection)
             ? deleteInput(terminal, selectAllArmed, mouseSelection)
