@@ -588,6 +588,25 @@ pub struct OmpAgentInfo {
     pub enabled: bool,
     pub model_override: Option<Vec<String>>,
     pub default_model_selectors: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definition: Option<OmpAgentDefinition>,
+}
+
+/// Read-only declarations observed by Desktop, never effective session authority.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OmpAgentDefinition {
+    pub source_file: String,
+    pub source_file_truncated: bool,
+    pub observed_at: u64,
+    pub context_cwd: Option<String>,
+    pub fields: BTreeMap<String, OmpAgentDefinitionField>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OmpAgentDefinitionField {
+    pub state: String,
+    pub text: Option<String>,
 }
 
 #[derive(Clone, Deserialize)]

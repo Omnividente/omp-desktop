@@ -1067,6 +1067,88 @@ describe("SettingsPanel configuration generations", () => {
     )
   })
 
+  it("refreshes same-name definition metadata while retaining drafts and stale provenance", async () => {
+    const definitionA = {
+      sourceFile: "reviewer-a.md",
+      observedAt: 1700000000000,
+      contextCwd: "/synthetic/project-a",
+      fields: {
+        tools: { state: "empty", text: null },
+        spawns: { state: "absent", text: null },
+      },
+    }
+    const reviewer = {
+      name: "reviewer",
+      description: "Synthetic A",
+      source: "project",
+      enabled: false,
+      modelOverride: ["catalog/old"],
+      defaultModelSelectors: [],
+      definition: definitionA,
+    }
+    const snapshot = {
+      ...ompConfig,
+      agents: [reviewer],
+      agentSettingsSupported: true,
+    }
+    const refresh = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refresh.promise)
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    act(() =>
+      container
+        .querySelector<HTMLInputElement>('[data-agent="reviewer"] input[type="checkbox"]')!
+        .click(),
+    )
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-agent="reviewer"] .model-picker-trigger')!
+        .click(),
+    )
+    changeField('[data-agent="reviewer"] .model-picker-manual input', "catalog/draft")
+    const definitionB = {
+      ...definitionA,
+      sourceFile: "reviewer-b.md",
+      observedAt: 1700000060000,
+      contextCwd: "/synthetic/project-b",
+      fields: {
+        tools: { state: "value", text: "read" },
+        spawns: { state: "wildcard", text: "*" },
+      },
+    }
+    await act(async () =>
+      refresh.resolve({
+        ...snapshot,
+        agents: [{ ...reviewer, definition: definitionB }],
+      }),
+    )
+    const passport = container.querySelector('[data-agent="reviewer"] .agent-definition-passport')!
+    expect(passport.textContent).toContain("reviewer-b.md")
+    expect(passport.textContent).toContain("/synthetic/project-b")
+    expect(passport.textContent).not.toContain("reviewer-a.md")
+    expect(passport.querySelector("time")!.getAttribute("datetime")).toBe(
+      new Date(definitionB.observedAt).toISOString(),
+    )
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input[type="checkbox"]')!
+        .checked,
+    ).toBe(true)
+    expect(
+      container.querySelector('[data-agent="reviewer"] .model-picker-trigger')!.textContent,
+    ).toContain("catalog/draft")
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    const missing = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(missing.promise)
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    await act(async () => missing.resolve({ ...snapshot, agents: [] }))
+    expect(passport.textContent).toContain("reviewer-b.md")
+    expect(passport.querySelector("time")!.getAttribute("datetime")).toBe(
+      new Date(definitionB.observedAt).toISOString(),
+    )
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
   it("merges discovered roles and agents while retaining model, agent and fallback drafts", async () => {
     const reviewer = {
       name: "reviewer",

@@ -2,6 +2,32 @@ export type Lang = "ru" | "en"
 
 export const UI_TEXT = {
   ru: {
+    agentPassportTitle: "Паспорт определения",
+    agentPassportHelp:
+      "Снимок декларации, прочитанный Desktop. Это не действующие разрешения сессии. Изменения ниже не меняют этот снимок. Показаны только именованные поля, без алиасов и значений runtime по умолчанию. Имя файла не является уникальным путём.",
+    agentPassportExport:
+      "Встроенное определение из экспорта OMP; экспорт может нормализовать исходные поля.",
+    agentPassportUnavailable: "Метаданные определения недоступны.",
+    agentPassportSourceFile: "Файл определения",
+    agentPassportObserved: "Время чтения определения",
+    agentPassportContext: "Контекст поиска Desktop",
+    agentPassportContextHelp:
+      "Папка, использованная Desktop для поиска определений; не cwd запущенного агента.",
+    agentPassportContextReveal: "Показать путь контекста",
+    agentPassportAbsent: "Не объявлено",
+    agentPassportNull: "Явное null",
+    agentPassportEmpty: "Явное пустое значение",
+    agentPassportUnsupported: "Не поддерживается паспортом",
+    agentPassportTruncated: "Сокращено",
+    agentPassportWildcard: "Явное *",
+    agentPassportUnknown: "Неизвестно",
+    agentPassportTools: "tools",
+    agentPassportSpawns: "spawns",
+    agentPassportThinking: "thinkingLevel",
+    agentPassportOutput: "output (форма, не проверка схемы)",
+    agentPassportBlocking: "blocking",
+    agentPassportStructured: "structured",
+
     importItemFailed: "Не удалось импортировать файл",
     importFailureDetails: "Причины ошибок импорта",
     importFailurePages: "Страницы ошибок импорта",
@@ -655,6 +681,32 @@ export const UI_TEXT = {
     failed: "Ошибок",
   },
   en: {
+    agentPassportTitle: "Definition passport",
+    agentPassportHelp:
+      "Declaration snapshot read by Desktop. This is not the session’s effective permissions. Edits below do not change this snapshot. Only the named fields are shown, without aliases or runtime defaults. The filename is not a unique path.",
+    agentPassportExport:
+      "Bundled definition exported by OMP; export may normalize the original fields.",
+    agentPassportUnavailable: "Definition metadata unavailable.",
+    agentPassportSourceFile: "Definition file",
+    agentPassportObserved: "Definition read time",
+    agentPassportContext: "Desktop discovery context",
+    agentPassportContextHelp:
+      "Directory used by Desktop to discover definitions; not a running agent’s cwd.",
+    agentPassportContextReveal: "Show context path",
+    agentPassportAbsent: "Not declared",
+    agentPassportNull: "Explicit null",
+    agentPassportEmpty: "Explicit empty value",
+    agentPassportUnsupported: "Unsupported in passport",
+    agentPassportTruncated: "Truncated",
+    agentPassportWildcard: "Explicit *",
+    agentPassportUnknown: "Unknown",
+    agentPassportTools: "tools",
+    agentPassportSpawns: "spawns",
+    agentPassportThinking: "thinkingLevel",
+    agentPassportOutput: "output (shape, not schema validation)",
+    agentPassportBlocking: "blocking",
+    agentPassportStructured: "structured",
+
     importItemFailed: "Could not import the file",
     importFailureDetails: "Import failure details",
     importFailurePages: "Import failure pages",
