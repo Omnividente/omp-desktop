@@ -86,7 +86,7 @@ const success = {
       message: null,
     },
   ],
-} as unknown as ImportBatchPayload
+} as unknown as ImportBatchPayload & { bootstrap: NonNullable<ImportBatchPayload["bootstrap"]> }
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((done) => {
@@ -395,5 +395,43 @@ describe("Session copy confirmation", () => {
     await choose()
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Permission refused")
     expect(importSessions).not.toHaveBeenCalled()
+  })
+  it("preserves a known copy when only its refresh fails", async () => {
+    vi.mocked(importSessions).mockResolvedValue({
+      ...success,
+      bootstrap: null,
+      refreshError: {
+        code: "session_import_refresh_failed",
+        message: "Synthetic refresh failure",
+        details: null,
+      },
+    })
+    await mount()
+    await choose()
+    await copy()
+    expect(container.textContent).toContain("Copies created")
+    expect(container.textContent).toContain("Synthetic refresh failure")
+    expect(button("Create copy").disabled).toBe(true)
+    expect(imported).not.toHaveBeenCalled()
+    expect(importSessions).toHaveBeenCalledTimes(1)
+  })
+  it.each([
+    undefined,
+    { code: "session_import_refresh_failed", message: 42, details: null },
+    { code: "session_import_refresh_failed", message: "failure", details: {} },
+    { code: "other_error", message: "failure", details: null },
+  ])("does not accept null snapshot with invalid refresh contract %j", async (refreshError) => {
+    vi.mocked(importSessions).mockResolvedValue({
+      ...success,
+      bootstrap: null,
+      refreshError,
+    } as unknown as ImportBatchPayload)
+    await mount()
+    await choose()
+    await copy()
+    expect(imported).not.toHaveBeenCalled()
+    expect(button("Create copy").disabled).toBe(true)
+    expect(container.textContent).toContain("not confirmed")
+    expect(container.querySelector('[role="status"]')).toBeNull()
   })
 })

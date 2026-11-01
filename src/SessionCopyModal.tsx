@@ -116,6 +116,7 @@ export function SessionCopyModal({
   const [importing, setImporting] = useState(false)
   const [settled, setSettled] = useState(false)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [refreshWarning, setRefreshWarning] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     const requests = pickerRequest
@@ -161,6 +162,7 @@ export function SessionCopyModal({
     setImporting(true)
     setError(null)
     setFeedback(null)
+    setRefreshWarning(null)
     try {
       const result = await importSessions([{ path: session.filePath, targetCwd: target, mode }])
       if (!alive.current) return
@@ -179,11 +181,23 @@ export function SessionCopyModal({
         setError(t(language, "sessionCopyUnknown"))
         return
       }
+      if (result.refreshError) {
+        setRefreshWarning(errorMessage(result.refreshError, language, { includeDetails: true }))
+      }
       if (item.status === "failed") {
         setError(typeof item.message === "string" ? item.message : t(language, "failed"))
         return
       }
       setSettled(true)
+      if (
+        result.bootstrap === null &&
+        result.refreshError?.code === "session_import_refresh_failed" &&
+        typeof result.refreshError.message === "string" &&
+        (result.refreshError.details === null || typeof result.refreshError.details === "string")
+      ) {
+        setFeedback(t(language, item.status === "skipped" ? "skipped" : "copied"))
+        return
+      }
       if (!usableCopyBootstrap(result.bootstrap)) {
         setError(t(language, "sessionCopyUnknown"))
         return
@@ -258,6 +272,7 @@ export function SessionCopyModal({
           {sourceBusy && <p role="status">{t(language, "sessionCopyBusy")}</p>}
           {feedback && <p role="status">{feedback}</p>}
           {error && <p role="alert">{error}</p>}
+          {refreshWarning && <p role="alert">{refreshWarning}</p>}
         </div>
         <footer className="settings-actions">
           <button className="button secondary" disabled={importing} onClick={close} type="button">
