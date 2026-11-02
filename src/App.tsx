@@ -822,10 +822,16 @@ function App() {
   const removeWorkspace = useCallback(
     async (workspace: WorkspaceSummary) => {
       if (workspaceBusyKey === workspace.key) return
-      const shouldRemove = await confirm(
-        t(lang, "removeProjectConfirm").replace("{name}", workspace.name),
-        { title: t(lang, "removeProject"), kind: "warning" },
-      )
+      let shouldRemove: boolean
+      try {
+        shouldRemove = await confirm(
+          t(lang, "removeProjectConfirm").replace("{name}", workspace.name),
+          { title: t(lang, "removeProject"), kind: "warning" },
+        )
+      } catch (error) {
+        showError(errorMessage(error, lang))
+        return
+      }
       if (!shouldRemove) return
       setWorkspaceBusyKey(workspace.key)
       try {
