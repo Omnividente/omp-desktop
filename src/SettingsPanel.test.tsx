@@ -172,6 +172,42 @@ describe("SettingsPanel Save state", () => {
     })
   }
 
+  it.each([8, 17, 32])(
+    "displays the saved terminal font size %i without substituting another option",
+    async (size) => {
+      await renderRuntime(runtime, { ...settings, terminalFontSize: size })
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-behavior")!.click())
+      const select = container.querySelector<HTMLSelectElement>("#terminal-font-size")!
+      expect(select.value).toBe(String(size))
+      expect(select.selectedOptions[0].textContent).toBe(`${size}px`)
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(true)
+    },
+  )
+
+  it("offers and saves the complete supported terminal font size range", async () => {
+    saveSettingsBundleMock.mockResolvedValue({
+      settings: { ...settings, terminalFontSize: 32 },
+      ompConfig,
+    })
+    await renderRuntime(runtime)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-behavior")!.click())
+    const select = container.querySelector<HTMLSelectElement>("#terminal-font-size")!
+    expect(Array.from(select.options, (option) => Number(option.value))).toEqual(
+      Array.from({ length: 25 }, (_, index) => index + 8),
+    )
+    act(() => {
+      select.value = "32"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    expect(save.disabled).toBe(false)
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+    expect(saveSettingsBundleMock.mock.calls[0][0].update.terminalFontSize).toBe(32)
+  })
+
   const failedRuntime: RuntimeInfo = {
     ...runtime,
     ompAvailable: false,

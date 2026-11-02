@@ -1602,7 +1602,7 @@ export function SettingsPanel({
                       onChange={(event) => setTerminalFontSize(event.target.value)}
                       value={terminalFontSize}
                     >
-                      {[10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((size) => (
+                      {Array.from({ length: 25 }, (_, index) => index + 8).map((size) => (
                         <option key={size} value={size}>
                           {size}px
                         </option>
