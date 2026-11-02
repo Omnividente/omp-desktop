@@ -3747,4 +3747,25 @@ describe("App lifecycle serialization", () => {
     )
     expect(api.errorMessage(raw, "en")).not.toContain(destination)
   })
+  it("reports a rejected workspace removal dialog without mutating the workspace", async () => {
+    const projects = workspacePayload("A", "B")
+    projects.settings = { ...projects.settings, lastWorkspace: "C:/fixture/B" }
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    vi.mocked(confirm).mockRejectedValueOnce(new Error("synthetic dialog unavailable"))
+    await act(async () => root.render(<App />))
+    await act(async () => element(".project-item-row.is-active .project-remove").click())
+    expect(container.textContent).toContain("synthetic dialog unavailable")
+    expect(api.removeWorkspace).not.toHaveBeenCalled()
+    expect(api.deleteSession).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.querySelectorAll(".project-item")).toHaveLength(2)
+    expect(element<HTMLButtonElement>(".project-item-row.is-active .project-remove").disabled).toBe(
+      false,
+    )
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    await act(async () => element(".project-item-row.is-active .project-remove").click())
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(api.removeWorkspace).not.toHaveBeenCalled()
+  })
 })
