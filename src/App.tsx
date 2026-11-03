@@ -1372,11 +1372,12 @@ function App() {
   }, [payload, selectedWorkspace])
 
   const visibleSessions = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase(localeTag(lang))
+    const query = search.trim().normalize("NFC").toLocaleLowerCase(localeTag(lang))
     if (!query) return workspaceSessions
     return workspaceSessions.filter((session) =>
       [session.title, session.model ?? "", session.id, session.source]
         .join(" ")
+        .normalize("NFC")
         .toLocaleLowerCase(localeTag(lang))
         .includes(query),
     )

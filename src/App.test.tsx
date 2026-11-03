@@ -754,6 +754,66 @@ describe("App lifecycle serialization", () => {
     vi.restoreAllMocks()
   })
 
+  it.each(["en", "ru"] as const)(
+    "matches canonical session titles without changing identity in %s",
+    async (lang) => {
+      const titles = ["Café", "Cafe\u0301", "йога", "и\u0306ога"]
+      const sessions = titles.map((title, index) => ({
+        ...bootstrap.sessions[0],
+        id: `unicode-${index}`,
+        title,
+        filePath: `C:/fixture/sessions/unicode-${index}.jsonl`,
+      }))
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language: lang },
+        sessions,
+      })
+      await act(async () => root.render(<App />))
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      const queryFor = (query: string) =>
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+            search,
+            query,
+          )
+          search.dispatchEvent(new Event("input", { bubbles: true }))
+        })
+      act(() => element<HTMLButtonElement>('.session-select[aria-label="Cafe\u0301"]').click())
+      for (const [index, query] of titles.entries()) {
+        queryFor(`  ${query.toLocaleUpperCase(lang)}  `)
+        const rows = Array.from(container.querySelectorAll(".session-select"), (row) =>
+          row.getAttribute("aria-label"),
+        )
+        expect(rows).toHaveLength(2)
+        expect(rows).toEqual(
+          expect.arrayContaining(titles.slice(index < 2 ? 0 : 2, index < 2 ? 2 : 4)),
+        )
+      }
+      for (const query of ["Cafe", "иога", "Ｃａｆé"]) {
+        queryFor(query)
+        expect(container.querySelectorAll(".session-select")).toHaveLength(0)
+      }
+      queryFor("unicode-1")
+      expect(container.querySelectorAll(".session-select")).toHaveLength(1)
+      expect(element<HTMLElement>(".session-item.is-selected").textContent).toContain(titles[1])
+      queryFor("")
+      expect(container.querySelectorAll(".session-select")).toHaveLength(4)
+      expect(element<HTMLElement>(".session-item.is-selected").textContent).toContain(titles[1])
+      expect(sessions.map((session) => session.title)).toEqual(titles)
+      expect(sessions.map((session) => session.id)).toEqual([
+        "unicode-0",
+        "unicode-1",
+        "unicode-2",
+        "unicode-3",
+      ])
+      expect(sessions.map((session) => session.filePath)).toEqual(
+        titles.map((_, index) => `C:/fixture/sessions/unicode-${index}.jsonl`),
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it.each([
     ["click", false],
     ["Enter", false],
