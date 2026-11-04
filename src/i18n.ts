@@ -237,6 +237,11 @@ export const UI_TEXT = {
     transcriptReadHint:
       "Открыть сохранённый диалог с Markdown и копированием; терминал продолжит работать",
     transcriptLatest: "К последнему сообщению",
+    transcriptSelectUserMessage: "Выбрать сообщение пользователя",
+    transcriptJumpToUserMessage: "Перейти к сообщению",
+    transcriptUserOutlineLimited:
+      "В списке первые 100 сообщений пользователя. Остальные доступны в переписке и поиске.",
+    transcriptEmptyUserMessage: "Без текста",
     transcriptAppearance: "Отображение сообщений",
     transcriptRendered: "Оформление",
     transcriptSource: "Исходник",
@@ -891,6 +896,11 @@ export const UI_TEXT = {
     transcriptReadHint:
       "Read the saved dialogue with Markdown and copy actions; the terminal keeps running",
     transcriptLatest: "Latest message",
+    transcriptSelectUserMessage: "Select a user message",
+    transcriptJumpToUserMessage: "Go to message",
+    transcriptUserOutlineLimited:
+      "The list shows the first 100 user messages. The rest remain available in the transcript and search.",
+    transcriptEmptyUserMessage: "No text",
     transcriptAppearance: "Message display",
     transcriptRendered: "Formatted",
     transcriptSource: "Source",

@@ -916,3 +916,192 @@ it("navigates and wraps a million-match entry with bounded replacement windows t
   await searchFor("x")
   expectWindow(0)
 })
+
+it("jumps to an unmounted user message after search and keeps subsequent manual reading", async () => {
+  const entries = transcript.entries.map((entry, index) => ({
+    ...entry,
+    role: index === 40 || index === 120 ? "user" : "assistant",
+  }))
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries })
+  await click("Reread file")
+  await searchFor("needle")
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  expect(select.options.length).toBe(3)
+  const choose = async () => {
+    await act(async () => {
+      select.focus()
+      select.value = "entry-40"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flushFrames()
+    expect(select.value).toBe("entry-40")
+    await click("Go to message")
+  }
+  await choose()
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  expect(select.isConnected).toBe(true)
+  expect(container.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe("")
+  await scrollTo(60 * 102)
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+  await click("Latest message")
+  await choose()
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  await searchFor("needle")
+  expect(currentOccurrence()).not.toBeNull()
+})
+
+it("disables the user-message outline when there are no loaded user entries", () => {
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  expect(select.disabled).toBe(true)
+  expect(select.options.length).toBe(1)
+})
+
+it("retains native selection without moving the reader until the explicit Go action", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    entries: transcript.entries.map((entry) => ({ ...entry, role: "user" })),
+  })
+  await click("Reread file")
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  expect(select.options.length).toBe(101)
+  expect(container.textContent).toContain("The list shows the first 100 user messages")
+  await act(async () => {
+    select.value = "entry-40"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await flushFrames()
+  expect(select.value).toBe("entry-40")
+  expect(readingRow().dataset.virtualIndex).toBe("0")
+  await act(async () => {
+    select.value = "entry-41"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  expect(select.value).toBe("entry-41")
+  expect(readingRow().dataset.virtualIndex).toBe("0")
+  await click("Go to message")
+  expect(readingRow().dataset.virtualIndex).toBe("41")
+})
+
+it.each(["same-turn", "before-animation-frame"])(
+  "does not replay a %s jump after refresh replaces its snapshot",
+  async (timing) => {
+    const snapshot = {
+      ...transcript,
+      entries: transcript.entries.map((entry, index) => ({
+        ...entry,
+        role: index === 40 ? "user" : "assistant",
+      })),
+    }
+    vi.mocked(readSessionTranscript).mockResolvedValue(snapshot)
+    await click("Reread file")
+    await scrollTo(60 * 102)
+    const select = container.querySelector<HTMLSelectElement>(
+      '[aria-label="Select a user message"]',
+    )!
+    await act(async () => {
+      select.value = "entry-40"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    let finish!: (value: SessionTranscript) => void
+    vi.mocked(readSessionTranscript).mockImplementationOnce(
+      () =>
+        new Promise<SessionTranscript>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const go = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Go to message",
+    )!
+    const refresh = container.querySelector<HTMLButtonElement>('[title="Reread file"]')!
+    if (timing === "before-animation-frame") {
+      await act(async () => go.click())
+      expect(frames.size).toBeGreaterThan(0)
+      await act(async () => refresh.click())
+    } else {
+      await act(async () => {
+        go.click()
+        refresh.click()
+      })
+    }
+    expect(select.isConnected).toBe(false)
+    expect(container.querySelector('[aria-label="Select a user message"]')).toBeNull()
+    await act(async () => {
+      finish({
+        ...snapshot,
+        updatedAt: 2,
+        entries: snapshot.entries.map((entry, index) =>
+          index === 40 ? { ...entry, id: "replacement-40" } : entry,
+        ),
+      })
+    })
+    await flushFrames()
+    const refreshedSelect = container.querySelector<HTMLSelectElement>(
+      '[aria-label="Select a user message"]',
+    )!
+    expect(refreshedSelect).not.toBe(select)
+    expect(refreshedSelect.disabled).toBe(false)
+    expect(readingRow().dataset.virtualIndex).toBe("60")
+  },
+)
+
+it("cancels an unsettled jump on direct snapshot replacement without preservePosition", async () => {
+  const first = {
+    ...transcript,
+    entries: transcript.entries.map((entry, index) => ({
+      ...entry,
+      role: index === 40 ? "user" : "assistant",
+    })),
+  }
+  const renderSnapshot = (value: SessionTranscript) => {
+    root.render(
+      <TranscriptModal
+        lang="en"
+        transcriptSession={session}
+        transcript={value}
+        transcriptLoading={false}
+        transcriptError={null}
+        transcriptSearch=""
+        transcriptMode="dialogue"
+        launching={null}
+        runtimeAvailable
+        visibleEntries={value.entries}
+        onClose={() => undefined}
+        onRefresh={() => undefined}
+        onError={() => undefined}
+        onReread={() => undefined}
+        onSearchChange={() => undefined}
+        onClearSearch={() => undefined}
+        onModeChange={() => undefined}
+      />,
+    )
+  }
+  await act(async () => renderSnapshot(first))
+  await flushFrames()
+  await scrollTo(60 * 102)
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  await act(async () => {
+    select.value = "entry-40"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  const go = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Go to message",
+  )!
+  await act(async () => go.click())
+  expect(frames.size).toBeGreaterThan(0)
+  await act(async () =>
+    renderSnapshot({
+      ...first,
+      updatedAt: 2,
+      entries: first.entries.map((entry, index) =>
+        index === 40 ? first.entries[100] : index === 100 ? first.entries[40] : entry,
+      ),
+    }),
+  )
+  await flushFrames()
+  // The first jump already moved the viewport. Cancellation must not chase the
+  // old entry ID to its new location in the replacement snapshot.
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  expect(select.value).toBe("entry-40")
+  await scrollTo(60 * 102)
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+})
