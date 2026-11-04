@@ -35,7 +35,7 @@ describe("import failure presentation", () => {
   })
 
   it.each(["en", "ru"] as const)("localizes invalid UTF-8 in %s", (language) => {
-    const raw = "[session_import_invalid_utf8] Файл сессии содержит некорректный UTF-8"
+    const raw = "[session_import_invalid_encoding] Файл сессии содержит некорректный UTF-8"
     expect(importFailureMessage(item(raw), language)).toBe(
       language === "en"
         ? "Cannot import: the file contains invalid UTF-8 text. The source file was not changed."

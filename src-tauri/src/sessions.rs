@@ -1032,7 +1032,7 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
     // Reject before recovery or destination writes can turn corrupt bytes into
     // apparently valid history through the importers' lossy text projection.
     std::str::from_utf8(&bytes).map_err(|_| {
-        "[session_import_invalid_utf8] Файл сессии содержит некорректный UTF-8".to_owned()
+        "[session_import_invalid_encoding] Файл сессии содержит некорректный UTF-8".to_owned()
     })?;
     Ok(bytes)
 }
@@ -5457,7 +5457,7 @@ mod tests {
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].status, ImportItemStatus::Failed);
             assert_eq!(result[0].destination_path, None);
-            assert!(result[0].message.as_deref().unwrap().starts_with("[session_import_invalid_utf8]"));
+            assert!(result[0].message.as_deref().unwrap().starts_with("[session_import_invalid_encoding]"));
             assert_eq!(fs::read(&source).unwrap(), bytes);
             assert!(!session_root.exists());
         }
@@ -5507,7 +5507,7 @@ mod tests {
         for mode in [ImportMode::Update, ImportMode::Skip, ImportMode::Copy] {
             request.mode = mode;
             let error = import_session(&request, &session_root).unwrap_err();
-            assert!(error.starts_with("[session_import_invalid_utf8]"));
+            assert!(error.starts_with("[session_import_invalid_encoding]"));
             assert_eq!(fs::read(&source).unwrap(), corrupt);
             assert_eq!(fs::read(&destination).unwrap(), original);
             assert_eq!(fs::read_to_string(Path::new(&destination).with_extension("").join("kept.txt")).unwrap(), "original");
@@ -5594,7 +5594,7 @@ mod tests {
                 .message
                 .as_deref()
                 .unwrap()
-                .starts_with("[session_import_invalid_utf8]"));
+                .starts_with("[session_import_invalid_encoding]"));
             assert_eq!(fs::read(&source).unwrap(), corrupt);
             assert_eq!(fs::read(&destination).unwrap(), original);
             let entries = fs::read_dir(Path::new(&destination).parent().unwrap())
@@ -5607,7 +5607,7 @@ mod tests {
         request.mode = ImportMode::Skip;
         assert!(import_session(&request, &fresh_root)
             .unwrap_err()
-            .starts_with("[session_import_invalid_utf8]"));
+            .starts_with("[session_import_invalid_encoding]"));
         assert!(!fresh_root.exists());
         fs::remove_dir_all(root).unwrap();
     }
@@ -5668,7 +5668,7 @@ mod tests {
                     .message
                     .as_deref()
                     .unwrap()
-                    .starts_with("[session_import_invalid_utf8]"));
+                    .starts_with("[session_import_invalid_encoding]"));
             } else {
                 assert_eq!(item.status, ImportItemStatus::Imported);
                 assert_eq!(item.message, None);
