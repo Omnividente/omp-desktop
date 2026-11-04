@@ -38,6 +38,8 @@ export const UI_TEXT = {
     noSessionsDesc: "Запустите OMP — новая сессия появится здесь автоматически.",
     noModel: "без модели",
     projects: "Проекты",
+    searchProjects: "Найти проект по имени или пути",
+    projectsShown: "Показано проектов: {count}",
     renameProject: "Переименовать проект",
     removeProject: "Убрать проект из списка",
     removeProjectConfirm: "Убрать проект «{name}» из списка? Папка и сессии останутся на диске.",
@@ -696,6 +698,8 @@ export const UI_TEXT = {
     projectName: "Project name",
     noModel: "no model",
     projects: "Projects",
+    searchProjects: "Find project by name or path",
+    projectsShown: "Projects shown: {count}",
     noProject: "No project",
     searchSessions: "Search sessions",
     clearSearch: "Clear",
@@ -1378,3 +1382,4 @@ export function thinkingLevelLabel(lang: Lang | string | null | undefined, level
   }
   return t(lang, keyByLevel[level] ?? "thinkingAuto")
 }
+

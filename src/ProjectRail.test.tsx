@@ -373,3 +373,191 @@ describe("ProjectRail Enter rename focus", () => {
     expect(document.activeElement).toBe(document.body)
   })
 })
+
+
+describe("ProjectRail project search", () => {
+  let container: HTMLDivElement
+  let root: Root
+  const select = vi.fn()
+  const projects = [
+    workspace,
+    { ...workspace, key: "other", path: "D:/Archive/App", name: "App" },
+    { ...workspace, key: "unicode", path: "/projects/café", name: "Кафе" },
+  ]
+  const search = () => container.querySelector<HTMLInputElement>('input[type="search"]')!
+  const rows = () => [...container.querySelectorAll<HTMLButtonElement>("button.project-item")]
+  function render(mode: "expanded" | "collapsed" | "autoHide" = "expanded", lang: "ru" | "en" = "en", renaming: string | null = null, autoOpen = false) {
+    act(() => root.render(
+      <ProjectRail
+        autoHidePaused={false} autoOpen={autoOpen} mode={mode} modeSaving={false}
+        workspaces={projects} selectedWorkspace={workspace}
+        sessionList={{ ...sessionList(), lang }}
+        renamingWorkspaceKey={renaming} workspaceNameValue="App" workspaceBusyKey={null}
+        onAutoOpenChange={vi.fn()} onModeChange={vi.fn()} onOpenFolder={vi.fn()}
+        onSelectWorkspace={select} onStartWorkspaceRename={vi.fn()}
+        onSubmitWorkspaceRename={vi.fn()} onWorkspaceNameChange={vi.fn()}
+        onWorkspaceRenameKeyDown={vi.fn()} onRemoveWorkspace={vi.fn()}
+      />,
+    ))
+  }
+  function type(value: string) {
+    act(() => {
+      search().focus()
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search(), value)
+      search().dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+  beforeEach(() => {
+    select.mockClear()
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+  it("finds duplicate-named projects by path without switching workspace, then selects the exact key", () => {
+    render()
+    type("  ARCHIVE  ")
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0].textContent).toContain("D:/Archive/App")
+    expect(select).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(search())
+    act(() => { rows()[0].focus(); rows()[0].click() })
+    expect(select).toHaveBeenCalledExactlyOnceWith("other")
+    expect(search().value).toBe("")
+    expect(rows()).toHaveLength(3)
+    expect(document.activeElement).toBe(rows()[1])
+  })
+  it("matches canonical Unicode names and paths literally", () => {
+    render()
+    type("CAF\u0045\u0301")
+    expect(rows()).toHaveLength(1)
+    expect(rows()[0].textContent).toContain("Кафе")
+    type("кафе")
+    expect(rows()).toHaveLength(1)
+    type(".*")
+    expect(rows()).toHaveLength(0)
+  })
+  it.each(["ru", "en"] as const)("labels search and empty results in %s and clears with Escape while retaining focus", (lang) => {
+    render("expanded", lang)
+    expect(search().getAttribute("aria-label")).toBe(lang === "ru" ? "Найти проект по имени или пути" : "Find project by name or path")
+    const liveRegion = container.querySelector(".project-search-count")
+    expect(liveRegion?.textContent).toBe("")
+    type("missing")
+    expect(container.querySelector(".project-search-count")).toBe(liveRegion)
+    expect(container.querySelector(".project-search-count")?.textContent).toBe(lang === "ru" ? "Показано проектов: 0" : "Projects shown: 0")
+    act(() => search().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
+    expect(rows()).toHaveLength(3)
+    expect(document.activeElement).toBe(search())
+    expect(select).not.toHaveBeenCalled()
+  })
+  it("does not clear an IME composition with Escape", () => {
+    render()
+    type("Archive")
+    act(() => search().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true })))
+    expect(search().value).toBe("Archive")
+  })
+  it.each(["collapsed", "autoHide"] as const)("keeps every project reachable when the %s rail hides search", (mode) => {
+    render()
+    type("Archive")
+    render(mode)
+    expect(search()).toBeNull()
+    expect(rows()).toHaveLength(3)
+    render(mode === "autoHide" ? "autoHide" : "expanded", "en", null, true)
+    expect(search().value).toBe("Archive")
+    expect(rows()).toHaveLength(1)
+  })
+  it("retains an externally opened rename editor even when its row does not match", () => {
+    render()
+    type("Archive")
+    render("expanded", "en", workspace.key)
+    expect(container.querySelector(".project-rename")).not.toBeNull()
+    expect(search().disabled).toBe(true)
+    expect(rows()).toHaveLength(1)
+  })
+})
+
+describe("ProjectRail auto-hide search reveal", () => {
+  let container: HTMLDivElement
+  let root: Root
+  const select = vi.fn()
+  const target = { ...workspace, key: "archive", path: "D:/Archive/App" }
+  function Fixture() {
+    const [open, setOpen] = useState(true)
+    return (
+      <>
+        <button className="collapse-for-test" onClick={() => setOpen(false)}>Collapse</button>
+        <ProjectRail
+          autoHidePaused={false} autoOpen={open} mode="autoHide" modeSaving={false}
+          workspaces={[workspace, target]} selectedWorkspace={workspace}
+          sessionList={sessionList()} renamingWorkspaceKey={null} workspaceNameValue=""
+          workspaceBusyKey={null} onAutoOpenChange={setOpen} onModeChange={vi.fn()}
+          onOpenFolder={vi.fn()} onSelectWorkspace={select} onStartWorkspaceRename={vi.fn()}
+          onSubmitWorkspaceRename={vi.fn()} onWorkspaceNameChange={vi.fn()}
+          onWorkspaceRenameKeyDown={vi.fn()} onRemoveWorkspace={vi.fn()}
+        />
+      </>
+    )
+  }
+  const search = () => container.querySelector<HTMLInputElement>('input[type="search"]')!
+  const rows = () => [...container.querySelectorAll<HTMLButtonElement>("button.project-item")]
+  function type(value: string) {
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search(), value)
+      search().dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+  beforeEach(() => {
+    vi.useFakeTimers()
+    select.mockClear()
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+    act(() => root.render(<Fixture />))
+    type("Archive")
+    expect(rows()).toHaveLength(1)
+    act(() => container.querySelector<HTMLButtonElement>(".collapse-for-test")!.click())
+    expect(search()).toBeNull()
+    expect(rows()).toHaveLength(2)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.useRealTimers()
+  })
+  it("clears the hidden query before focus opens a previously nonmatching compact row", () => {
+    const previouslyHidden = rows()[0]
+    act(() => previouslyHidden.focus())
+    expect(search().value).toBe("")
+    expect(rows()).toHaveLength(2)
+    expect(previouslyHidden.isConnected).toBe(true)
+    expect(document.activeElement).toBe(previouslyHidden)
+    expect(select).not.toHaveBeenCalled()
+    act(() => previouslyHidden.click())
+    expect(select).toHaveBeenCalledExactlyOnceWith(workspace.key)
+  })
+  it("clears the hidden query before delayed hover reveal, keeping the pointed row selectable", () => {
+    const previouslyHidden = rows()[0]
+    act(() => previouslyHidden.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })))
+    expect(search()).toBeNull()
+    act(() => vi.advanceTimersByTime(220))
+    expect(search().value).toBe("")
+    expect(previouslyHidden.isConnected).toBe(true)
+    expect(rows()).toHaveLength(2)
+    act(() => previouslyHidden.click())
+    expect(select).toHaveBeenCalledExactlyOnceWith(workspace.key)
+  })
+  it("cancels a pending hover reveal when focus reveals first, preserving a newly typed query", () => {
+    act(() => rows()[0].dispatchEvent(new MouseEvent("mouseover", { bubbles: true })))
+    act(() => rows()[0].focus())
+    act(() => search().focus())
+    type("Archive")
+    act(() => vi.advanceTimersByTime(220))
+    expect(search().value).toBe("Archive")
+    expect(rows()).toHaveLength(1)
+    expect(document.activeElement).toBe(search())
+    expect(select).not.toHaveBeenCalled()
+  })
+})

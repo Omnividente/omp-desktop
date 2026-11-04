@@ -560,6 +560,34 @@ button:disabled {
   color: var(--accent);
   background: var(--chrome-accent-wash, rgba(185, 242, 124, 0.06));
 }
+.project-search {
+  display: grid;
+  gap: 4px;
+  padding: 0 10px 8px;
+}
+
+.project-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.project-search input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.project-search-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .project-list {
   display: flex;
   min-height: 0;
@@ -5837,3 +5865,4 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 :root[data-desktop-theme="light"] .terminal-input-help-trigger {
   opacity: 1;
 }
+
