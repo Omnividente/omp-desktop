@@ -82,7 +82,7 @@ export function SessionControls({
       ;(providers[provider] ??= []).push(model)
       return providers
     },
-    {},
+    Object.create(null),
   )
 
   const recoveryPending = tab.switchRecovery !== null
