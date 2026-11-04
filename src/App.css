@@ -770,6 +770,32 @@ button:disabled {
   font-size: 0.625rem;
 }
 
+.session-model-filter {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.session-model-filter select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--text);
+  border: 1px solid var(--chrome-border, #282e2a);
+  border-radius: 8px;
+  background: var(--chrome-surface, #0f1210);
+  font: inherit;
+}
+
+.session-filter-summary {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
 .project-sessions .session-list {
   padding: 6px 0 8px;
 }
