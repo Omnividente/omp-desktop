@@ -5865,4 +5865,3 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 :root[data-desktop-theme="light"] .terminal-input-help-trigger {
   opacity: 1;
 }
-

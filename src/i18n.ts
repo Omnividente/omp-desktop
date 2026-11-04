@@ -1382,4 +1382,3 @@ export function thinkingLevelLabel(lang: Lang | string | null | undefined, level
   }
   return t(lang, keyByLevel[level] ?? "thinkingAuto")
 }
-

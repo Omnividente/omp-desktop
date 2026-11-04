@@ -403,4 +403,3 @@ export function ProjectRail({
     </aside>
   )
 }
-
