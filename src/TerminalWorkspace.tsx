@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { CompletedAnswers } from "./CompletedAnswers"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
@@ -48,6 +48,47 @@ interface TerminalWorkspaceProps {
   onToggleTitlePin: (tab: TerminalTab) => void
 }
 
+function revealTabHeader(strip: HTMLDivElement, header: HTMLElement) {
+  const stripRect = strip.getBoundingClientRect()
+  const headerRect = header.getBoundingClientRect()
+  const { clientLeft, clientWidth, scrollLeft, scrollWidth } = strip
+  if (
+    ![
+      stripRect.left,
+      stripRect.right,
+      stripRect.width,
+      headerRect.left,
+      headerRect.right,
+      headerRect.width,
+      clientLeft,
+      clientWidth,
+      scrollLeft,
+      scrollWidth,
+    ].every(Number.isFinite) ||
+    stripRect.width <= 0 ||
+    stripRect.right <= stripRect.left ||
+    headerRect.width <= 0 ||
+    headerRect.right <= headerRect.left ||
+    clientLeft < 0 ||
+    clientWidth <= 0 ||
+    scrollWidth < clientWidth
+  )
+    return
+
+  const viewportLeft = stripRect.left + clientLeft
+  const viewportRight = viewportLeft + clientWidth
+  let nextScrollLeft = scrollLeft
+  if (headerRect.width > clientWidth || headerRect.left < viewportLeft) {
+    nextScrollLeft += headerRect.left - viewportLeft
+  } else if (headerRect.right > viewportRight) {
+    nextScrollLeft += headerRect.right - viewportRight
+  }
+  nextScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, nextScrollLeft))
+  if (Number.isFinite(nextScrollLeft) && nextScrollLeft !== scrollLeft) {
+    strip.scrollLeft = nextScrollLeft
+  }
+}
+
 export function TerminalWorkspace({
   activeTabId,
   focusRequest,
@@ -79,6 +120,23 @@ export function TerminalWorkspace({
   onTogglePrimaryProviderPin,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("")
+  const keyboardReorderFocusRef = useRef<HTMLButtonElement | null>(null)
+
+  useLayoutEffect(() => {
+    const button = keyboardReorderFocusRef.current
+    keyboardReorderFocusRef.current = null
+    if (
+      !button?.isConnected ||
+      (document.activeElement !== document.body && document.activeElement !== button)
+    )
+      return
+    if (document.activeElement !== button) button.focus({ preventScroll: true })
+    const strip = tabStripRef.current
+    const header = button.parentElement
+    if (strip && header) revealTabHeader(strip, header)
+  }, [tabs])
+
   const stageRef = useRef<HTMLElement>(null)
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
@@ -102,44 +160,7 @@ export function TerminalWorkspace({
     const strip = tabStripRef.current
     const header = activeHeaderRef.current
     if (!activeTabId || !strip || !header) return
-    const stripRect = strip.getBoundingClientRect()
-    const headerRect = header.getBoundingClientRect()
-    const { clientLeft, clientWidth, scrollLeft, scrollWidth } = strip
-    if (
-      ![
-        stripRect.left,
-        stripRect.right,
-        stripRect.width,
-        headerRect.left,
-        headerRect.right,
-        headerRect.width,
-        clientLeft,
-        clientWidth,
-        scrollLeft,
-        scrollWidth,
-      ].every(Number.isFinite) ||
-      stripRect.width <= 0 ||
-      stripRect.right <= stripRect.left ||
-      headerRect.width <= 0 ||
-      headerRect.right <= headerRect.left ||
-      clientLeft < 0 ||
-      clientWidth <= 0 ||
-      scrollWidth < clientWidth
-    )
-      return
-
-    const viewportLeft = stripRect.left + clientLeft
-    const viewportRight = viewportLeft + clientWidth
-    let nextScrollLeft = scrollLeft
-    if (headerRect.width > clientWidth || headerRect.left < viewportLeft) {
-      nextScrollLeft += headerRect.left - viewportLeft
-    } else if (headerRect.right > viewportRight) {
-      nextScrollLeft += headerRect.right - viewportRight
-    }
-    nextScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, nextScrollLeft))
-    if (Number.isFinite(nextScrollLeft) && nextScrollLeft !== scrollLeft) {
-      strip.scrollLeft = nextScrollLeft
-    }
+    revealTabHeader(strip, header)
   }, [activeTabId, focusRequest?.terminalId, focusRequest?.sequence])
 
   useEffect(() => {
@@ -224,8 +245,11 @@ export function TerminalWorkspace({
     >
       <div className="terminal-workspace">
         <div className="terminal-tabs">
+          <span aria-live="polite" aria-atomic="true" className="sr-only">
+            {reorderAnnouncement}
+          </span>
           <div className="terminal-tabs-scroll" ref={tabStripRef}>
-            {tabs.map((tab) => {
+            {tabs.map((tab, index) => {
               const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
               const visualStatus =
                 runtimeStatus !== "normal"
@@ -264,8 +288,42 @@ export function TerminalWorkspace({
                 >
                   <button
                     aria-label={`${tab.label} — ${accessibleStatus}`}
+                    aria-keyshortcuts={
+                      onReorderTabs ? "Alt+Shift+ArrowLeft Alt+Shift+ArrowRight" : undefined
+                    }
                     onClick={() => onFocusTab(tab.id)}
-                    title={accessibleStatus}
+                    onKeyDown={(event) => {
+                      if (
+                        !onReorderTabs ||
+                        event.defaultPrevented ||
+                        event.nativeEvent.isComposing ||
+                        event.nativeEvent.keyCode === 229 ||
+                        !event.altKey ||
+                        !event.shiftKey ||
+                        event.ctrlKey ||
+                        event.metaKey ||
+                        (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                      )
+                        return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      const nextIndex = index + (event.key === "ArrowLeft" ? -1 : 1)
+                      const target = tabs[nextIndex]
+                      if (!target) return
+                      keyboardReorderFocusRef.current = event.currentTarget
+                      onReorderTabs(tab.id, target.id)
+                      setReorderAnnouncement(
+                        t(language, "tabReordered")
+                          .replace("{position}", String(nextIndex + 1))
+                          .replace("{count}", String(tabs.length))
+                          .replace("{title}", () => tab.label),
+                      )
+                    }}
+                    title={
+                      onReorderTabs
+                        ? accessibleStatus + ". " + t(language, "tabReorderHint")
+                        : accessibleStatus
+                    }
                     type="button"
                   >
                     <span className={`status-dot is-${tab.status} is-${visualStatus}`} />
