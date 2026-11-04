@@ -396,8 +396,7 @@ export function SessionList({
         </label>
         {selectedModel !== null && (
           <p className="session-filter-summary" role="status">
-            {t(lang, "sessionModelMatches").replace("{count}", String(matchingSessions.length))}
-            {" "}
+            {t(lang, "sessionModelMatches").replace("{count}", String(matchingSessions.length))}{" "}
             {t(lang, "sessionModelFilterHelp")}
           </p>
         )}

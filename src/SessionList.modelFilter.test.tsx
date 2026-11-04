@@ -152,7 +152,8 @@ it("retains an unavailable selected model after refresh until explicitly cleared
   expect(div.textContent).toContain("Matches: 0.")
   await filter(null)
   expect(titles()).toEqual(["other"])
-  expect([...select().options].some((option) => option.value === JSON.stringify("alpha"))).toBe(false)
+  const optionValues = [...select().options].map((option) => option.value)
+  expect(optionValues).not.toContain(JSON.stringify("alpha"))
 })
 
 it("resets the filter on workspace change and does not resurrect it on return", async () => {
@@ -166,7 +167,7 @@ it("resets the filter on workspace change and does not resurrect it on return", 
   expect(select().value).toBe("all")
 })
 
-it("clears the model filter when selecting a result, preserving the selected callback", async () => {
+it("clears the model filter on selection and preserves its callback", async () => {
   const sessions = [session("target", "alpha"), session("other", "beta")]
   const render = await mount(sessions)
   const onSelectSession = vi.fn()
