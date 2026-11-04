@@ -172,6 +172,153 @@ describe("SettingsPanel Save state", () => {
     })
   }
 
+  it("navigates category tabs with arrows and Home/End, wrapping and retaining one tab stop", async () => {
+    await renderRuntime(runtime)
+    const tabs = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.settings-nav [role="tab"]'),
+    )
+    const press = (key: string, expected: number) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => {
+        document.activeElement!.dispatchEvent(event)
+      })
+      expect(event.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(tabs[expected])
+      expect(tabs.map((tab) => tab.tabIndex)).toEqual(
+        tabs.map((_, index) => (index === expected ? 0 : -1)),
+      )
+      expect(tabs[expected].getAttribute("aria-selected")).toBe("true")
+      expect(container.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(
+        tabs[expected].id,
+      )
+    }
+    expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1, -1, -1])
+    tabs[0].focus()
+    press("ArrowUp", 4)
+    press("ArrowDown", 0)
+    press("ArrowDown", 1)
+    press("End", 4)
+    press("Home", 0)
+    act(() => tabs[3].click())
+    tabs[3].focus()
+    press("ArrowDown", 4)
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
+  it("leaves modified, composing, handled and non-navigation keys alone in category tabs", async () => {
+    await renderRuntime(runtime)
+    const tab = container.querySelector<HTMLButtonElement>("#settings-tab-general")!
+    tab.focus()
+    const variants: KeyboardEventInit[] = [
+      { key: "ArrowDown", altKey: true },
+      { key: "ArrowDown", ctrlKey: true },
+      { key: "ArrowDown", metaKey: true },
+      { key: "ArrowDown", shiftKey: true },
+      { key: "ArrowDown", isComposing: true },
+      { key: "ArrowDown", keyCode: 229 },
+      { key: "ArrowLeft" },
+      { key: "ArrowRight" },
+      { key: "Tab" },
+      { key: "a" },
+    ]
+    for (const variant of variants) {
+      const event = new KeyboardEvent("keydown", {
+        ...variant,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => tab.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(tab)
+      expect(tab.getAttribute("aria-selected")).toBe("true")
+    }
+    const handled = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    })
+    handled.preventDefault()
+    act(() => tab.dispatchEvent(handled))
+    expect(document.activeElement).toBe(tab)
+  })
+
+  it("preserves an unsaved draft across keyboard category changes without handling editor arrows", async () => {
+    await renderRuntime(runtime, { ...settings, language: "en" })
+    const input = editExecutableDraft()
+    input.focus()
+    const arrow = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => input.dispatchEvent(arrow))
+    expect(arrow.defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(input)
+    const general = container.querySelector<HTMLButtonElement>("#settings-tab-general")!
+    general.focus()
+    act(() => general.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })))
+    expect(document.activeElement?.id).toBe("settings-tab-providers")
+    expect(container.querySelector('[role="tabpanel"]')?.id).toBe("settings-panel-providers")
+    act(() =>
+      document.activeElement!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
+      ),
+    )
+    expect(container.querySelector<HTMLInputElement>("#omp-executable")!.value).toBe(
+      "synthetic-unsubmitted-runtime.exe",
+    )
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
+  it("reveals keyboard targets only in the category strip on either scroll axis", async () => {
+    await renderRuntime(runtime)
+    const nav = container.querySelector<HTMLElement>(".settings-nav")!
+    const tabs = Array.from(nav.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!
+    dialog.scrollTop = 71
+    dialog.scrollLeft = 23
+    nav.scrollLeft = 40
+    nav.scrollTop = 50
+    vi.spyOn(nav, "getBoundingClientRect").mockReturnValue({ left: 100, top: 200 } as DOMRect)
+    Object.defineProperties(nav, {
+      clientWidth: { value: 200 },
+      clientHeight: { value: 100 },
+      clientLeft: { value: 2 },
+      clientTop: { value: 3 },
+    })
+    vi.spyOn(tabs[4], "getBoundingClientRect").mockReturnValue({
+      left: 350,
+      right: 430,
+      top: 340,
+      bottom: 376,
+    } as DOMRect)
+    tabs[0].focus()
+    act(() => tabs[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })))
+    expect(nav.scrollLeft).toBe(168)
+    expect(nav.scrollTop).toBe(123)
+    vi.spyOn(tabs[0], "getBoundingClientRect").mockReturnValue({
+      left: 60,
+      right: 140,
+      top: 150,
+      bottom: 186,
+    } as DOMRect)
+    act(() => tabs[4].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })))
+    expect(nav.scrollLeft).toBe(126)
+    expect(nav.scrollTop).toBe(70)
+    expect(dialog.scrollTop).toBe(71)
+    expect(dialog.scrollLeft).toBe(23)
+    // Ordinary rerenders do not undo the user's later manual scroll.
+    nav.scrollLeft = 17
+    nav.scrollTop = 19
+    await renderRuntime({ ...runtime })
+    expect(nav.scrollLeft).toBe(17)
+    expect(nav.scrollTop).toBe(19)
+  })
+
   const failedRuntime: RuntimeInfo = {
     ...runtime,
     ompAvailable: false,
