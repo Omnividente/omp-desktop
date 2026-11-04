@@ -5402,10 +5402,11 @@ mod tests {
     fn import_test_thread_names_are_nested_and_thread_local() {
         let isolated = IsolatedCodexThreadNames::new();
         super::TEST_CODEX_THREAD_NAMES.with(|names| {
-            names.borrow_mut().as_mut().unwrap().insert(
-                "synthetic-session".to_owned(),
-                "synthetic-title".to_owned(),
-            );
+            names
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .insert("synthetic-session".to_owned(), "synthetic-title".to_owned());
         });
         {
             let _nested = IsolatedCodexThreadNames::new();
@@ -5429,9 +5430,13 @@ mod tests {
     #[test]
     fn invalid_utf8_import_fails_before_creating_history() {
         let _isolated_names = IsolatedCodexThreadNames::new();
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "omp-desktop-invalid-utf8-import-{}-{nonce}", std::process::id()
+            "omp-desktop-invalid-utf8-import-{}-{nonce}",
+            std::process::id()
         ));
         let project = root.join("project");
         let session_root = root.join("sessions");
@@ -5457,7 +5462,11 @@ mod tests {
             assert_eq!(result.len(), 1);
             assert_eq!(result[0].status, ImportItemStatus::Failed);
             assert_eq!(result[0].destination_path, None);
-            assert!(result[0].message.as_deref().unwrap().starts_with("[session_import_invalid_encoding]"));
+            assert!(result[0]
+                .message
+                .as_deref()
+                .unwrap()
+                .starts_with("[session_import_invalid_encoding]"));
             assert_eq!(fs::read(&source).unwrap(), bytes);
             assert!(!session_root.exists());
         }
@@ -5467,9 +5476,13 @@ mod tests {
     #[test]
     fn invalid_utf8_update_preserves_existing_history_and_artifacts() {
         let _isolated_names = IsolatedCodexThreadNames::new();
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "omp-desktop-utf8-update-{}-{nonce}", std::process::id()
+            "omp-desktop-utf8-update-{}-{nonce}",
+            std::process::id()
         ));
         let project = root.join("project");
         let session_root = root.join("sessions");
@@ -5492,11 +5505,20 @@ mod tests {
         let original = fs::read(&destination).unwrap();
         let transcript = read_session_transcript(&destination, &session_root).unwrap();
         assert_eq!(transcript.malformed_records, 0);
-        assert!(transcript.entries.iter().any(|entry| entry.text == "Кириллица 😀 �"));
+        assert!(transcript
+            .entries
+            .iter()
+            .any(|entry| entry.text == "Кириллица 😀 �"));
         // Actual U+FFFD is valid Unicode, not a reason to reject a source.
-        assert_eq!(import_session(&request, &session_root).unwrap().status, ImportItemStatus::Skipped);
+        assert_eq!(
+            import_session(&request, &session_root).unwrap().status,
+            ImportItemStatus::Skipped
+        );
         let mut corrupt = valid.as_bytes().to_vec();
-        let index = corrupt.windows("Кириллица".len()).position(|part| part == "Кириллица".as_bytes()).unwrap();
+        let index = corrupt
+            .windows("Кириллица".len())
+            .position(|part| part == "Кириллица".as_bytes())
+            .unwrap();
         corrupt[index] = 0xff;
         fs::write(&source, &corrupt).unwrap();
         fs::write(source.with_extension("").join("kept.txt"), "replacement").unwrap();
@@ -5510,7 +5532,11 @@ mod tests {
             assert!(error.starts_with("[session_import_invalid_encoding]"));
             assert_eq!(fs::read(&source).unwrap(), corrupt);
             assert_eq!(fs::read(&destination).unwrap(), original);
-            assert_eq!(fs::read_to_string(Path::new(&destination).with_extension("").join("kept.txt")).unwrap(), "original");
+            assert_eq!(
+                fs::read_to_string(Path::new(&destination).with_extension("").join("kept.txt"))
+                    .unwrap(),
+                "original"
+            );
             // A rejected import must leave no stage, marker or copy behind.
             let entries = fs::read_dir(Path::new(&destination).parent().unwrap())
                 .unwrap()
@@ -5678,8 +5704,15 @@ mod tests {
                 )
                 .unwrap();
                 assert_eq!(transcript.malformed_records, 0);
-                let expected = if index == 1 { "valid omp" } else { "valid codex" };
-                assert!(transcript.entries.iter().any(|entry| entry.text == expected));
+                let expected = if index == 1 {
+                    "valid omp"
+                } else {
+                    "valid codex"
+                };
+                assert!(transcript
+                    .entries
+                    .iter()
+                    .any(|entry| entry.text == expected));
             }
         }
         fs::remove_dir_all(root).unwrap();
