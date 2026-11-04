@@ -162,6 +162,8 @@ export const UI_TEXT = {
     collapseSessionGroup: "Свернуть дочерние сессии",
     importSession: "Импорт Codex/OMP",
     importSessionInUse: "Невозможно импортировать: сессия используется",
+    importSessionInvalidUtf8:
+      "Невозможно импортировать: файл содержит повреждённый текст UTF-8. Исходный файл не изменён.",
     importCodex: "Импорт из Codex",
     refresh: "Обновить список",
     sessions: "Сессии",
@@ -816,6 +818,8 @@ export const UI_TEXT = {
     collapseSessionGroup: "Collapse child sessions",
     importSession: "Import Codex/OMP",
     importSessionInUse: "Cannot import: the session is in use",
+    importSessionInvalidUtf8:
+      "Cannot import: the file contains invalid UTF-8 text. The source file was not changed.",
     importCodex: "Import from Codex",
     refresh: "Refresh list",
     sessions: "Sessions",
