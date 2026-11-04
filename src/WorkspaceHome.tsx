@@ -13,6 +13,7 @@ interface WorkspaceHomeProps {
   launching: string | null
   lang: Lang
   onLaunch: (session?: SessionSummary) => void
+  onReadTranscript: (path: string) => void
   onReveal: (path: string) => void
   onOpenFolder: () => void
 }
@@ -26,6 +27,7 @@ export function WorkspaceHome({
   launching,
   lang,
   onLaunch,
+  onReadTranscript,
   onReveal,
   onOpenFolder,
 }: WorkspaceHomeProps) {
@@ -149,19 +151,30 @@ export function WorkspaceHome({
         ) : (
           <div className="recent-list">
             {sessions.slice(0, 4).map((session) => (
-              <button key={session.id} onClick={() => onLaunch(session)} type="button">
-                <span className="recent-icon">
-                  <Icon name="history" />
-                </span>
-                <span className="recent-copy">
-                  <strong>{session.title}</strong>
-                  <small>
-                    {session.model?.split("/").at(-1) ?? t(lang, "noModel")} ·{" "}
-                    {formatRelative(session.updatedAt, lang)}
-                  </small>
-                </span>
-                <Icon name="arrow" size={16} />
-              </button>
+              <div className="recent-session" key={session.id}>
+                <button className="recent-resume" onClick={() => onLaunch(session)} type="button">
+                  <span className="recent-icon">
+                    <Icon name="history" />
+                  </span>
+                  <span className="recent-copy">
+                    <strong>{session.title}</strong>
+                    <small>
+                      {session.model?.split("/").at(-1) ?? t(lang, "noModel")} ·{" "}
+                      {formatRelative(session.updatedAt, lang)}
+                    </small>
+                  </span>
+                  <Icon name="arrow" size={16} />
+                </button>
+                <button
+                  className="button secondary recent-read"
+                  aria-label={`${t(lang, "openTranscript")}: ${session.title}`}
+                  onClick={() => onReadTranscript(session.filePath)}
+                  type="button"
+                >
+                  <Icon name="history" size={14} />
+                  {t(lang, "transcriptRead")}
+                </button>
+              </div>
             ))}
           </div>
         )}

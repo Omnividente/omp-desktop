@@ -200,6 +200,7 @@ export function TerminalWorkspace({
           launching={launching}
           onLaunch={onLaunch}
           onOpenFolder={onOpenFolder}
+          onReadTranscript={onReadTranscript}
           onReveal={onReveal}
           runtime={runtime}
           selectedSession={selectedSession}

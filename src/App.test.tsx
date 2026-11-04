@@ -2328,6 +2328,60 @@ describe("App lifecycle serialization", () => {
     expect(element(".codex-import-panel").querySelectorAll("[role=alert]")).toHaveLength(1)
   })
 
+  it.each(["en", "ru"] as const)(
+    "reads a recent session from Home without launching OMP (%s)",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        runtime: { ...bootstrap.runtime, ompAvailable: false },
+      })
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "read_session_transcript") {
+          return Promise.resolve({
+            session: bootstrap.sessions[0],
+            entries: [],
+            updatedAt: 1,
+            truncated: false,
+            malformedRecords: 0,
+            incompleteLastRecord: false,
+          })
+        }
+        throw new Error(`Unexpected Home reader command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      const read = element<HTMLButtonElement>(".recent-read")
+      expect(read.textContent).toContain(t(language, "transcriptRead"))
+      expect(read.getAttribute("aria-label")).toBe(
+        `${t(language, "openTranscript")}: ${bootstrap.sessions[0].title}`,
+      )
+      expect(read.type).toBe("button")
+      expect(read.disabled).toBe(false)
+      expect(read.closest("button")?.parentElement?.closest("button")).toBeNull()
+      await act(async () => {
+        read.focus()
+        read.click()
+      })
+      expect(container.querySelector(".transcript-panel")).not.toBeNull()
+      expect(invokeMock).toHaveBeenCalledWith(
+        "read_session_transcript",
+        { path: bootstrap.sessions[0].filePath },
+        undefined,
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      await act(async () => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        )
+      })
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(document.activeElement).toBe(read)
+      await act(async () => read.click())
+      expect(container.querySelector(".transcript-panel")).not.toBeNull()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it("closes a transcript when external refresh removes its session", async () => {
     vi.mocked(api.bootstrap)
       .mockResolvedValueOnce(bootstrap)

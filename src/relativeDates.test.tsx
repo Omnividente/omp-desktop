@@ -169,6 +169,7 @@ describe("relative date calendar presentation", () => {
               launching={null}
               lang={lang}
               onLaunch={vi.fn()}
+              onReadTranscript={vi.fn()}
               onReveal={vi.fn()}
               onOpenFolder={vi.fn()}
             />

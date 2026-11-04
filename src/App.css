@@ -3508,7 +3508,19 @@ button:disabled {
   gap: 7px;
 }
 
-.recent-list > button {
+.recent-session {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recent-read {
+  flex: none;
+}
+
+.recent-resume {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3523,7 +3535,7 @@ button:disabled {
   text-align: left;
 }
 
-.recent-list > button:hover {
+.recent-resume:hover {
   color: var(--accent);
   border-color: var(--chrome-border, #364039);
   background: var(--chrome-hover-surface, #181d19);

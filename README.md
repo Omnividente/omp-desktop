@@ -35,6 +35,7 @@ Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi
 <summary>Подробные возможности, ограничения и поведение</summary>
 
 - Проекты и недавние рабочие папки в боковой панели.
+- На главной странице у недавних сессий отдельная кнопка «Читать» открывает сохранённую историю без запуска OMP. Действие возобновления сессии остаётся отдельным.
 - Последний выбранный проект восстанавливается после перезапуска Desktop; явный `--project` имеет приоритет. Если папка запуска недоступна, Desktop сохраняет намерение и предлагает повторить проверку, выбрать другую папку или явно продолжить в прежнем проекте. Ошибка фонового сохранения выбора проекта остаётся видимой с отдельной кнопкой повторения. Удалённые или скрытые папки не возвращаются автоматически, терминалы без запроса не запускаются.
 - Перекрывающиеся переименования, добавления и удаления проектов сохраняют все успешные изменения; завершение фоновой операции или импорта не отменяет более новый выбор проекта.
 - Путь проекта сохраняется точно, включая допустимые начальные и конечные пробелы; нормализация отображаемого названия не меняет идентичность папки. Пустой или состоящий только из пробелов путь отклоняется.
@@ -169,6 +170,7 @@ For users who want graphical project and settings controls while retaining the O
 <summary>Detailed features, limitations, and behavior</summary>
 
 - Project sidebar with persisted recent workspaces.
+- On Home, the separate Read button beside each recent session opens its saved history without launching OMP. Resuming a session remains a separate action.
 - The last selected project is restored after a Desktop restart; an explicit `--project` takes precedence. If the launch folder is unavailable, Desktop retains the intent and offers Retry, another folder, or explicit continuation in the previous project. A background selection-save failure remains visible with its own retry action. Missing or hidden workspaces are not revived automatically, and no terminal starts without a user action.
 - Overlapping project renames, additions and removals preserve every successful change; completing a background operation or import does not undo a newer project selection.
 - Project paths retain their exact spelling, including valid leading or trailing whitespace; display-name normalization does not change directory identity. Empty or whitespace-only paths are rejected.
