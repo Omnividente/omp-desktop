@@ -19,7 +19,7 @@ interface IncidentCenterProps {
   onFocusTerminal: (terminalId: string) => void
 }
 
-type IncidentFilter = "active" | "all"
+type IncidentFilter = "active" | "all" | "resolved"
 type CaptureState =
   | { status: "saving" }
   | { status: "saved"; capture: TerminalCapture }
@@ -65,7 +65,7 @@ export function IncidentCenter({
     () =>
       latestFirst.filter(
         (incident) =>
-          (filter === "all" || incident.status === "active") &&
+          (filter === "all" || incident.status === filter) &&
           (!selectedTerminal || incident.terminalId === selectedTerminal),
       ),
     [filter, latestFirst, selectedTerminal],
@@ -236,6 +236,15 @@ export function IncidentCenter({
               {t(language, "incidentFilterAll")}
               <span>{incidents.length}</span>
             </button>
+            <button
+              aria-pressed={filter === "resolved"}
+              className={filter === "resolved" ? "is-active" : undefined}
+              onClick={() => setFilter("resolved")}
+              type="button"
+            >
+              {t(language, "incidentFilterResolved")}
+              <span>{resolvedCount}</span>
+            </button>
           </div>
           <label className="incident-terminal-filter">
             <span>{t(language, "incidentTerminalFilter")}</span>
@@ -270,9 +279,13 @@ export function IncidentCenter({
                   language,
                   incidents.length === 0
                     ? "incidentNoIncidents"
-                    : selectedTerminal
-                      ? "incidentNoActiveForTerminal"
-                      : "incidentNoActiveIncidents",
+                    : filter === "resolved"
+                      ? selectedTerminal
+                        ? "incidentNoResolvedForTerminal"
+                        : "incidentNoResolvedIncidents"
+                      : selectedTerminal
+                        ? "incidentNoActiveForTerminal"
+                        : "incidentNoActiveIncidents",
                 )}
               </strong>
             </div>
