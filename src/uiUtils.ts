@@ -74,6 +74,16 @@ export function tabMatchesSession(
   )
 }
 
+export function isSuccessfulTerminalTab(tab: TerminalTab): boolean {
+  return (
+    tab.status === "exited" &&
+    tab.success === true &&
+    !tab.switching &&
+    !tab.primaryProviderPinPending &&
+    tab.switchRecovery === null
+  )
+}
+
 export function reorderTerminalTabs(
   tabs: TerminalTab[],
   draggedId: string,

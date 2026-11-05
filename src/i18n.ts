@@ -50,6 +50,9 @@ export const UI_TEXT = {
     createFirstSession: "Создайте первую сессию в этой папке",
     tryAnotherQuery: "Попробуйте другой запрос",
     jsonlNative: "JSONL · OMP native",
+    closeSuccessfulTabs: "Закрыть успешно завершённые вкладки ({count})",
+    closeSuccessfulTabsHint:
+      "Закрыть вкладки с успешным завершением. Работающие, неуспешные и занятые вкладки останутся. Сохранённая история не удаляется; вывод закрытых терминалов исчезнет.",
     stopAndClose: "Остановить и закрыть",
     stopAndCloseConfirm: "Вкладка содержит активный процесс OMP. Завершить и закрыть?",
     close: "Закрыть",
@@ -704,6 +707,9 @@ export const UI_TEXT = {
     createFirstSession: "Create your first session in this folder",
     tryAnotherQuery: "Try another query",
     jsonlNative: "JSONL · OMP native",
+    closeSuccessfulTabs: "Close successfully exited tabs ({count})",
+    closeSuccessfulTabsHint:
+      "Close successfully exited tabs. Running, unsuccessful and busy tabs stay open. Saved history is kept; closed terminal output is discarded.",
     stopAndClose: "Stop and close",
     stopAndCloseConfirm: "The tab contains a running OMP process. Stop and close?",
     close: "Close",

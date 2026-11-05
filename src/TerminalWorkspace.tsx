@@ -14,7 +14,7 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import { WorkspaceHome } from "./WorkspaceHome"
-import { buildSessionTree, latestSessionInTree } from "./uiUtils"
+import { buildSessionTree, isSuccessfulTerminalTab, latestSessionInTree } from "./uiUtils"
 
 interface TerminalWorkspaceProps {
   activeTabId: string | null
@@ -34,6 +34,7 @@ interface TerminalWorkspaceProps {
   onReorderTabs?: (draggedId: string, targetId: string) => void
   onDiscardSwitchRecovery: (terminalId: string) => void
   onCloseTab: (terminalId: string) => void
+  onCloseSuccessfulTabs?: () => void
   onError: (message: string) => void
   onExit: (event: PtyExitEvent) => void
   onFocusTab: (terminalId: string) => void
@@ -65,6 +66,7 @@ export function TerminalWorkspace({
   workspaceSessions,
   onDiscardSwitchRecovery,
   onCloseTab,
+  onCloseSuccessfulTabs,
   onError,
   onExit,
   onFocusTab,
@@ -79,6 +81,9 @@ export function TerminalWorkspace({
   onTogglePrimaryProviderPin,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
+  const successfulTabCount = tabs.filter(isSuccessfulTerminalTab).length
+  const cleanupButtonRef = useRef<HTMLButtonElement>(null)
+  const cleanupFocusRef = useRef(false)
   const stageRef = useRef<HTMLElement>(null)
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
@@ -87,6 +92,21 @@ export function TerminalWorkspace({
   const activeHeaderRef = useRef<HTMLDivElement>(null)
   const previousActiveTabRef = useRef<string | null>(null)
   const lastRevealSequenceRef = useRef<number | null>(null)
+
+  useLayoutEffect(() => {
+    const requested = cleanupFocusRef.current
+    cleanupFocusRef.current = false
+    if (!requested || successfulTabCount !== 0 || tabs.length === 0) return
+    if (
+      document.activeElement !== cleanupButtonRef.current &&
+      document.activeElement !== document.body
+    )
+      return
+    const target =
+      activeHeaderRef.current?.querySelector<HTMLButtonElement>("button") ??
+      tabStripRef.current?.querySelector<HTMLButtonElement>("button")
+    target?.focus({ preventScroll: true })
+  }, [successfulTabCount, tabs])
 
   useLayoutEffect(() => {
     const selectionChanged = previousActiveTabRef.current !== activeTabId
@@ -325,6 +345,33 @@ export function TerminalWorkspace({
             </button>
           </div>
           <div className="terminal-meta">
+            {onCloseSuccessfulTabs && (
+              <button
+                aria-label={t(language, "closeSuccessfulTabs").replace(
+                  "{count}",
+                  String(successfulTabCount),
+                )}
+                className="button secondary close-successful-tabs"
+                disabled={successfulTabCount === 0}
+                onClick={(event) => {
+                  cleanupFocusRef.current = document.activeElement === event.currentTarget
+                  onCloseSuccessfulTabs()
+                }}
+                ref={cleanupButtonRef}
+                title={
+                  t(language, "closeSuccessfulTabs").replace(
+                    "{count}",
+                    String(successfulTabCount),
+                  ) +
+                  ". " +
+                  t(language, "closeSuccessfulTabsHint")
+                }
+                type="button"
+              >
+                <Icon name="close" size={14} />
+                <span aria-hidden="true">{successfulTabCount}</span>
+              </button>
+            )}
             {activeTab && (
               <SessionControls
                 lang={language}

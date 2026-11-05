@@ -112,6 +112,7 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import {
+  isSuccessfulTerminalTab,
   localeTag,
   mergeSessionIntoPayload,
   normalizedPath,
@@ -2103,6 +2104,11 @@ function App() {
     setTabs((current) => reorderTerminalTabs(current, draggedId, targetId))
   }, [])
 
+  const closingSuccessfulTabsRef = useRef(false)
+  useEffect(() => {
+    closingSuccessfulTabsRef.current = false
+  }, [tabs])
+
   const performCloseTab = useCallback(
     (terminalId: string) => {
       forgetTerminalContinuity(terminalId)
@@ -2135,6 +2141,15 @@ function App() {
     },
     [lang, refresh, showError],
   )
+
+  const closeSuccessfulTabs = useCallback(() => {
+    if (closingSuccessfulTabsRef.current) return
+    // Recheck the current tabs, not the count from the triggering render.
+    const completed = tabsRef.current.filter(isSuccessfulTerminalTab)
+    if (completed.length === 0) return
+    closingSuccessfulTabsRef.current = true
+    for (const tab of completed) performCloseTab(tab.id)
+  }, [performCloseTab])
 
   const closeTab = useCallback(
     (terminalId: string) => {
@@ -2670,6 +2685,7 @@ function App() {
           ompConfig={ompConfig}
           onDiscardSwitchRecovery={(terminalId) => void discardRecoveredSwitchInput(terminalId)}
           onCloseTab={closeTab}
+          onCloseSuccessfulTabs={closeSuccessfulTabs}
           onError={showError}
           onExit={handleExit}
           onFocusTab={focusTab}

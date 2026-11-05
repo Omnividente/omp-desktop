@@ -6,6 +6,7 @@ import {
   formatTerminalExitLine,
   flattenSessionTree,
   latestSessionInTree,
+  isSuccessfulTerminalTab,
   mergeSessionIntoPayload,
   normalizedPath,
   replaceTerminalAfterRestart,
@@ -449,5 +450,51 @@ describe("session lineage tree", () => {
     ])
     expect(tree.slice(0, 5).every((node) => node.children.length === 0)).toBe(true)
     expect(tree[5].children.map((node) => node.session.id)).toEqual(["self"])
+  })
+})
+
+describe("successful tab cleanup eligibility", () => {
+  it.each(["agent", "utility"] as const)("includes an idle successful %s exit", (kind) => {
+    expect(isSuccessfulTerminalTab(terminalTab({ kind, status: "exited", success: true }))).toBe(
+      true,
+    )
+  })
+  it.each<Partial<TerminalTab>>([
+    { status: "running" },
+    { success: false },
+    { success: null },
+    { switching: true },
+    { primaryProviderPinPending: true },
+    {
+      switchRecovery: {
+        terminalId: "tab-1",
+        state: "pending",
+        generation: 1,
+        byteCount: 8,
+        token: "synthetic-token",
+      },
+    },
+    {
+      switchRecovery: {
+        terminalId: "tab-1",
+        state: "sending",
+        generation: 1,
+        byteCount: 8,
+        token: "synthetic-token",
+      },
+    },
+    {
+      switchRecovery: {
+        terminalId: "tab-1",
+        state: "failedSend",
+        generation: 1,
+        byteCount: 8,
+        token: "synthetic-token",
+      },
+    },
+  ])("keeps a running, unknown, unsuccessful or busy terminal: %j", (overrides) => {
+    expect(
+      isSuccessfulTerminalTab(terminalTab({ status: "exited", success: true, ...overrides })),
+    ).toBe(false)
   })
 })
