@@ -5067,12 +5067,34 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 
 .incident-center-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 12px 24px;
   border-bottom: 1px solid var(--line);
   background: var(--chrome-surface, #111412);
+}
+
+.incident-terminal-filter {
+  display: flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 0.6875rem;
+}
+
+.incident-terminal-filter select {
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--chrome-border, #2d342f);
+  border-radius: 6px;
+  color: var(--chrome-text, #eef2ef);
+  background: var(--chrome-surface, #0e110f);
 }
 
 .incident-filter {
