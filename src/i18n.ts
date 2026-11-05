@@ -2,6 +2,8 @@ export type Lang = "ru" | "en"
 
 export const UI_TEXT = {
   ru: {
+    skipToWorkspace: "Перейти к рабочей области",
+    workspaceRegion: "Рабочая область",
     importItemFailed: "Не удалось импортировать файл",
     importFailureDetails: "Причины ошибок импорта",
     importFailurePages: "Страницы ошибок импорта",
@@ -655,6 +657,8 @@ export const UI_TEXT = {
     failed: "Ошибок",
   },
   en: {
+    skipToWorkspace: "Skip to workspace",
+    workspaceRegion: "Workspace",
     importItemFailed: "Could not import the file",
     importFailureDetails: "Import failure details",
     importFailurePages: "Import failure pages",
