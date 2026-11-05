@@ -1,6 +1,51 @@
 import { expect, it } from "vitest"
 import { SEARCH_HIGHLIGHT_LIMIT, TranscriptSearch } from "./transcriptSearch"
 
+it("optionally distinguishes code identifiers while keeping literal UTF-16 match spans", () => {
+  const contents = [{ text: "😀PATH path Path PATH.* path.*" }]
+  const search = new TranscriptSearch(contents, "PATH", true)
+  expect(search.count).toBe(2)
+  expect(search.matchesForEntry(0, 0)).toEqual([
+    { start: 2, end: 6, index: 0 },
+    { start: 17, end: 21, index: 1 },
+  ])
+  expect(new TranscriptSearch(contents, "PATH").count).toBe(5)
+  expect(new TranscriptSearch(contents, "PATH.*", true).matchesForEntry(0, 0)).toEqual([
+    { start: 17, end: 23, index: 0 },
+  ])
+  expect(new TranscriptSearch(contents, "", true).count).toBe(0)
+})
+
+it("does not case-fold Unicode when match case is selected", () => {
+  const search = new TranscriptSearch([{ text: "😀𐐨 𐐀 K K k" }], "𐐀", true)
+  expect(search.matchesForEntry(0, 0)).toEqual([{ start: 5, end: 7, index: 0 }])
+  expect(new TranscriptSearch([{ text: "K K k" }], "k", true).matchesForEntry(0, 0)).toEqual([
+    { start: 4, end: 5, index: 0 },
+  ])
+  expect(new TranscriptSearch([{ text: "Путь путь" }], "Путь", true).count).toBe(1)
+})
+
+it("keeps bounded windows and global indices when a case-sensitive search skips entries", () => {
+  const search = new TranscriptSearch(
+    [{ text: "x".repeat(5000) }, { text: "Xx".repeat(4500) }, { text: "x" }, { text: "X" }],
+    "X",
+    true,
+  )
+  expect(search.count).toBe(4501)
+  expect(search.entryIndex(0)).toBe(1)
+  expect(search.entryIndex(4500)).toBe(3)
+  for (const index of [0, 4095, 4096, 4499]) {
+    const matches = search.matchesForEntry(1, index)
+    expect(matches.length).toBeLessThanOrEqual(SEARCH_HIGHLIGHT_LIMIT)
+    expect(matches.find((match) => match.index === index)).toEqual({
+      start: index * 2,
+      end: index * 2 + 1,
+      index,
+    })
+  }
+  expect(search.matchesForEntry(0, 0)).toEqual([])
+})
+
 it("keeps UTF-16 offsets and Unicode case-folded match spans", () => {
   const search = new TranscriptSearch([{ text: "😀K k K" }], "k")
   expect(search.count).toBe(3)

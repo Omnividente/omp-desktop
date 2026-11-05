@@ -3,9 +3,6 @@ import type { TerminalTab } from "./types"
 
 const CURSOR_LEFT = "\x1b[D"
 const CURSOR_RIGHT = "\x1b[C"
-const DELETE_FORWARD = "\x1b[3~"
-const DELETE_BACKWARD = "\x7f"
-const CLEAR_OMP_EDITOR = "\x03"
 const MAX_MOUSE_EDIT_ROWS = 8
 const MAX_MOUSE_EDIT_CELLS = 4096
 
@@ -13,17 +10,6 @@ const UNSAFE_SELECTION_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f
 export interface TerminalCell {
   x: number
   y: number
-}
-
-export interface MouseSelectionEdit {
-  endpoint: TerminalCell
-  deleteBackward: boolean
-  length: number
-}
-
-interface BufferRange {
-  start: { x: number; y: number }
-  end: { x: number; y: number }
 }
 
 export function terminalInputBlocked(
@@ -128,54 +114,4 @@ export function cursorMoveInput(terminal: Terminal, target: TerminalCell): strin
   if (distance < 0) return CURSOR_LEFT.repeat(-distance)
   if (distance > 0) return CURSOR_RIGHT.repeat(distance)
   return ""
-}
-
-function cellIndex(terminal: Terminal, cell: TerminalCell): number {
-  return cell.y * terminal.cols + cell.x
-}
-
-export function createMouseSelectionEdit(
-  terminal: Terminal,
-  range: BufferRange,
-  releaseCell: TerminalCell,
-  text: string,
-): MouseSelectionEdit | null {
-  // xterm 6.0 exposes the selection service's zero-based coordinates at runtime.
-  const start = range.start
-  const end = range.end
-  if (
-    cursorInputDistance(terminal, start) === null ||
-    cursorInputDistance(terminal, end) === null
-  ) {
-    return null
-  }
-  let length = 0
-  for (const character of text) {
-    if (character === "\r" || character === "\n") continue
-    if (++length > MAX_MOUSE_EDIT_CELLS) return null
-  }
-  if (length === 0) return null
-
-  const releaseIndex = cellIndex(terminal, releaseCell)
-  const startDistance = Math.abs(releaseIndex - cellIndex(terminal, start))
-  const endDistance = Math.abs(releaseIndex - cellIndex(terminal, end))
-  const endpoint = startDistance < endDistance ? start : end
-  return {
-    endpoint,
-    deleteBackward: endpoint === end,
-    length,
-  }
-}
-
-export function deleteInput(
-  terminal: Terminal,
-  selectAllArmed: boolean,
-  mouseSelection: MouseSelectionEdit | null,
-): string | null {
-  if (selectAllArmed) return CLEAR_OMP_EDITOR
-  if (!mouseSelection) return null
-  const move = cursorMoveInput(terminal, mouseSelection.endpoint)
-  if (move === null) return null
-  const deletion = mouseSelection.deleteBackward ? DELETE_BACKWARD : DELETE_FORWARD
-  return move + deletion.repeat(mouseSelection.length)
 }

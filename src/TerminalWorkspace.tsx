@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { CompletedAnswers } from "./CompletedAnswers"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeHealthStatus } from "./runtimeIncidents"
 import { SessionControls } from "./SessionControls"
 import { TerminalView } from "./TerminalView"
+import { TerminalTabPicker } from "./TerminalTabPicker"
 import type {
   OmpConfigSnapshot,
   PtyExitEvent,
@@ -14,7 +15,7 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import { WorkspaceHome } from "./WorkspaceHome"
-import { buildSessionTree, latestSessionInTree } from "./uiUtils"
+import { buildSessionTree, isSuccessfulTerminalTab, latestSessionInTree } from "./uiUtils"
 
 interface TerminalWorkspaceProps {
   activeTabId: string | null
@@ -34,9 +35,12 @@ interface TerminalWorkspaceProps {
   onReorderTabs?: (draggedId: string, targetId: string) => void
   onDiscardSwitchRecovery: (terminalId: string) => void
   onCloseTab: (terminalId: string) => void
+  onCloseSuccessfulTabs?: () => void
   onError: (message: string) => void
   onExit: (event: PtyExitEvent) => void
   onFocusTab: (terminalId: string) => void
+  onFocusTerminal: (terminalId: string) => void
+  onShowWorkspace: () => void
   onLaunch: (session?: SessionSummary) => void
   onOpenFolder: () => void
   onReadTranscript: (path: string) => void
@@ -46,6 +50,47 @@ interface TerminalWorkspaceProps {
   onSwitch: (terminalId: string, model: string, thinking: string | null) => void
   onTogglePrimaryProviderPin: (terminalId: string, pinned: boolean) => void
   onToggleTitlePin: (tab: TerminalTab) => void
+}
+
+function revealTabHeader(strip: HTMLDivElement, header: HTMLElement) {
+  const stripRect = strip.getBoundingClientRect()
+  const headerRect = header.getBoundingClientRect()
+  const { clientLeft, clientWidth, scrollLeft, scrollWidth } = strip
+  if (
+    ![
+      stripRect.left,
+      stripRect.right,
+      stripRect.width,
+      headerRect.left,
+      headerRect.right,
+      headerRect.width,
+      clientLeft,
+      clientWidth,
+      scrollLeft,
+      scrollWidth,
+    ].every(Number.isFinite) ||
+    stripRect.width <= 0 ||
+    stripRect.right <= stripRect.left ||
+    headerRect.width <= 0 ||
+    headerRect.right <= headerRect.left ||
+    clientLeft < 0 ||
+    clientWidth <= 0 ||
+    scrollWidth < clientWidth
+  )
+    return
+
+  const viewportLeft = stripRect.left + clientLeft
+  const viewportRight = viewportLeft + clientWidth
+  let nextScrollLeft = scrollLeft
+  if (headerRect.width > clientWidth || headerRect.left < viewportLeft) {
+    nextScrollLeft += headerRect.left - viewportLeft
+  } else if (headerRect.right > viewportRight) {
+    nextScrollLeft += headerRect.right - viewportRight
+  }
+  nextScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, nextScrollLeft))
+  if (Number.isFinite(nextScrollLeft) && nextScrollLeft !== scrollLeft) {
+    strip.scrollLeft = nextScrollLeft
+  }
 }
 
 export function TerminalWorkspace({
@@ -65,9 +110,12 @@ export function TerminalWorkspace({
   workspaceSessions,
   onDiscardSwitchRecovery,
   onCloseTab,
+  onCloseSuccessfulTabs,
   onError,
   onExit,
   onFocusTab,
+  onFocusTerminal,
+  onShowWorkspace,
   onLaunch,
   onOpenFolder,
   onReadTranscript,
@@ -79,6 +127,27 @@ export function TerminalWorkspace({
   onTogglePrimaryProviderPin,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("")
+  const keyboardReorderFocusRef = useRef<HTMLButtonElement | null>(null)
+
+  useLayoutEffect(() => {
+    const button = keyboardReorderFocusRef.current
+    keyboardReorderFocusRef.current = null
+    if (
+      !button?.isConnected ||
+      (document.activeElement !== document.body && document.activeElement !== button)
+    )
+      return
+    if (document.activeElement !== button) button.focus({ preventScroll: true })
+    const strip = tabStripRef.current
+    const header = button.parentElement
+    if (strip && header) revealTabHeader(strip, header)
+  }, [tabs])
+
+  const [tabPickerOpen, setTabPickerOpen] = useState(false)
+  const successfulTabCount = tabs.filter(isSuccessfulTerminalTab).length
+  const cleanupButtonRef = useRef<HTMLButtonElement>(null)
+  const cleanupFocusRef = useRef(false)
   const stageRef = useRef<HTMLElement>(null)
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
@@ -87,6 +156,25 @@ export function TerminalWorkspace({
   const activeHeaderRef = useRef<HTMLDivElement>(null)
   const previousActiveTabRef = useRef<string | null>(null)
   const lastRevealSequenceRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (tabs.length === 0) setTabPickerOpen(false)
+  }, [tabs.length])
+
+  useLayoutEffect(() => {
+    const requested = cleanupFocusRef.current
+    cleanupFocusRef.current = false
+    if (!requested || successfulTabCount !== 0 || tabs.length === 0) return
+    if (
+      document.activeElement !== cleanupButtonRef.current &&
+      document.activeElement !== document.body
+    )
+      return
+    const target =
+      activeHeaderRef.current?.querySelector<HTMLButtonElement>("button") ??
+      tabStripRef.current?.querySelector<HTMLButtonElement>("button")
+    target?.focus({ preventScroll: true })
+  }, [successfulTabCount, tabs])
 
   useLayoutEffect(() => {
     const selectionChanged = previousActiveTabRef.current !== activeTabId
@@ -102,44 +190,7 @@ export function TerminalWorkspace({
     const strip = tabStripRef.current
     const header = activeHeaderRef.current
     if (!activeTabId || !strip || !header) return
-    const stripRect = strip.getBoundingClientRect()
-    const headerRect = header.getBoundingClientRect()
-    const { clientLeft, clientWidth, scrollLeft, scrollWidth } = strip
-    if (
-      ![
-        stripRect.left,
-        stripRect.right,
-        stripRect.width,
-        headerRect.left,
-        headerRect.right,
-        headerRect.width,
-        clientLeft,
-        clientWidth,
-        scrollLeft,
-        scrollWidth,
-      ].every(Number.isFinite) ||
-      stripRect.width <= 0 ||
-      stripRect.right <= stripRect.left ||
-      headerRect.width <= 0 ||
-      headerRect.right <= headerRect.left ||
-      clientLeft < 0 ||
-      clientWidth <= 0 ||
-      scrollWidth < clientWidth
-    )
-      return
-
-    const viewportLeft = stripRect.left + clientLeft
-    const viewportRight = viewportLeft + clientWidth
-    let nextScrollLeft = scrollLeft
-    if (headerRect.width > clientWidth || headerRect.left < viewportLeft) {
-      nextScrollLeft += headerRect.left - viewportLeft
-    } else if (headerRect.right > viewportRight) {
-      nextScrollLeft += headerRect.right - viewportRight
-    }
-    nextScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, nextScrollLeft))
-    if (Number.isFinite(nextScrollLeft) && nextScrollLeft !== scrollLeft) {
-      strip.scrollLeft = nextScrollLeft
-    }
+    revealTabHeader(strip, header)
   }, [activeTabId, focusRequest?.terminalId, focusRequest?.sequence])
 
   useEffect(() => {
@@ -195,11 +246,13 @@ export function TerminalWorkspace({
     return (
       <main className="main-stage" ref={stageRef}>
         <WorkspaceHome
+          onError={onError}
           lang={language}
           primaryActionRef={homePrimaryActionRef}
           launching={launching}
           onLaunch={onLaunch}
           onOpenFolder={onOpenFolder}
+          onReadTranscript={onReadTranscript}
           onReveal={onReveal}
           runtime={runtime}
           selectedSession={selectedSession}
@@ -224,8 +277,22 @@ export function TerminalWorkspace({
     >
       <div className="terminal-workspace">
         <div className="terminal-tabs">
+          <span aria-live="polite" aria-atomic="true" className="sr-only">
+            {reorderAnnouncement}
+          </span>
+          <button
+            aria-label={t(language, "workspaceOverview")}
+            aria-pressed={activeTabId === null}
+            className="workspace-overview-button"
+            disabled={launching !== null || installingDesktopUpdate}
+            onClick={onShowWorkspace}
+            title={t(language, "workspaceOverview")}
+            type="button"
+          >
+            <Icon name="folder" size={15} />
+          </button>
           <div className="terminal-tabs-scroll" ref={tabStripRef}>
-            {tabs.map((tab) => {
+            {tabs.map((tab, index) => {
               const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
               const visualStatus =
                 runtimeStatus !== "normal"
@@ -264,8 +331,42 @@ export function TerminalWorkspace({
                 >
                   <button
                     aria-label={`${tab.label} — ${accessibleStatus}`}
+                    aria-keyshortcuts={
+                      onReorderTabs ? "Alt+Shift+ArrowLeft Alt+Shift+ArrowRight" : undefined
+                    }
                     onClick={() => onFocusTab(tab.id)}
-                    title={accessibleStatus}
+                    onKeyDown={(event) => {
+                      if (
+                        !onReorderTabs ||
+                        event.defaultPrevented ||
+                        event.nativeEvent.isComposing ||
+                        event.nativeEvent.keyCode === 229 ||
+                        !event.altKey ||
+                        !event.shiftKey ||
+                        event.ctrlKey ||
+                        event.metaKey ||
+                        (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                      )
+                        return
+                      event.preventDefault()
+                      event.stopPropagation()
+                      const nextIndex = index + (event.key === "ArrowLeft" ? -1 : 1)
+                      const target = tabs[nextIndex]
+                      if (!target) return
+                      keyboardReorderFocusRef.current = event.currentTarget
+                      onReorderTabs(tab.id, target.id)
+                      setReorderAnnouncement(
+                        t(language, "tabReordered")
+                          .replace("{position}", String(nextIndex + 1))
+                          .replace("{count}", String(tabs.length))
+                          .replace("{title}", () => tab.label),
+                      )
+                    }}
+                    title={
+                      onReorderTabs
+                        ? accessibleStatus + ". " + t(language, "tabReorderHint")
+                        : accessibleStatus
+                    }
                     type="button"
                   >
                     <span className={`status-dot is-${tab.status} is-${visualStatus}`} />
@@ -324,7 +425,45 @@ export function TerminalWorkspace({
               <Icon name="plus" size={15} />
             </button>
           </div>
+          <button
+            aria-expanded={tabPickerOpen}
+            aria-haspopup="dialog"
+            aria-label={t(language, "terminalTabPickerTitle")}
+            className="terminal-tab-picker-trigger"
+            onClick={() => setTabPickerOpen(true)}
+            title={t(language, "terminalTabPickerTitle")}
+            type="button"
+          >
+            <Icon name="search" size={15} />
+          </button>
           <div className="terminal-meta">
+            {onCloseSuccessfulTabs && (
+              <button
+                aria-label={t(language, "closeSuccessfulTabs").replace(
+                  "{count}",
+                  String(successfulTabCount),
+                )}
+                className="button secondary close-successful-tabs"
+                disabled={successfulTabCount === 0}
+                onClick={(event) => {
+                  cleanupFocusRef.current = document.activeElement === event.currentTarget
+                  onCloseSuccessfulTabs()
+                }}
+                ref={cleanupButtonRef}
+                title={
+                  t(language, "closeSuccessfulTabs").replace(
+                    "{count}",
+                    String(successfulTabCount),
+                  ) +
+                  ". " +
+                  t(language, "closeSuccessfulTabsHint")
+                }
+                type="button"
+              >
+                <Icon name="close" size={14} />
+                <span aria-hidden="true">{successfulTabCount}</span>
+              </button>
+            )}
             {activeTab && (
               <SessionControls
                 lang={language}
@@ -390,8 +529,36 @@ export function TerminalWorkspace({
               </div>
             </div>
           ))}
+          {activeTabId === null && (
+            <WorkspaceHome
+              lang={language}
+              primaryActionRef={homePrimaryActionRef}
+              launching={launching}
+              onLaunch={onLaunch}
+              onOpenFolder={onOpenFolder}
+              onReadTranscript={onReadTranscript}
+              onError={onError}
+              onReveal={onReveal}
+              runtime={runtime}
+              selectedSession={selectedSession}
+              sessions={homeSessions}
+              workspace={selectedWorkspace}
+            />
+          )}
         </div>
       </div>
+      {tabPickerOpen && (
+        <TerminalTabPicker
+          activeTabId={activeTabId}
+          language={language}
+          onClose={() => setTabPickerOpen(false)}
+          onSelect={(terminalId) => {
+            setTabPickerOpen(false)
+            onFocusTerminal(terminalId)
+          }}
+          tabs={tabs}
+        />
+      )}
     </main>
   )
 }

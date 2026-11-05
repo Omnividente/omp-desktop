@@ -1,8 +1,8 @@
-import { useEffect, useRef, type MouseEvent, type RefObject } from "react"
+import { useEffect, useMemo, useRef, type MouseEvent, type RefObject } from "react"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import { formatBytes, resourcePurposeLabel, resourceSeverityLabel } from "./resourceHealth"
-import type { ResourceHealthSnapshot } from "./types"
+import type { ResourceHealthSnapshot, TerminalTab } from "./types"
 
 const DIALOG_FOCUSABLE_SELECTOR =
   'button:not([disabled]), summary, [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
@@ -13,6 +13,7 @@ interface ResourceHealthPanelProps {
   onClose: () => void
   returnFocusRef: RefObject<HTMLButtonElement | null>
   snapshot: ResourceHealthSnapshot | null
+  tabs: readonly Pick<TerminalTab, "id" | "label" | "cwd" | "processId" | "status">[]
 }
 
 export function ResourceHealthPanel({
@@ -21,9 +22,11 @@ export function ResourceHealthPanel({
   onClose,
   returnFocusRef,
   snapshot,
+  tabs,
 }: ResourceHealthPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLElement>(null)
+  const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
 
   useEffect(() => {
     const returnFocusTarget = returnFocusRef.current
@@ -249,17 +252,41 @@ export function ResourceHealthPanel({
             <section className="resource-group" aria-labelledby="resource-processes-title">
               <h3 id="resource-processes-title">{t(language, "resourceProcesses")}</h3>
               <div className="resource-process-list">
-                {snapshot.processes.map((process) => (
-                  <div className="resource-process" key={`${process.source}-${process.processId}`}>
-                    <span>
-                      {process.source === "desktop"
-                        ? t(language, "resourceDesktopProcess")
-                        : t(language, "resourceOmpProcess")}
-                      {process.terminalId ? ` · ${process.terminalId}` : ""}
-                    </span>
-                    <strong>{formatBytes(process.residentBytes)}</strong>
-                  </div>
-                ))}
+                {snapshot.processes.map((process) => {
+                  const tab =
+                    process.source === "omp" && process.terminalId
+                      ? tabById.get(process.terminalId)
+                      : undefined
+                  const currentTab =
+                    tab?.status === "running" && tab.processId === process.processId ? tab : null
+                  return (
+                    <div
+                      className="resource-process"
+                      key={`${process.source}-${process.processId}`}
+                    >
+                      <div className="resource-process-identity">
+                        <span>
+                          {process.source === "desktop"
+                            ? t(language, "resourceDesktopProcess")
+                            : t(language, "resourceOmpProcess")}
+                          {process.terminalId ? ` · ${process.terminalId}` : ""}
+                        </span>
+                        {currentTab && (
+                          <div className="resource-process-tab">
+                            <span>
+                              {t(language, "resourceCurrentTab").replace(
+                                "{title}",
+                                () => currentTab.label,
+                              )}
+                            </span>
+                            <span>{currentTab.cwd}</span>
+                          </div>
+                        )}
+                      </div>
+                      <strong>{formatBytes(process.residentBytes)}</strong>
+                    </div>
+                  )
+                })}
               </div>
               <p className="resource-scope-note">{t(language, "resourceScopeNote")}</p>
             </section>

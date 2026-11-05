@@ -7,11 +7,13 @@ import "./MarkdownContent.css"
 interface CopyButtonProps {
   text: string
   label: string
+  describedBy?: string
+  scope?: object
   lang: Lang
   onError: (message: string) => void
 }
 
-export function CopyButton({ text, label, lang, onError }: CopyButtonProps) {
+export function CopyButton({ text, label, describedBy, scope, lang, onError }: CopyButtonProps) {
   const [status, setStatus] = useState<"idle" | "copying" | "copied">("idle")
   const request = useRef({ generation: 0 })
   const pending = useRef(false)
@@ -26,7 +28,7 @@ export function CopyButton({ text, label, lang, onError }: CopyButtonProps) {
       scope.generation++
       clearTimeout(resetTimer.current)
     }
-  }, [text])
+  }, [text, scope])
 
   const copy = async () => {
     if (pending.current) return
@@ -55,6 +57,7 @@ export function CopyButton({ text, label, lang, onError }: CopyButtonProps) {
       disabled={status === "copying"}
       onClick={() => void copy()}
       aria-label={label}
+      aria-describedby={describedBy}
       title={label}
     >
       <span role="status" aria-live="polite">

@@ -18,6 +18,7 @@ import {
   thinkingLevelLabel,
   type Lang,
 } from "./i18n"
+import { AgentDefinitionPassport } from "./AgentDefinitionPassport"
 import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
 import type {
@@ -1224,6 +1225,56 @@ export function SettingsPanel({
             aria-label={t(language, "settingsCategories")}
             aria-orientation="vertical"
             className="settings-nav"
+            onKeyDown={(event) => {
+              if (
+                event.defaultPrevented ||
+                event.nativeEvent.isComposing ||
+                event.keyCode === 229 ||
+                event.altKey ||
+                event.ctrlKey ||
+                event.metaKey ||
+                event.shiftKey
+              )
+                return
+              const tabs = Array.from(
+                event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+              )
+              const index = tabs.indexOf(event.target as HTMLButtonElement)
+              if (index < 0) return
+              const next =
+                event.key === "ArrowDown"
+                  ? (index + 1) % tabs.length
+                  : event.key === "ArrowUp"
+                    ? (index + tabs.length - 1) % tabs.length
+                    : event.key === "Home"
+                      ? 0
+                      : event.key === "End"
+                        ? tabs.length - 1
+                        : null
+              if (next === null) return
+              event.preventDefault()
+              const target = tabs[next]
+              target.focus({ preventScroll: true })
+              // Reveal only inside the category strip, not the dialog or page.
+              const nav = event.currentTarget
+              const bounds = nav.getBoundingClientRect()
+              const tabBounds = target.getBoundingClientRect()
+              const left = bounds.left + nav.clientLeft
+              const top = bounds.top + nav.clientTop
+              if (tabBounds.left < left) nav.scrollLeft += tabBounds.left - left
+              else if (tabBounds.right > left + nav.clientWidth)
+                nav.scrollLeft += Math.min(
+                  tabBounds.left - left,
+                  tabBounds.right - left - nav.clientWidth,
+                )
+              if (tabBounds.top < top) nav.scrollTop += tabBounds.top - top
+              else if (tabBounds.bottom > top + nav.clientHeight)
+                nav.scrollTop += Math.min(
+                  tabBounds.top - top,
+                  tabBounds.bottom - top - nav.clientHeight,
+                )
+              target.click()
+            }}
             role="tablist"
           >
             <button
@@ -1231,6 +1282,7 @@ export function SettingsPanel({
               aria-selected={activeSection === "general"}
               className={activeSection === "general" ? "is-active" : ""}
               id="settings-tab-general"
+              tabIndex={activeSection === "general" ? 0 : -1}
               onClick={() => {
                 setActiveSection("general")
                 setOpenRole(null)
@@ -1246,6 +1298,7 @@ export function SettingsPanel({
               aria-selected={activeSection === "behavior"}
               className={activeSection === "behavior" ? "is-active" : ""}
               id="settings-tab-behavior"
+              tabIndex={activeSection === "behavior" ? 0 : -1}
               onClick={() => {
                 setActiveSection("behavior")
                 setOpenRole(null)
@@ -1261,6 +1314,7 @@ export function SettingsPanel({
               aria-selected={activeSection === "operations"}
               className={activeSection === "operations" ? "is-active" : ""}
               id="settings-tab-operations"
+              tabIndex={activeSection === "operations" ? 0 : -1}
               onClick={() => {
                 setActiveSection("operations")
                 setOpenRole(null)
@@ -1276,6 +1330,7 @@ export function SettingsPanel({
               aria-selected={activeSection === "models"}
               className={activeSection === "models" ? "is-active" : ""}
               id="settings-tab-models"
+              tabIndex={activeSection === "models" ? 0 : -1}
               onClick={() => {
                 setActiveSection("models")
                 setOpenRole(null)
@@ -1291,6 +1346,7 @@ export function SettingsPanel({
               aria-selected={activeSection === "providers"}
               className={activeSection === "providers" ? "is-active" : ""}
               id="settings-tab-providers"
+              tabIndex={activeSection === "providers" ? 0 : -1}
               onClick={() => {
                 setActiveSection("providers")
                 setOpenRole(null)
@@ -1602,7 +1658,7 @@ export function SettingsPanel({
                       onChange={(event) => setTerminalFontSize(event.target.value)}
                       value={terminalFontSize}
                     >
-                      {[10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24].map((size) => (
+                      {Array.from({ length: 25 }, (_, index) => index + 8).map((size) => (
                         <option key={size} value={size}>
                           {size}px
                         </option>
@@ -2035,6 +2091,7 @@ export function SettingsPanel({
                                     : t(language, "agentRuntimeDefault")}
                                 </dd>
                               </dl>
+                              <AgentDefinitionPassport agent={agent} language={language} />
                               <fieldset
                                 className="agent-controls"
                                 disabled={!ompConfig.agentSettingsSupported}

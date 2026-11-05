@@ -249,7 +249,7 @@ describe("Runtime Incident Center modal contract", () => {
     ])
 
     const clearButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(
-      (button) => button.textContent === "Очистить разрешённые",
+      (button) => button.textContent === "Очистить все разрешённые",
     )
     await act(() => clearButton?.click())
 

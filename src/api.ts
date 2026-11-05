@@ -292,6 +292,10 @@ export interface SessionLeaseConflictDetails {
 }
 
 const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
+  session_import_refresh_failed: {
+    ru: "Результаты импорта получены, но не удалось обновить список сессий.",
+    en: "Import results were received, but the session list could not refresh.",
+  },
   backend_join_failed: {
     ru: "Фоновая операция backend завершилась аварийно",
     en: "The backend background operation failed",

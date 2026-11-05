@@ -1029,6 +1029,11 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
     if overflow {
         return Err(import_size_error());
     }
+    // Reject before recovery or destination writes can turn corrupt bytes into
+    // apparently valid history through the importers' lossy text projection.
+    std::str::from_utf8(&bytes).map_err(|_| {
+        "[session_import_invalid_encoding] Файл сессии содержит некорректный UTF-8".to_owned()
+    })?;
     Ok(bytes)
 }
 
@@ -3825,7 +3830,19 @@ struct CachedCodexIndex {
 static CODEX_INDEX_CACHE: LazyLock<Mutex<Option<CachedCodexIndex>>> =
     LazyLock::new(|| Mutex::new(None));
 
+#[cfg(test)]
+thread_local! {
+    // A per-test-thread seam avoids consulting the real user profile or sharing
+    // a process-wide environment override with concurrently running tests.
+    static TEST_CODEX_THREAD_NAMES: std::cell::RefCell<Option<HashMap<String, String>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 fn load_codex_thread_names() -> HashMap<String, String> {
+    #[cfg(test)]
+    if let Some(names) = TEST_CODEX_THREAD_NAMES.with(|names| names.borrow().clone()) {
+        return names;
+    }
     let Some(index_path) = codex_sessions_root()
         .parent()
         .map(|directory| directory.join("session_index.jsonl"))
@@ -3928,6 +3945,22 @@ mod tests {
         thread,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
+
+    struct IsolatedCodexThreadNames(Option<HashMap<String, String>>);
+
+    impl IsolatedCodexThreadNames {
+        fn new() -> Self {
+            Self(super::TEST_CODEX_THREAD_NAMES.with(|names| names.replace(Some(HashMap::new()))))
+        }
+    }
+
+    impl Drop for IsolatedCodexThreadNames {
+        fn drop(&mut self) {
+            super::TEST_CODEX_THREAD_NAMES.with(|names| {
+                names.replace(self.0.take());
+            });
+        }
+    }
 
     #[test]
     fn path_key_normalizes_separators_and_trailing_slash() {
@@ -5365,6 +5398,326 @@ mod tests {
             .and_then(serde_json::Value::as_u64)
             .is_some());
     }
+    #[test]
+    fn import_test_thread_names_are_nested_and_thread_local() {
+        let isolated = IsolatedCodexThreadNames::new();
+        super::TEST_CODEX_THREAD_NAMES.with(|names| {
+            names
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .insert("synthetic-session".to_owned(), "synthetic-title".to_owned());
+        });
+        {
+            let _nested = IsolatedCodexThreadNames::new();
+            assert!(super::load_codex_thread_names().is_empty());
+        }
+        thread::spawn(|| {
+            let _other_thread = IsolatedCodexThreadNames::new();
+            assert!(super::load_codex_thread_names().is_empty());
+        })
+        .join()
+        .unwrap();
+        assert_eq!(
+            super::load_codex_thread_names().get("synthetic-session"),
+            Some(&"synthetic-title".to_owned())
+        );
+        drop(isolated);
+        // Inspect the override itself; do not fall back to the user's real index.
+        assert!(super::TEST_CODEX_THREAD_NAMES.with(|names| names.borrow().is_none()));
+    }
+
+    #[test]
+    fn invalid_utf8_import_fails_before_creating_history() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-invalid-utf8-import-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let mut bytes = b"{\"type\":\"session\",\"id\":\"utf8-source\",\"cwd\":\"/synthetic/project\"}\n{\"type\":\"message\",\"id\":\"answer\",\"message\":{\"role\":\"assistant\",\"content\":\"before ".to_vec();
+        bytes.push(0xff);
+        bytes.extend_from_slice(b" after\"}}\n");
+        fs::write(&source, &bytes).unwrap();
+        // The ordinary reader must still expose corruption in the original.
+        let original = read_session_transcript(source.to_str().unwrap(), &root).unwrap();
+        assert_eq!(original.malformed_records, 1);
+        for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+            let result = import_sessions(
+                &[ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: project.to_string_lossy().into_owned(),
+                    mode,
+                }],
+                &session_root,
+                &HashSet::new(),
+            );
+            assert_eq!(result.len(), 1);
+            assert_eq!(result[0].status, ImportItemStatus::Failed);
+            assert_eq!(result[0].destination_path, None);
+            assert!(result[0]
+                .message
+                .as_deref()
+                .unwrap()
+                .starts_with("[session_import_invalid_encoding]"));
+            assert_eq!(fs::read(&source).unwrap(), bytes);
+            assert!(!session_root.exists());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_utf8_update_preserves_existing_history_and_artifacts() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-utf8-update-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let valid = concat!(
+            "{\"type\":\"session\",\"id\":\"utf8-source\",\"cwd\":\"/synthetic/project\"}\n",
+            "{\"type\":\"message\",\"id\":\"answer\",\"message\":{\"role\":\"assistant\",\"content\":\"Кириллица 😀 �\"}}\n"
+        );
+        fs::write(&source, valid).unwrap();
+        fs::create_dir_all(source.with_extension("")).unwrap();
+        fs::write(source.with_extension("").join("kept.txt"), "original").unwrap();
+        let mut request = ImportSessionRequest {
+            path: source.to_string_lossy().into_owned(),
+            target_cwd: project.to_string_lossy().into_owned(),
+            mode: ImportMode::Skip,
+        };
+        let first = import_session(&request, &session_root).unwrap();
+        let destination = first.destination_path.unwrap();
+        let original = fs::read(&destination).unwrap();
+        let transcript = read_session_transcript(&destination, &session_root).unwrap();
+        assert_eq!(transcript.malformed_records, 0);
+        assert!(transcript
+            .entries
+            .iter()
+            .any(|entry| entry.text == "Кириллица 😀 �"));
+        // Actual U+FFFD is valid Unicode, not a reason to reject a source.
+        assert_eq!(
+            import_session(&request, &session_root).unwrap().status,
+            ImportItemStatus::Skipped
+        );
+        let mut corrupt = valid.as_bytes().to_vec();
+        let index = corrupt
+            .windows("Кириллица".len())
+            .position(|part| part == "Кириллица".as_bytes())
+            .unwrap();
+        corrupt[index] = 0xff;
+        fs::write(&source, &corrupt).unwrap();
+        fs::write(source.with_extension("").join("kept.txt"), "replacement").unwrap();
+        let original_entries = fs::read_dir(Path::new(&destination).parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<BTreeSet<_>>();
+        for mode in [ImportMode::Update, ImportMode::Skip, ImportMode::Copy] {
+            request.mode = mode;
+            let error = import_session(&request, &session_root).unwrap_err();
+            assert!(error.starts_with("[session_import_invalid_encoding]"));
+            assert_eq!(fs::read(&source).unwrap(), corrupt);
+            assert_eq!(fs::read(&destination).unwrap(), original);
+            assert_eq!(
+                fs::read_to_string(Path::new(&destination).with_extension("").join("kept.txt"))
+                    .unwrap(),
+                "original"
+            );
+            // A rejected import must leave no stage, marker or copy behind.
+            let entries = fs::read_dir(Path::new(&destination).parent().unwrap())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(entries, original_entries);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn codex_import_preserves_unicode_and_rejects_corruption_even_in_skip_mode() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-utf8-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("codex.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let valid = [
+            serde_json::json!({
+                "timestamp": "2026-07-20T11:10:00.000Z",
+                "type": "session_meta",
+                "payload": {"session_id": "codex-utf8", "cwd": "/synthetic/project"}
+            }),
+            serde_json::json!({
+                "timestamp": "2026-07-20T11:10:01.000Z",
+                "type": "response_item",
+                "payload": {
+                    "type": "message", "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Кириллица 😀 � marker"}]
+                }
+            }),
+        ]
+        .iter()
+        .map(|line| format!("{line}\n"))
+        .collect::<String>();
+        fs::write(&source, &valid).unwrap();
+        let mut request = ImportSessionRequest {
+            path: source.to_string_lossy().into_owned(),
+            target_cwd: project.to_string_lossy().into_owned(),
+            mode: ImportMode::Skip,
+        };
+        let first = import_session(&request, &session_root).unwrap();
+        assert_eq!(first.status, ImportItemStatus::Imported);
+        let destination = first.destination_path.unwrap();
+        let original = fs::read(&destination).unwrap();
+        let transcript = read_session_transcript(&destination, &session_root).unwrap();
+        assert_eq!(transcript.malformed_records, 0);
+        assert!(transcript
+            .entries
+            .iter()
+            .any(|entry| entry.text == "Кириллица 😀 � marker"));
+        assert_eq!(
+            import_session(&request, &session_root).unwrap().status,
+            ImportItemStatus::Skipped
+        );
+        let mut corrupt = valid.into_bytes();
+        let index = corrupt
+            .windows(b"marker".len())
+            .position(|part| part == b"marker")
+            .unwrap();
+        corrupt[index] = 0xff;
+        fs::write(&source, &corrupt).unwrap();
+        let original_entries = fs::read_dir(Path::new(&destination).parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<BTreeSet<_>>();
+        for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+            request.mode = mode;
+            let result = import_sessions(&[request.clone()], &session_root, &HashSet::new());
+            assert_eq!(result[0].status, ImportItemStatus::Failed);
+            assert_eq!(result[0].destination_path, None);
+            assert!(result[0]
+                .message
+                .as_deref()
+                .unwrap()
+                .starts_with("[session_import_invalid_encoding]"));
+            assert_eq!(fs::read(&source).unwrap(), corrupt);
+            assert_eq!(fs::read(&destination).unwrap(), original);
+            let entries = fs::read_dir(Path::new(&destination).parent().unwrap())
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<BTreeSet<_>>();
+            assert_eq!(entries, original_entries);
+        }
+        let fresh_root = root.join("fresh-sessions");
+        request.mode = ImportMode::Skip;
+        assert!(import_session(&request, &fresh_root)
+            .unwrap_err()
+            .starts_with("[session_import_invalid_encoding]"));
+        assert!(!fresh_root.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn mixed_import_batch_keeps_valid_items_after_invalid_and_incomplete_utf8() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-batch-utf8-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&project).unwrap();
+        let codex = concat!(
+            "{\"timestamp\":\"2026-07-20T11:10:00.000Z\",\"type\":\"session_meta\",\"payload\":{\"session_id\":\"batch-codex\",\"cwd\":\"/synthetic/project\"}}\n",
+            "{\"timestamp\":\"2026-07-20T11:10:01.000Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"valid codex\"}]}}\n"
+        );
+        let omp = concat!(
+            "{\"type\":\"session\",\"id\":\"batch-omp\",\"cwd\":\"/synthetic/project\"}\n",
+            "{\"type\":\"message\",\"id\":\"answer\",\"message\":{\"role\":\"assistant\",\"content\":\"valid omp\"}}\n"
+        );
+        let mut invalid = codex.as_bytes().to_vec();
+        invalid.push(0xff);
+        let mut incomplete = omp.as_bytes().to_vec();
+        incomplete.extend_from_slice(&[0xe2, 0x82]);
+        let fixtures = [
+            ("invalid-codex.jsonl", invalid),
+            ("valid-omp.jsonl", omp.as_bytes().to_vec()),
+            ("incomplete-omp.jsonl", incomplete),
+            ("valid-codex.jsonl", codex.as_bytes().to_vec()),
+        ];
+        let requests = fixtures
+            .iter()
+            .map(|(name, bytes)| {
+                let source = root.join(name);
+                fs::write(&source, bytes).unwrap();
+                ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: project.to_string_lossy().into_owned(),
+                    mode: ImportMode::Skip,
+                }
+            })
+            .collect::<Vec<_>>();
+        let result = import_sessions(&requests, &session_root, &HashSet::new());
+        assert_eq!(result.len(), 4);
+        for (index, ((name, bytes), item)) in fixtures.iter().zip(&result).enumerate() {
+            assert_eq!(fs::read(root.join(name)).unwrap(), *bytes);
+            assert_eq!(item.source_path, requests[index].path);
+            if index == 0 || index == 2 {
+                assert_eq!(item.status, ImportItemStatus::Failed);
+                assert_eq!(item.destination_path, None);
+                assert!(item
+                    .message
+                    .as_deref()
+                    .unwrap()
+                    .starts_with("[session_import_invalid_encoding]"));
+            } else {
+                assert_eq!(item.status, ImportItemStatus::Imported);
+                assert_eq!(item.message, None);
+                let transcript = read_session_transcript(
+                    item.destination_path.as_deref().unwrap(),
+                    &session_root,
+                )
+                .unwrap();
+                assert_eq!(transcript.malformed_records, 0);
+                let expected = if index == 1 {
+                    "valid omp"
+                } else {
+                    "valid codex"
+                };
+                assert!(transcript
+                    .entries
+                    .iter()
+                    .any(|entry| entry.text == expected));
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn omp_import_supports_one_line_sessions_and_explicit_repeat_modes() {
         let nonce = SystemTime::now()
