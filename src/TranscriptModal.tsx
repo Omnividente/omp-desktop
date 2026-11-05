@@ -11,6 +11,7 @@ import { CopyButton } from "./CopyButton"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { errorMessage, openContentLink } from "./api"
 import { useModalFocus } from "./useModalFocus"
+import { SessionDetails } from "./SessionDetails"
 
 interface TranscriptModalProps {
   lang: Lang
@@ -452,6 +453,13 @@ export function TranscriptModal({
             </button>
           </div>
         </header>
+        {transcript && (
+          <SessionDetails
+            key={transcript.session.filePath}
+            session={transcript.session}
+            lang={lang}
+          />
+        )}
         {transcript?.truncated && (
           <div className="transcript-truncated" role="status">
             <Icon name="alert" size={14} />

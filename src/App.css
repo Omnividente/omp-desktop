@@ -2935,6 +2935,50 @@ button:disabled {
   flex: none;
 }
 
+.session-details {
+  min-width: 0;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.6875rem;
+}
+
+.session-details summary {
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.session-details-content {
+  max-height: 180px;
+  padding: 0 10px 10px;
+  overflow: auto;
+}
+
+.session-details-content p {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.session-details-content dl {
+  margin: 0;
+}
+
+.session-details-content dl > div + div {
+  margin-top: 8px;
+}
+
+.session-details-content dt {
+  color: var(--muted);
+}
+
+.session-details-content dd {
+  margin: 2px 0 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .transcript-reread-button {
   height: 32px;
   padding: 0 10px;

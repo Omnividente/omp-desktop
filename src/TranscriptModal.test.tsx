@@ -260,6 +260,64 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it("shows loaded session details without launching, rereading or copying", async () => {
+  const loaded = {
+    ...session,
+    id: "loaded-identity",
+    cwd: "/synthetic/loaded-project",
+    model: "synthetic/loaded-model",
+    parentSessionPath: "raw-previous-reference",
+  }
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, session: loaded })
+  await click("Open transcript")
+  const calls = vi.mocked(readSessionTranscript).mock.calls.length
+  const details = container.querySelector<HTMLDetailsElement>(".session-details")!
+  expect(details.open).toBe(false)
+  await act(async () => details.querySelector("summary")!.click())
+  expect(details.open).toBe(true)
+  expect(details.textContent).toContain("loaded-identity")
+  expect(details.textContent).toContain("/synthetic/loaded-project")
+  expect(details.textContent).toContain("synthetic/loaded-model")
+  expect(details.textContent).toContain("raw-previous-reference")
+  expect(readSessionTranscript).toHaveBeenCalledTimes(calls)
+  expect(writeText).not.toHaveBeenCalled()
+  expect(openContentLink).not.toHaveBeenCalled()
+})
+
+it("hides session details while reloading and after a failed read", async () => {
+  await act(async () =>
+    container
+      .querySelector(".session-details summary")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  )
+  let reject!: (error: Error) => void
+  vi.mocked(readSessionTranscript).mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail
+      }),
+  )
+  await click("Reread file")
+  expect(container.querySelector(".session-details")).toBeNull()
+  await act(async () => reject(new Error("Synthetic read failure")))
+  expect(container.querySelector(".session-details")).toBeNull()
+  expect(container.textContent).toContain("Synthetic read failure")
+  vi.mocked(readSessionTranscript).mockResolvedValue(transcript)
+  await click("Reread file")
+  expect(container.querySelector<HTMLDetailsElement>(".session-details")?.open).toBe(false)
+})
+
+it("does not carry expanded details to another history", async () => {
+  await act(async () => container.querySelector<HTMLElement>(".session-details summary")!.click())
+  const next = { ...session, id: "other-id", filePath: "/synthetic/other.jsonl" }
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, session: next })
+  await click("Open other transcript")
+  const details = container.querySelector<HTMLDetailsElement>(".session-details")!
+  expect(details.open).toBe(false)
+  expect(details.textContent).toContain("other-id")
+  expect(details.textContent).toContain("/synthetic/other.jsonl")
+})
+
 it("announces empty and filtered-out transcripts as status changes", async () => {
   vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries: [] })
   await click("Open transcript")

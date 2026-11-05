@@ -217,6 +217,16 @@ export const UI_TEXT = {
     updateRestartUnavailable:
       "OMP обновлён, но файл текущей сессии ещё не найден. Перезапустите её вручную.",
     transcript: "Транскрипт",
+    sessionDetails: "Сведения о сессии",
+    sessionDetailsHelp:
+      "Сводка из загруженной истории, не текущее состояние OMP. Дата и ссылка на предыдущую сессию показаны как записаны.",
+    sessionDetailsId: "ID сессии",
+    sessionDetailsWorkspace: "Записанная папка проекта",
+    sessionDetailsFile: "Файл истории",
+    sessionDetailsCreated: "Записанная дата создания",
+    sessionDetailsModel: "Сохранённая модель",
+    sessionDetailsPrevious: "Ссылка на предыдущую сессию",
+    sessionDetailsMissing: "Не указано",
     openTranscript: "Открыть транскрипт",
     transcriptTitle: "Транскрипт сессии",
     transcriptRefresh: "Перечитать файл",
@@ -871,6 +881,16 @@ export const UI_TEXT = {
     updateRestartUnavailable:
       "OMP was updated, but the current session file is not ready yet. Restart it manually.",
     transcript: "Transcript",
+    sessionDetails: "Session details",
+    sessionDetailsHelp:
+      "Summary from the loaded history, not current OMP state. The creation timestamp and previous-session reference are shown as recorded.",
+    sessionDetailsId: "Session ID",
+    sessionDetailsWorkspace: "Recorded project folder",
+    sessionDetailsFile: "History file",
+    sessionDetailsCreated: "Recorded creation timestamp",
+    sessionDetailsModel: "Saved model",
+    sessionDetailsPrevious: "Previous-session reference",
+    sessionDetailsMissing: "Not recorded",
     openTranscript: "Open transcript",
     transcriptTitle: "Session transcript",
     transcriptRefresh: "Reread file",
