@@ -1,7 +1,9 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
+  useState,
   type FocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react"
@@ -9,7 +11,7 @@ import { Icon, type IconName } from "./Icon"
 import { t } from "./i18n"
 import { SessionList, type SessionListProps } from "./SessionList"
 import type { RailMode, WorkspaceSummary } from "./types"
-import { formatShortcut } from "./uiUtils"
+import { formatShortcut, localeTag } from "./uiUtils"
 
 interface ProjectRailProps {
   autoHidePaused: boolean
@@ -68,6 +70,17 @@ export function ProjectRail({
   onRemoveWorkspace,
 }: ProjectRailProps) {
   const { lang } = sessionList
+  const [projectOrder, setProjectOrder] = useState("default")
+  const orderedWorkspaces = useMemo(() => {
+    if (projectOrder !== "name") return workspaces
+    const collator = new Intl.Collator(localeTag(lang), { numeric: true, sensitivity: "base" })
+    return [...workspaces].sort(
+      (a, b) =>
+        collator.compare(a.name, b.name) ||
+        collator.compare(a.path, b.path) ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    )
+  }, [lang, projectOrder, workspaces])
   const shortcutHint = formatShortcut(t(lang, "railModeShortcut"), sessionList.platform)
   const railRef = useRef<HTMLElement>(null)
   const openFolderRef = useRef<HTMLButtonElement>(null)
@@ -243,10 +256,23 @@ export function ProjectRail({
         >
           <Icon name="plus" size={16} />
         </button>
+        {revealed && (
+          <label className="project-order">
+            <span>{t(lang, "projectOrder")}</span>
+            <select
+              disabled={workspaces.length < 2 || renamingWorkspaceKey !== null}
+              onChange={(event) => setProjectOrder(event.target.value)}
+              value={projectOrder}
+            >
+              <option value="default">{t(lang, "projectOrderDefault")}</option>
+              <option value="name">{t(lang, "projectOrderName")}</option>
+            </select>
+          </label>
+        )}
       </div>
 
       <nav className="project-list" aria-label={t(lang, "projects")}>
-        {workspaces.map((workspace) => {
+        {orderedWorkspaces.map((workspace) => {
           const active = selectedWorkspace?.key === workspace.key
           const renaming = renamingWorkspaceKey === workspace.key
           const busy = workspaceBusyKey === workspace.key

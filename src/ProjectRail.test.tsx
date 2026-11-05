@@ -373,3 +373,241 @@ describe("ProjectRail Enter rename focus", () => {
     expect(document.activeElement).toBe(document.body)
   })
 })
+
+describe("ProjectRail project order", () => {
+  let container: HTMLDivElement
+  let root: Root
+  const selectWorkspace = vi.fn()
+  const renameWorkspace = vi.fn()
+  const projects: WorkspaceSummary[] = [
+    { ...workspace, key: "z", name: "Zulu", path: "/projects/z", pinned: true },
+    { ...workspace, key: "ten", name: "App 10", path: "/projects/10", pinned: false },
+    { ...workspace, key: "two", name: "App 2", path: "/projects/2", pinned: false },
+    { ...workspace, key: "a", name: "Alpha", path: "/projects/a", pinned: false },
+  ]
+  const order = () => container.querySelector<HTMLSelectElement>(".project-order select")!
+  const rows = () => [...container.querySelectorAll<HTMLButtonElement>("button.project-item")]
+  const names = () => rows().map((row) => row.querySelector("strong")?.textContent)
+  function changeOrder(value: string) {
+    act(() => {
+      order().focus()
+      order().value = value
+      order().dispatchEvent(new Event("change", { bubbles: true }))
+    })
+  }
+  function render({
+    workspaces = projects,
+    lang = "en",
+    mode = "expanded",
+    autoOpen = false,
+    renaming = null,
+  }: {
+    workspaces?: WorkspaceSummary[]
+    lang?: "ru" | "en"
+    mode?: "expanded" | "collapsed" | "autoHide"
+    autoOpen?: boolean
+    renaming?: string | null
+  } = {}) {
+    act(() =>
+      root.render(
+        <ProjectRail
+          autoHidePaused={false}
+          autoOpen={autoOpen}
+          mode={mode}
+          modeSaving={false}
+          workspaces={workspaces}
+          selectedWorkspace={projects[1]}
+          sessionList={{ ...sessionList(), lang }}
+          renamingWorkspaceKey={renaming}
+          workspaceNameValue="Edited name"
+          workspaceBusyKey={null}
+          onAutoOpenChange={vi.fn()}
+          onModeChange={vi.fn()}
+          onOpenFolder={vi.fn()}
+          onSelectWorkspace={selectWorkspace}
+          onStartWorkspaceRename={renameWorkspace}
+          onSubmitWorkspaceRename={vi.fn()}
+          onWorkspaceNameChange={vi.fn()}
+          onWorkspaceRenameKeyDown={vi.fn()}
+          onRemoveWorkspace={vi.fn()}
+        />,
+      ),
+    )
+  }
+  beforeEach(() => {
+    selectWorkspace.mockClear()
+    renameWorkspace.mockClear()
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("offers natural name order without changing the source, selection or keyboard focus", () => {
+    const original = projects.map((project) => project.key)
+    render()
+    expect(order().value).toBe("default")
+    expect(names()).toEqual(["Zulu", "App 10", "App 2", "Alpha"])
+    const selected = container.querySelector("button.project-item.is-active")
+    changeOrder("name")
+    expect(names()).toEqual(["Alpha", "App 2", "App 10", "Zulu"])
+    expect(projects.map((project) => project.key)).toEqual(original)
+    expect(container.querySelector("button.project-item.is-active")).toBe(selected)
+    expect(document.activeElement).toBe(order())
+    expect(selectWorkspace).not.toHaveBeenCalled()
+    expect(renameWorkspace).not.toHaveBeenCalled()
+    changeOrder("default")
+    expect(names()).toEqual(["Zulu", "App 10", "App 2", "Alpha"])
+  })
+
+  it.each(["ru", "en"] as const)(
+    "labels the order choices and sorts Unicode names in %s",
+    (lang) => {
+      const workspaces = [
+        { ...workspace, key: "three", name: "Якорь", path: "/c" },
+        { ...workspace, key: "two", name: "Берёза", path: "/b" },
+        { ...workspace, key: "one", name: "Азбука", path: "/a" },
+      ]
+      render({ lang, workspaces })
+      expect(order().closest("label")?.querySelector("span")?.textContent).toBe(
+        lang === "ru" ? "Порядок проектов" : "Project order",
+      )
+      expect([...order().options].map((option) => option.textContent)).toEqual(
+        lang === "ru" ? ["По умолчанию", "По названию"] : ["Default", "Name"],
+      )
+      changeOrder("name")
+      expect(names()).toEqual(["Азбука", "Берёза", "Якорь"])
+    },
+  )
+
+  it("distinguishes equal names by path, keeps canonical spelling, and selects the exact key", () => {
+    const workspaces = [
+      { ...workspace, key: "b", name: "Cafe\u0301", path: "/projects/2" },
+      { ...workspace, key: "a", name: "Café", path: "/projects/1" },
+      { ...workspace, key: "A", name: "Café", path: "/projects/1" },
+    ]
+    render({ workspaces })
+    changeOrder("name")
+    expect(names()).toEqual(["Café", "Café", "Cafe\u0301"])
+    act(() => rows()[0].click())
+    expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith("A")
+    selectWorkspace.mockClear()
+    act(() => rows()[1].click())
+    expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith("a")
+    expect(workspaces[0].name).toBe("Cafe\u0301")
+  })
+
+  it.each(["collapsed", "autoHide"] as const)(
+    "retains the same row order through %s mode and reveal",
+    (mode) => {
+      render()
+      changeOrder("name")
+      const ordered = rows()
+      render({ mode })
+      expect(order()).toBeNull()
+      expect(rows()).toEqual(ordered)
+      render({ mode: "expanded" })
+      expect(order().value).toBe("name")
+      expect(rows()).toEqual(ordered)
+    },
+  )
+
+  it("updates sorted data without mutating it and restores the latest incoming order", () => {
+    render()
+    changeOrder("name")
+    const next = [
+      projects[1],
+      { ...projects[0], name: "Aardvark" },
+      { ...workspace, key: "new", name: "Beta" },
+    ]
+    render({ workspaces: next })
+    expect(names()).toEqual(["Aardvark", "App 10", "Beta"])
+    expect(next.map((project) => project.name)).toEqual(["App 10", "Aardvark", "Beta"])
+    changeOrder("default")
+    expect(names()).toEqual(["App 10", "Aardvark", "Beta"])
+  })
+
+  it("keeps a focused project DOM node and exact identity when a refresh changes its position", () => {
+    render()
+    changeOrder("name")
+    const target = rows()[2]
+    act(() => target.focus())
+    render({
+      workspaces: projects.map((item) => (item.key === "ten" ? { ...item, name: "A" } : item)),
+    })
+    expect(rows()[0]).toBe(target)
+    expect(document.activeElement).toBe(target)
+    expect(selectWorkspace).not.toHaveBeenCalled()
+    act(() => target.click())
+    expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith("ten")
+  })
+
+  it("preserves a rename editor and locks the order choice until editing finishes", () => {
+    render()
+    changeOrder("name")
+    render({ renaming: "ten" })
+    const input = container.querySelector<HTMLInputElement>(".project-rename")!
+    expect(order().disabled).toBe(true)
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe("Edited name")
+    render({ renaming: "ten", workspaces: [...projects] })
+    expect(container.querySelector(".project-rename")).toBe(input)
+    expect(document.activeElement).toBe(input)
+    render()
+    expect(order().disabled).toBe(false)
+    expect(order().value).toBe("name")
+  })
+
+  it("keeps empty and single-project lists usable, with no unnecessary sort choice", () => {
+    render({ workspaces: [] })
+    expect(rows()).toHaveLength(0)
+    expect(order().disabled).toBe(true)
+    render({ workspaces: [projects[0]] })
+    expect(rows()).toHaveLength(1)
+    expect(order().disabled).toBe(true)
+    act(() => rows()[0].click())
+    expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith("z")
+  })
+  it.each(["expanded", "autoHide"] as const)(
+    "keeps project sorting inside the automatic toolbar track when %s is revealed",
+    async (mode) => {
+      const { readFileSync } = await vi.importActual<{
+        readFileSync(path: string, encoding: "utf8"): string
+      }>("node:fs")
+      const style = document.createElement("style")
+      style.textContent = readFileSync("src/App.css", "utf8")
+      document.head.append(style)
+      try {
+        render({ mode, autoOpen: true })
+        const rail = container.querySelector<HTMLElement>(".project-rail")!
+        const toolbar = container.querySelector<HTMLElement>(".rail-toolbar")!
+        const sorting = order().closest<HTMLElement>(".project-order")!
+        expect(sorting.parentElement).toBe(toolbar)
+        expect([...rail.children].map((child) => child.className)).toEqual([
+          "rail-toolbar",
+          "project-list",
+          "project-sessions",
+          "open-project-button",
+          "rail-footer",
+        ])
+        expect(getComputedStyle(toolbar).display).toBe("grid")
+        expect(getComputedStyle(sorting).gridColumn).toBe("1 / -1")
+        expect(getComputedStyle(rail).gridTemplateRows).toBe(
+          "auto minmax(78px, 0.7fr) minmax(0, 1.85fr) auto auto",
+        )
+        render({ mode: "collapsed" })
+        expect(order()).toBeNull()
+        expect(getComputedStyle(toolbar).display).toBe("flex")
+        expect(getComputedStyle(rail).gridTemplateRows).toBe("auto minmax(0, 1fr)")
+        expect(
+          getComputedStyle(container.querySelector<HTMLElement>(".rail-footer")!).display,
+        ).toBe("none")
+      } finally {
+        style.remove()
+      }
+    },
+  )
+})

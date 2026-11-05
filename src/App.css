@@ -560,6 +560,33 @@ button:disabled {
   color: var(--accent);
   background: var(--chrome-accent-wash, rgba(185, 242, 124, 0.06));
 }
+.project-order {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.project-order select {
+  width: 100%;
+  min-width: 0;
+  padding: 5px;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  font: inherit;
+}
+
+.project-order select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .project-list {
   display: flex;
   min-height: 0;
