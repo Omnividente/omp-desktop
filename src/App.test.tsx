@@ -3460,6 +3460,38 @@ describe("App lifecycle serialization", () => {
       },
     )
 
+    it("shows current terminal context beside a matching resource measurement without starting another terminal", async () => {
+      await mountResources()
+      await act(async () => element(".resource-panel-header button").click())
+      const processId = started.processId
+      if (processId === null) throw new Error("The synthetic terminal needs a process ID")
+      nextSample = () =>
+        Promise.resolve({
+          ...snapshot(),
+          processes: [
+            {
+              source: "omp",
+              terminalId: started.terminalId,
+              processId,
+              residentBytes: 1024,
+            },
+          ],
+        })
+      await act(async () => element(".new-session-button").click())
+      const title = element(".terminal-tab-label").textContent ?? ""
+      expect(title).not.toBe("")
+      await act(async () => element(".resource-health-trigger").click())
+      expect(container.querySelector(".resource-process-tab")).toBeNull()
+      await advance(30_000)
+      expect(element(".resource-process-tab").textContent).toContain(
+        t("ru", "resourceCurrentTab").replace("{title}", title),
+      )
+      expect(element(".resource-process-tab").textContent).toContain(started.cwd)
+      expect(element(".resource-process").textContent).toContain(started.terminalId)
+      expect(vi.mocked(api.startTerminal)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(api.switchTerminal)).not.toHaveBeenCalled()
+    })
+
     it("samples the current workspace immediately after an obsolete request settles", async () => {
       await mountResources()
       const old = holdSample()

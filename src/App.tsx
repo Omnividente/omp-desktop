@@ -2701,6 +2701,7 @@ function App() {
           onClose={closeResourceHealth}
           returnFocusRef={resourceHealthTriggerRef}
           snapshot={resourceHealth}
+          tabs={tabs}
         />
       )}
 
