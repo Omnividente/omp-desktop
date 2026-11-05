@@ -244,6 +244,13 @@ export const UI_TEXT = {
     copyCode: "Копировать блок",
     copyMessage: "Копировать текст",
     copyMarkdown: "Копировать Markdown",
+    transcriptCopyDialogue: "Копировать загруженный диалог (Markdown)",
+    transcriptCopyHint:
+      "В системный буфер попадёт весь загруженный диалог, в том числе личные данные. Поиск и фильтры не ограничивают копию.",
+    transcriptCopyTooLarge:
+      "Диалог слишком велик для копирования целиком. Копируйте отдельные сообщения.",
+    transcriptCopyScope:
+      "Загруженный диалог: исходный Markdown сообщений пользователя и ассистента в отдельных блоках. Это не полный экспорт сессии. Служебные записи и вложения не включены; поиск и вид отображения не ограничивают копию.",
     copying: "Копируем…",
     clipboardCopied: "Скопировано",
     completedAnswer: "Готовый ответ",
@@ -898,6 +905,13 @@ export const UI_TEXT = {
     copyCode: "Copy block",
     copyMessage: "Copy text",
     copyMarkdown: "Copy Markdown",
+    transcriptCopyDialogue: "Copy loaded dialogue (Markdown)",
+    transcriptCopyHint:
+      "Copies all loaded dialogue to the system clipboard, including any private data. Search and display filters do not limit the copy.",
+    transcriptCopyTooLarge:
+      "The dialogue is too large to copy at once. Copy individual messages instead.",
+    transcriptCopyScope:
+      "Loaded dialogue: original user and assistant Markdown in separate source blocks. This is not a complete session export. Service records and attachments are excluded; search and appearance do not limit the copy.",
     copying: "Copying…",
     clipboardCopied: "Copied",
     completedAnswer: "Completed answer",

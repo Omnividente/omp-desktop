@@ -2968,6 +2968,16 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.transcript-copy-action {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.625rem;
+}
+
 .transcript-search-field {
   flex: 1 1 240px;
   display: grid;

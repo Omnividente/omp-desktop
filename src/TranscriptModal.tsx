@@ -8,6 +8,7 @@ import { useVirtualList } from "./useVirtualList"
 import { MarkdownContent, markdownContent } from "./MarkdownContent"
 import { TranscriptSearch } from "./transcriptSearch"
 import { CopyButton } from "./CopyButton"
+import { loadedDialogue } from "./loadedDialogue"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { errorMessage, openContentLink } from "./api"
 import { useModalFocus } from "./useModalFocus"
@@ -208,6 +209,15 @@ export function TranscriptModal({
     visibleEntries,
   ])
 
+  const dialogueCopyText = useMemo(
+    () =>
+      !transcriptLoading &&
+      !transcriptError &&
+      transcript?.session.filePath === transcriptSession.filePath
+        ? loadedDialogue(transcript, lang)
+        : "",
+    [transcript, transcriptLoading, transcriptError, transcriptSession.filePath, lang],
+  )
   const totalOriginal = transcript?.entries.length ?? 0
   const contents = useMemo(
     () =>
@@ -584,6 +594,25 @@ export function TranscriptModal({
                 {t(lang, "transcriptSource")}
               </button>
             </div>
+            {(dialogueCopyText || dialogueCopyText === null) && (
+              <div className="transcript-copy-action">
+                {dialogueCopyText === null ? (
+                  <span role="status">{t(lang, "transcriptCopyTooLarge")}</span>
+                ) : (
+                  <>
+                    <CopyButton
+                      text={dialogueCopyText}
+                      label={t(lang, "transcriptCopyDialogue")}
+                      describedBy="transcript-copy-hint"
+                      scope={transcript ?? undefined}
+                      lang={lang}
+                      onError={onError}
+                    />
+                    <span id="transcript-copy-hint">{t(lang, "transcriptCopyHint")}</span>
+                  </>
+                )}
+              </div>
+            )}
             <button
               type="button"
               className="button secondary transcript-latest-button"

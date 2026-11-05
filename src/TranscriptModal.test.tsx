@@ -916,3 +916,182 @@ it("navigates and wraps a million-match entry with bounded replacement windows t
   await searchFor("x")
   expectWindow(0)
 })
+
+it("copies the loaded dialogue beyond the mounted rows, excluding service text", async () => {
+  expect(container.querySelectorAll("article").length).toBeLessThan(transcript.entries.length)
+  expect(container.textContent).not.toContain("Message 179")
+  await click("Copy loaded dialogue (Markdown)")
+  const copied = vi.mocked(writeText).mock.calls.at(-1)![0]
+  expect(copied).toContain("  selected\ntext  ")
+  expect(copied).toContain("Message 179")
+  expect(copied).not.toContain("context")
+  expect(copied).toContain("This is not a complete session export.")
+  expect(copied).not.toContain(session.filePath)
+  expect(readSessionTranscript).toHaveBeenCalledTimes(1)
+})
+
+it("copies the same loaded dialogue after search, display and service-filter changes", async () => {
+  await click("Copy loaded dialogue (Markdown)")
+  const original = vi.mocked(writeText).mock.calls.at(-1)![0]
+  await searchFor("nothing-matches-this")
+  await click("Source")
+  await click("Dialogue only")
+  await click("Copy loaded dialogue (Markdown)")
+  expect(vi.mocked(writeText).mock.calls.at(-1)![0]).toBe(original)
+})
+
+it("does not offer a loaded-dialogue copy during refresh or after a failed read", async () => {
+  let rejectRead!: (reason: unknown) => void
+  vi.mocked(readSessionTranscript).mockReturnValueOnce(
+    new Promise((_, reject) => {
+      rejectRead = reject
+    }),
+  )
+  await click("Reread file")
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  await act(async () => rejectRead(new Error("synthetic read failure")))
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("does not offer a copy for service-only transcripts", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce({
+    ...transcript,
+    entries: transcript.entries.map((entry) => ({ ...entry, dialogueText: null })),
+  })
+  await click("Reread file")
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("waits for the clipboard response and prevents repeated copy while pending", async () => {
+  let complete!: () => void
+  vi.mocked(writeText).mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      complete = resolve
+    }),
+  )
+  await click("Copy loaded dialogue (Markdown)")
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy loaded dialogue (Markdown)"]',
+  )!
+  expect(button.disabled).toBe(true)
+  expect(button.textContent).toBe("Copying…")
+  await act(async () => button.click())
+  expect(writeText).toHaveBeenCalledTimes(1)
+  await act(async () => complete())
+  expect(button.disabled).toBe(false)
+  expect(button.textContent).toBe("Copied")
+})
+
+it("does not apply an old clipboard response to a different transcript", async () => {
+  let complete!: () => void
+  vi.mocked(writeText).mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      complete = resolve
+    }),
+  )
+  await click("Copy loaded dialogue (Markdown)")
+  const other = {
+    ...transcript,
+    session: { ...session, filePath: `${session.filePath}.other` },
+    entries: [{ ...transcript.entries[0], dialogueText: "Other session" }],
+  }
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(other)
+  await click("Open other transcript")
+  await act(async () => complete())
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy loaded dialogue (Markdown)"]',
+  )!
+  expect(button.textContent).toBe("Copy loaded dialogue (Markdown)")
+  expect(writeText).toHaveBeenCalledTimes(1)
+  await click("Copy loaded dialogue (Markdown)")
+  expect(vi.mocked(writeText).mock.calls.at(-1)![0]).toContain("Other session")
+  expect(vi.mocked(writeText).mock.calls.at(-1)![0]).not.toContain("Message 179")
+})
+
+it("explains the clipboard and privacy scope before copying", () => {
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy loaded dialogue (Markdown)"]',
+  )!
+  const hint = document.getElementById(button.getAttribute("aria-describedby")!)!
+  expect(hint.textContent).toContain("system clipboard")
+  expect(hint.textContent).toContain("private data")
+  expect(hint.textContent).toContain("Search and display filters do not limit the copy")
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("refuses oversized dialogue without dispatching a clipboard request", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce({
+    ...transcript,
+    entries: [{ ...transcript.entries[0], dialogueText: "x".repeat(4 * 1024 * 1024) }],
+  })
+  await click("Reread file")
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  expect(container.querySelector(".transcript-copy-action [role=status]")?.textContent).toContain(
+    "too large",
+  )
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["another session", "resolve"],
+  ["another session", "reject"],
+  ["a refreshed snapshot", "resolve"],
+  ["a refreshed snapshot", "reject"],
+])(
+  "ignores old clipboard feedback after %s with identical content (%s)",
+  async (context, outcome) => {
+    const onError = vi.fn()
+    const render = async (value: SessionTranscript) => {
+      await act(async () =>
+        root.render(
+          <TranscriptModal
+            lang="en"
+            transcriptSession={value.session}
+            transcript={value}
+            transcriptLoading={false}
+            transcriptError={null}
+            transcriptSearch=""
+            transcriptMode="all"
+            launching={null}
+            runtimeAvailable
+            visibleEntries={value.entries}
+            onClose={() => undefined}
+            onRefresh={() => undefined}
+            onReread={() => undefined}
+            onError={onError}
+            onSearchChange={() => undefined}
+            onClearSearch={() => undefined}
+            onModeChange={() => undefined}
+          />,
+        ),
+      )
+      await flushFrames()
+    }
+    await render(transcript)
+    let settle!: () => void
+    vi.mocked(writeText).mockReturnValueOnce(
+      new Promise<void>((resolve, reject) => {
+        settle =
+          outcome === "resolve"
+            ? resolve
+            : () => reject(new Error("old synthetic clipboard failure"))
+      }),
+    )
+    await click("Copy loaded dialogue (Markdown)")
+    await render({
+      ...transcript,
+      session:
+        context === "another session"
+          ? { ...session, filePath: `${session.filePath}.other` }
+          : session,
+    })
+    await act(async () => settle())
+    expect(onError).not.toHaveBeenCalled()
+    expect(
+      container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')?.textContent,
+    ).toBe("Copy loaded dialogue (Markdown)")
+    expect(writeText).toHaveBeenCalledTimes(1)
+  },
+)
