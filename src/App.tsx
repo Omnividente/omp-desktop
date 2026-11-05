@@ -2782,6 +2782,7 @@ function App() {
         <SessionCopyModal
           key={copySession.session.filePath}
           session={copySession.session}
+          workspaces={payload.workspaces}
           language={lang}
           sourceBusy={
             launching === copySession.session.id ||

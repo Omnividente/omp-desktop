@@ -3,11 +3,12 @@ import { open } from "@tauri-apps/plugin-dialog"
 import { errorMessage, importSessions } from "./api"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
-import type { ImportBatchPayload, SessionSummary } from "./types"
+import type { ImportBatchPayload, SessionSummary, WorkspaceSummary } from "./types"
 import { useModalFocus } from "./useModalFocus"
 
 interface SessionCopyModalProps {
   session: SessionSummary
+  workspaces?: WorkspaceSummary[]
   language: Lang
   sourceBusy?: boolean
   onClose: () => void
@@ -100,6 +101,7 @@ function usableCopyBootstrap(value: unknown): boolean {
 /** A new import, never a relocation or a resume with a substituted cwd. */
 export function SessionCopyModal({
   session,
+  workspaces = [],
   language,
   sourceBusy = false,
   onClose,
@@ -236,6 +238,31 @@ export function SessionCopyModal({
           <p>
             {t(language, "sessionCopyTarget")}: {target ?? "—"}
           </p>
+          {workspaces.length > 0 && (
+            <label className="import-mode-field session-copy-project-field">
+              <span>{t(language, "sessionCopyKnownProject")}</span>
+              <select
+                disabled={importing || picking || settled}
+                value={workspaces.some((workspace) => workspace.path === target) ? target! : ""}
+                onChange={(event) => {
+                  if (busy.current || pickerBusy.current || settled) return
+                  const workspace = workspaces.find((item) => item.path === event.target.value)
+                  if (!workspace) return
+                  setTarget(workspace.path)
+                  setError(null)
+                }}
+              >
+                <option value="" disabled>
+                  {t(language, "sessionCopySelectKnown")}
+                </option>
+                {workspaces.map((workspace) => (
+                  <option key={workspace.key} value={workspace.path}>
+                    {workspace.name} — {workspace.path}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             className="button secondary"
             disabled={importing || picking || settled}

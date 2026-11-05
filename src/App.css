@@ -2837,6 +2837,16 @@ button:disabled {
   background: var(--chrome-surface-raised, #151a16);
 }
 
+.session-copy-project-field {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.session-copy-project-field select {
+  min-width: 0;
+}
+
 @media (max-width: 560px) {
   .import-mode-field {
     grid-template-columns: 1fr;

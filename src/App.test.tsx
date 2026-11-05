@@ -1747,6 +1747,61 @@ describe("App lifecycle serialization", () => {
     expect(element(".session-select").textContent).toContain("Fixture session")
   })
 
+  it("copies into a known project only after explicit confirmation without opening a folder picker", async () => {
+    const target = {
+      ...bootstrap.workspaces[0],
+      key: "target",
+      path: "C:/fixture/target",
+      name: "Target",
+    }
+    const initial = {
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en" as const },
+      workspaces: [...bootstrap.workspaces, target],
+    }
+    vi.mocked(api.bootstrap).mockResolvedValue(initial)
+    const original = initial.sessions[0]
+    const copied = {
+      ...original,
+      id: "known-copy",
+      cwd: target.path,
+      projectKey: target.key,
+      filePath: "C:/fixture/sessions/known-copy.jsonl",
+    }
+    invokeMock.mockResolvedValue({
+      bootstrap: { ...initial, sessions: [...initial.sessions, copied] },
+      items: [
+        {
+          sourcePath: original.filePath,
+          destinationPath: copied.filePath,
+          status: "imported",
+          message: null,
+        },
+      ],
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element('[title="Copy session to another project"]').click())
+    const selector = element(".session-copy-project-field select") as HTMLSelectElement
+    expect(selector.value).toBe("")
+    await act(async () => {
+      selector.value = target.path
+      selector.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([])
+    expect(open).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    await act(async () => element('[aria-labelledby="session-copy-title"] .primary').click())
+    expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([
+      [
+        "import_sessions",
+        { requests: [{ path: original.filePath, targetCwd: target.path, mode: "skip" }] },
+        undefined,
+      ],
+    ])
+    expect(element(".project-item.is-active").textContent).toContain("Target")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
   it.each(settingsWire)(
     "copy recovery accepts actual Rust warning combinations %j",
     async (settings) => {

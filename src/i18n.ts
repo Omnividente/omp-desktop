@@ -639,6 +639,8 @@ export const UI_TEXT = {
       "Создаётся новая копия истории и вложений в выбранной папке проекта. Оригинал сохраняется; запуск не выполняется. Сначала закройте работающую сессию.",
     sessionCopySource: "Исходная сессия",
     sessionCopyTarget: "Папка назначения",
+    sessionCopyKnownProject: "Известный проект",
+    sessionCopySelectKnown: "Выбрать известный проект",
     sessionCopyChoose: "Выбрать папку назначения",
     sessionCopyConfirm: "Создать копию",
     sessionCopyUnknown:
@@ -1289,6 +1291,8 @@ export const UI_TEXT = {
       "Create a new copy of the history and attachments in the chosen project folder. The original is kept; nothing is launched. Close a running session first.",
     sessionCopySource: "Source session",
     sessionCopyTarget: "Destination folder",
+    sessionCopyKnownProject: "Known project",
+    sessionCopySelectKnown: "Choose a known project",
     sessionCopyChoose: "Choose destination folder",
     sessionCopyConfirm: "Create copy",
     sessionCopyUnknown:
