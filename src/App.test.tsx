@@ -1765,6 +1765,57 @@ describe("App lifecycle serialization", () => {
     expect(container.textContent).toContain("C session")
   })
 
+  it.each([
+    { key: "Enter", isComposing: true, keyCode: 13 },
+    { key: "Escape", isComposing: true, keyCode: 27 },
+    { key: "Enter", isComposing: false, keyCode: 229 },
+    { key: "Escape", isComposing: false, keyCode: 229 },
+  ])("does not finish session rename on IME $key ($isComposing/$keyCode)", async (keys) => {
+    invokeMock.mockResolvedValue({
+      ...bootstrap,
+      sessions: bootstrap.sessions.map((session) => ({
+        ...session,
+        title: "東京の計画",
+        pinnedTitle: "東京の計画",
+      })),
+    })
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      element(`[title="${t(bootstrap.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    const input = element<HTMLInputElement>(".session-rename")
+    const changeTitle = (value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+    await act(async () => changeTitle("とうきょう"))
+    const composingKey = new KeyboardEvent("keydown", {
+      ...keys,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => input.dispatchEvent(composingKey))
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(composingKey.defaultPrevented).toBe(false)
+    expect(container.querySelector(".session-rename")).toBe(input)
+    expect(input.value).toBe("とうきょう")
+    expect(document.activeElement).toBe(input)
+
+    await act(async () => changeTitle("東京の計画"))
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith(
+      "set_session_title_pin",
+      { path: bootstrap.sessions[0].filePath, title: "東京の計画" },
+      undefined,
+    )
+    expect(container.querySelector(".session-rename")).toBeNull()
+    expect(container.querySelector(".session-select strong")?.textContent).toBe("東京の計画")
+    expect(document.activeElement).toBe(container.querySelector(".session-select"))
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
   it("retains a failed session rename for retry and submits an unchanged pending draft only once", async () => {
     const pending = deferred<BootstrapPayload>()
     invokeMock.mockReturnValue(pending.promise)

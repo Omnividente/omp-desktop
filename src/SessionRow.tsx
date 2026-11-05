@@ -179,6 +179,8 @@ export function SessionRow({
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   e.stopPropagation()
+                  // Enter/Escape can confirm or dismiss IME candidates, not the rename.
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
                   if (e.key === "Enter" || e.key === "Escape") {
                     renameFinishedByKeyboardRef.current = true
                   }
