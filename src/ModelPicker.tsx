@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react"
 import { Icon } from "./Icon"
 import { ModelPassport } from "./ModelPassport"
+import { modelForPassport } from "./modelPassportMetadata"
 import { statusLabel, t, thinkingLevelLabel, type Lang } from "./i18n"
 import type { OmpModelInfo } from "./types"
 
@@ -139,6 +140,7 @@ export function ModelPicker({
   const configured = splitSelector(value)
   const selectedBase = configured.base.toLowerCase()
   const selectedModel = modelEntries.find((entry) => matchesBase(entry, selectedBase))?.model
+  const passportModel = modelForPassport(models, value, configured.base)
   const selectedStatus =
     selectedModel?.status ?? (value ? (selectorSuggestions ? "runtime" : "missing") : "unset")
   const configuredThinking = configured.thinking
@@ -289,8 +291,8 @@ export function ModelPicker({
         <Icon className="model-picker-chevron" name="chevron" size={15} />
       </button>
 
-      {selectedModel && (
-        <ModelPassport key={selectedModel.selector} model={selectedModel} language={language} />
+      {passportModel && (
+        <ModelPassport key={passportModel.selector} model={passportModel} language={language} />
       )}
 
       {thinkingLevels.length > 0 && (

@@ -23,6 +23,8 @@ export function ModelPassport({ model, language }: { model: OmpModelInfo; langua
     <details className="model-passport">
       <summary>{t(language, "modelPassportTitle")}</summary>
       <dl>
+        <dt>{t(language, "modelPassportSelector")}</dt>
+        <dd>{model.selector}</dd>
         <dt>{t(language, "modelPassportContext")}</dt>
         <dd>{modelMetadataNumber(model.contextWindow) ?? unknown}</dd>
         <dt>{t(language, "modelPassportOutput")}</dt>
