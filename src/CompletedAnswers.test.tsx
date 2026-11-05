@@ -6,6 +6,7 @@ import { readSessionAnswers } from "./api"
 import { CompletedAnswers } from "./CompletedAnswers"
 import { applyRuntimeEventToTab } from "./runtimeEvents"
 import type { PtyRuntimeEvent, SessionTranscript, TerminalTab } from "./types"
+import { t, type Lang } from "./i18n"
 
 vi.mock("./api", () => ({
   readSessionAnswers: vi.fn(),
@@ -85,7 +86,7 @@ let container: HTMLDivElement
 let root: Root
 const onError = vi.fn()
 
-async function render(current = tab, active = true) {
+async function render(current = tab, active = true, lang: Lang = "en") {
   await act(async () => {
     root.render(
       <>
@@ -96,7 +97,7 @@ async function render(current = tab, active = true) {
           busy={current.activity === "thinking"}
           active={active}
           version={current.completedResponseVersion ?? 0}
-          lang="en"
+          lang={lang}
           onError={onError}
         />
       </>,
@@ -194,4 +195,102 @@ it("ignores a pending read when work resumes and after switching sessions", asyn
   await act(async () => resolveInactive(transcript(tab.sessionPath!, "# Late old session")))
   expect(container.querySelector("h1")?.textContent).toBe("Other session")
   expect(container.textContent).not.toContain("Late old session")
+})
+
+it.each(["en", "ru"] as const)(
+  "jumps directly to the latest loaded answer in %s without reading or changing the draft",
+  async (lang) => {
+    const value = transcript(tab.sessionPath!, "# First", "# Second", "# Third", "# Fourth")
+    vi.mocked(readSessionAnswers).mockResolvedValue(value)
+    await render(tab, true, lang)
+    for (let index = 0; index < 3; index++) {
+      await act(async () => button(t(lang, "completedAnswerPrevious")).click())
+    }
+    expect(container.querySelector("h1")?.textContent).toBe("First")
+    const latest = button(t(lang, "completedAnswerLatest"))
+    latest.focus()
+    await act(async () => latest.click())
+    expect(container.querySelector("h1")?.textContent).toBe("Fourth")
+    expect(container.querySelector("nav")?.textContent).toContain("4 / 4")
+    expect(button(t(lang, "completedAnswerNext")).disabled).toBe(true)
+    expect(document.activeElement).toBe(latest)
+    expect(container.querySelector("input")?.value).toBe("Unsent draft")
+    expect(readSessionAnswers).toHaveBeenCalledExactlyOnceWith(tab.sessionPath)
+    expect(value.entries.map((entry) => entry.text)).toEqual([
+      "# First",
+      "# Second",
+      "# Third",
+      "# Fourth",
+    ])
+    expect(onError).not.toHaveBeenCalled()
+  },
+)
+
+it.each([false, true])(
+  "expands the latest loaded answer from a collapsed panel (older=%s)",
+  async (older) => {
+    vi.mocked(readSessionAnswers).mockResolvedValue(
+      transcript(tab.sessionPath!, "# First", "# Last"),
+    )
+    await render()
+    if (older) await act(async () => button("Previous answer").click())
+    await act(async () => button("Collapse answer").click())
+    expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+    await act(async () => button("Latest loaded answer").click())
+    expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(false)
+    expect(container.querySelector("h1")?.textContent).toBe("Last")
+    await act(async () => {
+      button("Latest loaded answer").click()
+      button("Latest loaded answer").click()
+    })
+    expect(container.querySelector("h1")?.textContent).toBe("Last")
+    expect(readSessionAnswers).toHaveBeenCalledTimes(1)
+  },
+)
+
+it.each([0, 1])("does not add a latest-answer action for %s loaded answers", async (count) => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(
+    transcript(tab.sessionPath!, ...Array.from({ length: count }, () => "# Only")),
+  )
+  await render()
+  expect(container.textContent).not.toContain("Latest loaded answer")
+  expect(container.querySelector("h1")?.textContent).toBe(count ? "Only" : undefined)
+})
+
+it("jumps in the latest committed snapshot when refresh and navigation are batched", async () => {
+  const path = tab.sessionPath!
+  vi.mocked(readSessionAnswers).mockResolvedValueOnce(transcript(path, "# First", "# Second"))
+  await render()
+  await act(async () => button("Previous answer").click())
+  let resolveRefresh!: (value: SessionTranscript) => void
+  vi.mocked(readSessionAnswers).mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveRefresh = resolve
+    }),
+  )
+  await render({ ...tab, completedResponseVersion: 1 })
+  await act(async () => {
+    resolveRefresh(transcript(path, "# First", "# Second", "# Third"))
+    await Promise.resolve()
+    button("Previous answer").click()
+    button("Latest loaded answer").click()
+  })
+  expect(container.querySelector("h1")?.textContent).toBe("Third")
+  expect(container.querySelector("nav")?.textContent).toContain("3 / 3")
+  expect(readSessionAnswers).toHaveBeenCalledTimes(2)
+})
+
+it("uses retained loaded answers after a failed refresh without hiding the warning or retrying", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValueOnce(
+    transcript(tab.sessionPath!, "# First", "# Last"),
+  )
+  await render()
+  await act(async () => button("Previous answer").click())
+  vi.mocked(readSessionAnswers).mockRejectedValueOnce(new Error("Synthetic read failed"))
+  await render({ ...tab, completedResponseVersion: 1 })
+  expect(container.querySelector("h1")?.textContent).toBe("First")
+  await act(async () => button("Latest loaded answer").click())
+  expect(container.querySelector("h1")?.textContent).toBe("Last")
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Synthetic read failed")
+  expect(readSessionAnswers).toHaveBeenCalledTimes(2)
 })
