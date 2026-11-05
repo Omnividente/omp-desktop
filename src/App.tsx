@@ -2673,6 +2673,7 @@ function App() {
           onError={showError}
           onExit={handleExit}
           onFocusTab={focusTab}
+          onFocusTerminal={focusTerminal}
           onLaunch={(session) => void launchSession(session)}
           onOpenFolder={() => void openFolder()}
           onReadTranscript={readTerminalTranscript}

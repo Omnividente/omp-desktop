@@ -397,6 +397,59 @@ it("preserves replacement focus while allowing explicit requests and later tab a
   }
 })
 
+it("does not take focus from open tab search during attachment, activation or delayed explicit requests", async () => {
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+  const picker = document.createElement("section")
+  picker.className = "terminal-tab-picker"
+  const input = document.createElement("input")
+  picker.appendChild(input)
+  document.body.appendChild(picker)
+  const replacement = { ...tab, id: "tab-picker-focus" }
+  const render = (active: boolean, sequence = 0) =>
+    root.render(
+      <TerminalView
+        tab={replacement}
+        active={active}
+        focusRequestSequence={sequence}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    )
+  try {
+    input.focus()
+    terminalState.focus.mockClear()
+    await act(async () => render(true))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(input)
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    await act(async () => render(false))
+    await act(async () => render(true))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(input)
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    await act(async () => render(true, 1))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(input)
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    picker.remove()
+    // The delayed request was consumed, not queued to steal focus after dismissal.
+    await act(async () => render(true, 1))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    await act(async () => render(true, 2))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+  } finally {
+    picker.remove()
+  }
+})
+
 it("returns to the latest output only while scrolled back", async () => {
   const buffer = terminalState.instance!.buffer.active
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()

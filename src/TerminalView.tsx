@@ -72,8 +72,12 @@ function decodeBase64(data: string): Uint8Array {
   return bytes
 }
 
-function canAutoFocusTerminal(): boolean {
-  return !document.activeElement?.closest(".terminal-meta")
+function canFocusTerminal(explicitlyRequested = false): boolean {
+  // Delayed recovery/attachment must not send typing from the picker to the PTY.
+  return (
+    !document.querySelector(".terminal-tab-picker") &&
+    (explicitlyRequested || !document.activeElement?.closest(".terminal-meta"))
+  )
 }
 
 export function TerminalView({
@@ -748,8 +752,7 @@ export function TerminalView({
       fitFrame = window.requestAnimationFrame(() => {
         fitFrame = null
         fit()
-        if (activeRef.current && !tab.preserveFocusOnAttach && canAutoFocusTerminal())
-          terminal.focus()
+        if (activeRef.current && !tab.preserveFocusOnAttach && canFocusTerminal()) terminal.focus()
       })
     }
 
@@ -812,8 +815,8 @@ export function TerminalView({
     const frame = window.requestAnimationFrame(() => {
       fitRef.current?.()
       if (
-        explicitlyRequested ||
-        ((!initialAttachment || !tab.preserveFocusOnAttach) && canAutoFocusTerminal())
+        (explicitlyRequested || !initialAttachment || !tab.preserveFocusOnAttach) &&
+        canFocusTerminal(explicitlyRequested)
       ) {
         terminalRef.current?.focus()
       }

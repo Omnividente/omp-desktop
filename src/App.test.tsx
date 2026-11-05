@@ -21,6 +21,7 @@ import type {
   SingleInstanceEvent,
   PtySessionEvent,
   TerminalStarted,
+  TerminalTab,
 } from "./types"
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
@@ -65,7 +66,23 @@ vi.mock("./clientUpdater", () => ({
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn().mockResolvedValue("0.9.3") }))
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(), open: vi.fn() }))
-vi.mock("./TerminalView", () => ({ TerminalView: () => <div /> }))
+vi.mock("./TerminalView", () => ({
+  TerminalView: ({
+    tab,
+    active,
+    focusRequestSequence,
+  }: {
+    tab: TerminalTab
+    active: boolean
+    focusRequestSequence: number
+  }) => (
+    <div
+      data-terminal-id={tab.id}
+      data-active={active}
+      data-focus-sequence={focusRequestSequence}
+    />
+  ),
+}))
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -2655,6 +2672,90 @@ describe("App lifecycle serialization", () => {
     await act(async () => pin.click())
     expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledTimes(1)
   })
+
+  it("explicitly focuses a tab picked from search even when it is already active", async () => {
+    await mountAndResume()
+    const terminal = (id: string) => element<HTMLElement>(`[data-terminal-id="${id}"]`)
+    const sequence = (id: string) => Number(terminal(id).dataset.focusSequence)
+    const openPicker = async () => {
+      const trigger = element<HTMLButtonElement>(".terminal-tab-picker-trigger")
+      trigger.focus()
+      await act(async () => trigger.click())
+    }
+    const before = sequence(started.terminalId)
+    await openPicker()
+    await act(async () =>
+      element<HTMLButtonElement>(".terminal-tab-picker-result[aria-current]").click(),
+    )
+    expect(sequence(started.terminalId)).toBeGreaterThan(before)
+    expect(terminal(started.terminalId).dataset.active).toBe("true")
+    expect(container.querySelector(".terminal-tab-picker")).toBeNull()
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+
+    vi.mocked(api.startTerminal).mockResolvedValue({
+      ...started,
+      terminalId: "terminal-2",
+      processId: 102,
+    })
+    await act(async () => element<HTMLButtonElement>(".new-tab-button").click())
+    const priorSequence = sequence(started.terminalId)
+    await openPicker()
+    await act(async () =>
+      element<HTMLButtonElement>(".terminal-tab-picker-result:not([aria-current])").click(),
+    )
+    expect(terminal(started.terminalId).dataset.active).toBe("true")
+    expect(sequence(started.terminalId)).toBeGreaterThan(priorSequence)
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["send", "discard"] as const)(
+    "retains open tab search while pending %s recovery requests terminal focus",
+    async (action) => {
+      const initial = config("Initial")
+      const alternate = config("Alternate").models[0]
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, alternate],
+      })
+      const recovery = {
+        terminalId: started.terminalId,
+        generation: 3,
+        token: "synthetic-recovery",
+        byteCount: 25,
+        state: "pending" as const,
+      }
+      vi.mocked(api.switchTerminal).mockRejectedValue({
+        code: "terminal_switch_input_recovery",
+        message: "Preserved draft",
+        recovery,
+      })
+      const pending = deferred<void>()
+      vi.mocked(
+        action === "send" ? api.sendSwitchInputRecovery : api.discardSwitchInputRecovery,
+      ).mockReturnValue(pending.promise)
+      await mountAndResume()
+      await act(async () => {
+        const selector = element<HTMLSelectElement>(".session-model-select")
+        selector.value = alternate.selector
+        selector.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      const recoveryButtons = element(
+        ".switch-input-recovery-actions",
+      ).querySelectorAll<HTMLButtonElement>("button")
+      await act(async () => recoveryButtons[action === "send" ? 0 : 1].click())
+      const before = Number(element<HTMLElement>("[data-terminal-id]").dataset.focusSequence)
+      await act(async () => element<HTMLButtonElement>(".terminal-tab-picker-trigger").click())
+      const input = element<HTMLInputElement>(".terminal-tab-picker input")
+      expect(document.activeElement).toBe(input)
+      await act(async () => pending.resolve(undefined))
+      expect(container.querySelector(".switch-input-recovery")).toBeNull()
+      expect(
+        Number(element<HTMLElement>("[data-terminal-id]").dataset.focusSequence),
+      ).toBeGreaterThan(before)
+      expect(container.querySelector(".terminal-tab-picker input")).toBe(input)
+      expect(document.activeElement).toBe(input)
+    },
+  )
 
   it("lets the user discard preserved input after an unstructured send failure without offering a duplicate send", async () => {
     const initial = config("Initial")

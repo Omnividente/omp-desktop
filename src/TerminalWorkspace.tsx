@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { CompletedAnswers } from "./CompletedAnswers"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeHealthStatus } from "./runtimeIncidents"
 import { SessionControls } from "./SessionControls"
 import { TerminalView } from "./TerminalView"
+import { TerminalTabPicker } from "./TerminalTabPicker"
 import type {
   OmpConfigSnapshot,
   PtyExitEvent,
@@ -37,6 +38,7 @@ interface TerminalWorkspaceProps {
   onError: (message: string) => void
   onExit: (event: PtyExitEvent) => void
   onFocusTab: (terminalId: string) => void
+  onFocusTerminal: (terminalId: string) => void
   onLaunch: (session?: SessionSummary) => void
   onOpenFolder: () => void
   onReadTranscript: (path: string) => void
@@ -68,6 +70,7 @@ export function TerminalWorkspace({
   onError,
   onExit,
   onFocusTab,
+  onFocusTerminal,
   onLaunch,
   onOpenFolder,
   onReadTranscript,
@@ -79,6 +82,7 @@ export function TerminalWorkspace({
   onTogglePrimaryProviderPin,
   onToggleTitlePin,
 }: TerminalWorkspaceProps) {
+  const [tabPickerOpen, setTabPickerOpen] = useState(false)
   const stageRef = useRef<HTMLElement>(null)
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
@@ -87,6 +91,10 @@ export function TerminalWorkspace({
   const activeHeaderRef = useRef<HTMLDivElement>(null)
   const previousActiveTabRef = useRef<string | null>(null)
   const lastRevealSequenceRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (tabs.length === 0) setTabPickerOpen(false)
+  }, [tabs.length])
 
   useLayoutEffect(() => {
     const selectionChanged = previousActiveTabRef.current !== activeTabId
@@ -324,6 +332,17 @@ export function TerminalWorkspace({
               <Icon name="plus" size={15} />
             </button>
           </div>
+          <button
+            aria-expanded={tabPickerOpen}
+            aria-haspopup="dialog"
+            aria-label={t(language, "terminalTabPickerTitle")}
+            className="terminal-tab-picker-trigger"
+            onClick={() => setTabPickerOpen(true)}
+            title={t(language, "terminalTabPickerTitle")}
+            type="button"
+          >
+            <Icon name="search" size={15} />
+          </button>
           <div className="terminal-meta">
             {activeTab && (
               <SessionControls
@@ -392,6 +411,18 @@ export function TerminalWorkspace({
           ))}
         </div>
       </div>
+      {tabPickerOpen && (
+        <TerminalTabPicker
+          activeTabId={activeTabId}
+          language={language}
+          onClose={() => setTabPickerOpen(false)}
+          onSelect={(terminalId) => {
+            setTabPickerOpen(false)
+            onFocusTerminal(terminalId)
+          }}
+          tabs={tabs}
+        />
+      )}
     </main>
   )
 }

@@ -2,6 +2,10 @@ export type Lang = "ru" | "en"
 
 export const UI_TEXT = {
   ru: {
+    terminalTabPickerTitle: "Найти открытую вкладку",
+    terminalTabPickerSearch: "Поиск по заголовку или пути проекта",
+    terminalTabPickerCount: "Вкладки: {count} из {total}",
+    terminalTabPickerEmpty: "Подходящих открытых вкладок нет",
     importItemFailed: "Не удалось импортировать файл",
     importFailureDetails: "Причины ошибок импорта",
     importFailurePages: "Страницы ошибок импорта",
@@ -655,6 +659,10 @@ export const UI_TEXT = {
     failed: "Ошибок",
   },
   en: {
+    terminalTabPickerTitle: "Find an open tab",
+    terminalTabPickerSearch: "Search by title or project path",
+    terminalTabPickerCount: "Tabs: {count} of {total}",
+    terminalTabPickerEmpty: "No matching open tabs",
     importItemFailed: "Could not import the file",
     importFailureDetails: "Import failure details",
     importFailurePages: "Import failure pages",
