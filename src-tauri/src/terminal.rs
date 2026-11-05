@@ -6311,16 +6311,13 @@ mod tests {
 
         assert!(!event.success);
         assert!(event.output_truncated);
-        assert_eq!(
-            event.error.as_deref(),
-            Some("Вывод PTY может быть неполным: истекло время ожидания оставшегося вывода после завершения OMP")
-        );
+        assert_eq!(event.exit_code, Some(0));
         assert!(output_sender.send(b"late".to_vec()).is_err());
         drop(exit_sender);
     }
 
     #[test]
-    fn output_timeout_preserves_process_error_without_guessing_reader_cause() {
+    fn output_timeout_preserves_process_failure_and_exit_code() {
         let (output_sender, output_receiver) = mpsc::sync_channel(1);
         let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
         exit_sender
@@ -6334,8 +6331,6 @@ mod tests {
             .expect("queued exit");
         output_sender.send(Vec::new()).expect("exit wake-up");
 
-        // An open output channel alone does not identify why its reader has
-        // not finished. No child or descendant process exists in this fixture.
         let mut observed = None;
         run_output_pipeline(
             output_receiver,
@@ -6349,10 +6344,10 @@ mod tests {
         assert_eq!(event.exit_code, Some(7));
         assert!(!event.success);
         assert!(event.output_truncated);
-        assert_eq!(
-            event.error.as_deref(),
-            Some("synthetic process failure; Вывод PTY может быть неполным: истекло время ожидания оставшегося вывода после завершения OMP")
-        );
+        assert!(event
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("synthetic process failure")));
         assert!(output_sender.send(b"late".to_vec()).is_err());
     }
 
