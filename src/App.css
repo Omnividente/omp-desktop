@@ -3672,7 +3672,7 @@ button:disabled {
 
 .terminal-tabs {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   min-width: 0;
   border-bottom: 1px solid var(--chrome-border, #252b27);
   background: var(--chrome-surface-raised, #141714);
@@ -3861,7 +3861,8 @@ button:disabled {
   background: var(--chrome-hover-surface, #242925);
 }
 
-.new-tab-button {
+.new-tab-button,
+.workspace-overview-button {
   display: grid;
   width: 35px;
   flex: none;
@@ -3873,9 +3874,16 @@ button:disabled {
   cursor: pointer;
 }
 
-.new-tab-button:hover {
+.new-tab-button:hover,
+.workspace-overview-button:hover {
   color: var(--accent);
   background: var(--chrome-accent-wash, rgba(185, 242, 124, 0.05));
+}
+
+.workspace-overview-button[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--chrome-accent-wash, rgba(185, 242, 124, 0.05));
+  box-shadow: inset 0 -2px var(--accent);
 }
 
 .terminal-meta {

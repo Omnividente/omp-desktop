@@ -37,6 +37,7 @@ interface TerminalWorkspaceProps {
   onError: (message: string) => void
   onExit: (event: PtyExitEvent) => void
   onFocusTab: (terminalId: string) => void
+  onShowWorkspace: () => void
   onLaunch: (session?: SessionSummary) => void
   onOpenFolder: () => void
   onReadTranscript: (path: string) => void
@@ -68,6 +69,7 @@ export function TerminalWorkspace({
   onError,
   onExit,
   onFocusTab,
+  onShowWorkspace,
   onLaunch,
   onOpenFolder,
   onReadTranscript,
@@ -224,6 +226,17 @@ export function TerminalWorkspace({
     >
       <div className="terminal-workspace">
         <div className="terminal-tabs">
+          <button
+            aria-label={t(language, "workspaceOverview")}
+            aria-pressed={activeTabId === null}
+            className="workspace-overview-button"
+            disabled={launching !== null || installingDesktopUpdate}
+            onClick={onShowWorkspace}
+            title={t(language, "workspaceOverview")}
+            type="button"
+          >
+            <Icon name="folder" size={15} />
+          </button>
           <div className="terminal-tabs-scroll" ref={tabStripRef}>
             {tabs.map((tab) => {
               const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
@@ -390,6 +403,20 @@ export function TerminalWorkspace({
               </div>
             </div>
           ))}
+          {activeTabId === null && (
+            <WorkspaceHome
+              lang={language}
+              primaryActionRef={homePrimaryActionRef}
+              launching={launching}
+              onLaunch={onLaunch}
+              onOpenFolder={onOpenFolder}
+              onReveal={onReveal}
+              runtime={runtime}
+              selectedSession={selectedSession}
+              sessions={homeSessions}
+              workspace={selectedWorkspace}
+            />
+          )}
         </div>
       </div>
     </main>

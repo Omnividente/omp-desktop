@@ -343,6 +343,50 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
 
+  it("opens the selected project overview without closing its running terminal", async () => {
+    await mountAndResume()
+    const pane = element(".terminal-pane")
+    await act(async () => element(".workspace-overview-button").click())
+    expect(container.querySelector(".workspace-home h1")?.textContent).toBe("Fixture")
+    expect(element(".terminal-pane")).toBe(pane)
+    expect(container.querySelector(".terminal-pane.is-active")).toBeNull()
+    expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    await act(async () =>
+      element(".workspace-overview-button").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "w", code: "KeyW", ctrlKey: true, bubbles: true }),
+      ),
+    )
+    expect(confirm).not.toHaveBeenCalled()
+    await act(async () => element(".terminal-tab > button").click())
+    expect(container.querySelector(".workspace-home")).toBeNull()
+    expect(element(".terminal-pane.is-active")).toBe(pane)
+  })
+
+  it("resumes the existing session from overview without starting a second process", async () => {
+    await mountAndResume()
+    await act(async () => element(".workspace-overview-button").click())
+    await act(async () => element(".hero-actions .secondary").click())
+    expect(container.querySelector(".workspace-home")).toBeNull()
+    expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns to a newly launched session from overview and blocks overview while launching", async () => {
+    await mountAndResume()
+    await act(async () => element(".workspace-overview-button").click())
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => element(".hero-actions .primary").click())
+    expect(element(".workspace-overview-button").disabled).toBe(true)
+    await act(async () =>
+      pending.resolve({ ...started, terminalId: "terminal-overview-new", processId: 202 }),
+    )
+    expect(container.querySelector(".workspace-home")).toBeNull()
+    expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()

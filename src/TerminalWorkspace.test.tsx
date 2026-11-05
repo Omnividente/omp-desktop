@@ -109,6 +109,7 @@ function Harness({
       onError={vi.fn()}
       onExit={vi.fn()}
       onFocusTab={vi.fn()}
+      onShowWorkspace={vi.fn()}
       onLaunch={vi.fn()}
       onOpenFolder={vi.fn()}
       onReadTranscript={vi.fn()}

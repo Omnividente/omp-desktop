@@ -2673,6 +2673,11 @@ function App() {
           onError={showError}
           onExit={handleExit}
           onFocusTab={focusTab}
+          onShowWorkspace={() => {
+            if (launchingRef.current || isInstallingClientUpdate()) return
+            ++sessionSelectionRequestRef.current
+            setActiveTabId(null)
+          }}
           onLaunch={(session) => void launchSession(session)}
           onOpenFolder={() => void openFolder()}
           onReadTranscript={readTerminalTranscript}

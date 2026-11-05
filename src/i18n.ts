@@ -19,6 +19,7 @@ export const UI_TEXT = {
     btnOpenFolder: "Открыть папку",
     startWork: "Начало работы",
     workspaceReady: "Рабочая папка готова",
+    workspaceOverview: "Обзор выбранного проекта",
     workspaceSelectionNotSaved:
       "Не удалось запомнить выбор проекта для следующего запуска. Текущий выбор не изменён.",
     showInExplorer: "Показать в проводнике",
@@ -672,6 +673,7 @@ export const UI_TEXT = {
     btnOpenFolder: "Open folder",
     startWork: "Getting started",
     workspaceReady: "Workspace ready",
+    workspaceOverview: "Selected project overview",
     workspaceSelectionNotSaved:
       "Could not remember the project selection for the next launch. The current selection is unchanged.",
     showInExplorer: "Show in explorer",
