@@ -8,9 +8,12 @@ import { useVirtualList } from "./useVirtualList"
 import { MarkdownContent, markdownContent } from "./MarkdownContent"
 import { TranscriptSearch } from "./transcriptSearch"
 import { CopyButton } from "./CopyButton"
+import { loadedDialogue } from "./loadedDialogue"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { errorMessage, openContentLink } from "./api"
 import { useModalFocus } from "./useModalFocus"
+import { transcriptUserMessages } from "./transcriptNavigation"
+import { SessionDetails } from "./SessionDetails"
 
 interface TranscriptModalProps {
   lang: Lang
@@ -41,6 +44,7 @@ interface ReadingPosition {
   offset: number
   mode: TranscriptModalProps["transcriptMode"]
   sourceMode: boolean
+  snapshotToken?: object
 }
 
 // UI-only, process-local LRU: never retain transcript contents or write session files.
@@ -80,7 +84,17 @@ export function TranscriptModal({
   const searchRef = useRef<HTMLInputElement>(null)
   const handleModalKeyDown = useModalFocus(panelRef, onClose)
   const [sourceMode, setSourceMode] = useState(false)
+  const [matchCase, setMatchCase] = useState(false)
   const [latestRequest, setLatestRequest] = useState(0)
+  // A small identity token invalidates pending jumps without retaining old content.
+  const transcriptToken = useMemo(() => ({ path: transcript?.session.filePath }), [transcript])
+  const [messageSelection, setMessageSelection] = useState({ path: "", entryId: "" })
+  const [messageRequest, setMessageRequest] = useState<{
+    path: string
+    entryId: string
+    token: object
+  } | null>(null)
+  const consumedMessageRequest = useRef<typeof messageRequest>(null)
   const [menu, setMenu] = useState<{
     left: number
     top: number
@@ -208,6 +222,15 @@ export function TranscriptModal({
     visibleEntries,
   ])
 
+  const dialogueCopyText = useMemo(
+    () =>
+      !transcriptLoading &&
+      !transcriptError &&
+      transcript?.session.filePath === transcriptSession.filePath
+        ? loadedDialogue(transcript, lang)
+        : "",
+    [transcript, transcriptLoading, transcriptError, transcriptSession.filePath, lang],
+  )
   const totalOriginal = transcript?.entries.length ?? 0
   const contents = useMemo(
     () =>
@@ -219,9 +242,23 @@ export function TranscriptModal({
       ),
     [visibleEntries, transcriptMode, sourceMode],
   )
+  const userOutline = useMemo(() => transcriptUserMessages(visibleEntries), [visibleEntries])
+  const userMessages = userOutline.messages
+  const selectedMessage =
+    messageSelection.path === transcriptSession.filePath &&
+    userMessages.some((message) => message.id === messageSelection.entryId)
+      ? messageSelection.entryId
+      : ""
+  const outlineUnavailable =
+    !userMessages.length ||
+    transcriptLoading ||
+    Boolean(transcriptError) ||
+    transcript?.session.filePath !== transcriptSession.filePath
+  // Changing an idle search option must not move the reader's current position.
+  const searchMatchCase = Boolean(transcriptSearch) && matchCase
   const search = useMemo(
-    () => new TranscriptSearch(contents, transcriptSearch),
-    [contents, transcriptSearch],
+    () => new TranscriptSearch(contents, transcriptSearch, searchMatchCase),
+    [contents, transcriptSearch, searchMatchCase],
   )
   const [navigation, setNavigation] = useState({ search, index: 0 })
   if (navigation.search !== search) setNavigation({ search, index: 0 })
@@ -253,6 +290,41 @@ export function TranscriptModal({
       (!transcriptSearch && !pendingRestoreRef.current ? { index: -1, entryIndex: 0 } : null)
   }, [currentMatch, navigation, transcriptSearch, transcriptMode, transcript])
   useLayoutEffect(() => {
+    if (!messageRequest || consumedMessageRequest.current === messageRequest) return
+    consumedMessageRequest.current = messageRequest
+    if (
+      messageRequest.path !== transcriptSession.filePath ||
+      messageRequest.token !== transcriptToken ||
+      transcript?.session.filePath !== transcriptSession.filePath ||
+      transcriptLoading ||
+      transcriptError
+    )
+      return
+    const index = visibleEntries.findIndex((entry) => entry.id === messageRequest.entryId)
+    if (index < 0) return
+    pendingLatestRef.current = false
+    followLatestRef.current = false
+    pendingMatchRef.current = null
+    pendingRestoreRef.current = {
+      entryId: messageRequest.entryId,
+      snapshotToken: transcriptToken,
+      index,
+      offset: 0,
+      mode: transcriptMode,
+      sourceMode,
+    }
+  }, [
+    messageRequest,
+    transcriptToken,
+    transcriptSession.filePath,
+    transcript,
+    transcriptLoading,
+    transcriptError,
+    visibleEntries,
+    transcriptMode,
+    sourceMode,
+  ])
+  useLayoutEffect(() => {
     const pending = pendingMatchRef.current
     if (pending === null) return
     // Reconcile estimated row offsets only while navigating. Later measurements
@@ -281,6 +353,10 @@ export function TranscriptModal({
     const scroll = scrollRef.current
     if (!saved || !scroll) {
       rememberPosition()
+      return
+    }
+    if (saved.snapshotToken && saved.snapshotToken !== transcriptToken) {
+      pendingRestoreRef.current = null
       return
     }
     if (
@@ -375,6 +451,15 @@ export function TranscriptModal({
     onClearSearch()
     searchRef.current?.focus({ preventScroll: true })
   }
+  const toggleMatchCase = () => {
+    if (transcriptSearch) {
+      pendingRestoreRef.current = null
+      pendingLatestRef.current = false
+      followLatestRef.current = false
+    }
+    setMenu(null)
+    setMatchCase((value) => !value)
+  }
   const showLatest = () => {
     onClearSearch()
     pendingMatchRef.current = null
@@ -452,6 +537,13 @@ export function TranscriptModal({
             </button>
           </div>
         </header>
+        {transcript && (
+          <SessionDetails
+            key={transcript.session.filePath}
+            session={transcript.session}
+            lang={lang}
+          />
+        )}
         {transcript?.truncated && (
           <div className="transcript-truncated" role="status">
             <Icon name="alert" size={14} />
@@ -517,6 +609,15 @@ export function TranscriptModal({
               )}
             </div>
             <div className="transcript-find-navigation">
+              <button
+                type="button"
+                aria-label={t(lang, "transcriptMatchCase")}
+                title={t(lang, "transcriptMatchCase")}
+                aria-pressed={matchCase}
+                onClick={toggleMatchCase}
+              >
+                Aa
+              </button>
               <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
                 {currentIndex + 1} / {search.count}
               </span>
@@ -584,6 +685,64 @@ export function TranscriptModal({
                 {t(lang, "transcriptSource")}
               </button>
             </div>
+            <select
+              aria-label={t(lang, "transcriptSelectUserMessage")}
+              title={t(lang, "transcriptSelectUserMessage")}
+              style={{ maxWidth: "min(100%, 18rem)" }}
+              value={selectedMessage}
+              disabled={outlineUnavailable}
+              onChange={(event) => {
+                setMessageSelection({
+                  path: transcriptSession.filePath,
+                  entryId: event.target.value,
+                })
+              }}
+            >
+              <option value="" disabled>
+                {t(lang, "transcriptSelectUserMessage")}
+              </option>
+              {userMessages.map((message, index) => (
+                <option key={message.id} value={message.id}>
+                  {index + 1}. {message.preview || t(lang, "transcriptEmptyUserMessage")}
+                </option>
+              ))}
+            </select>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={outlineUnavailable || !selectedMessage}
+              onClick={() => {
+                if (outlineUnavailable || !selectedMessage || !transcript) return
+                onClearSearch()
+                setMessageRequest({
+                  path: transcriptSession.filePath,
+                  entryId: selectedMessage,
+                  token: transcriptToken,
+                })
+              }}
+            >
+              {t(lang, "transcriptJumpToUserMessage")}
+            </button>
+            {userOutline.limited && <span>{t(lang, "transcriptUserOutlineLimited")}</span>}
+            {(dialogueCopyText || dialogueCopyText === null) && (
+              <div className="transcript-copy-action">
+                {dialogueCopyText === null ? (
+                  <span role="status">{t(lang, "transcriptCopyTooLarge")}</span>
+                ) : (
+                  <>
+                    <CopyButton
+                      text={dialogueCopyText}
+                      label={t(lang, "transcriptCopyDialogue")}
+                      describedBy="transcript-copy-hint"
+                      scope={transcript ?? undefined}
+                      lang={lang}
+                      onError={onError}
+                    />
+                    <span id="transcript-copy-hint">{t(lang, "transcriptCopyHint")}</span>
+                  </>
+                )}
+              </div>
+            )}
             <button
               type="button"
               className="button secondary transcript-latest-button"

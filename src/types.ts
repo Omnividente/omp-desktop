@@ -199,9 +199,16 @@ export interface ImportItemResult {
   message: string | null
 }
 
+export interface ImportRefreshError {
+  code: string
+  message: string
+  details: string | null
+}
+
 export interface ImportBatchPayload {
-  bootstrap: BootstrapPayload
+  bootstrap: BootstrapPayload | null
   items: ImportItemResult[]
+  refreshError?: ImportRefreshError
 }
 
 export interface SettingsUpdate {
@@ -218,6 +225,15 @@ export interface SettingsUpdate {
   providerEnv?: Record<string, string> | null
 }
 
+export interface OmpModelCost {
+  input?: number
+  output?: number
+  cacheRead?: number
+  cacheWrite?: number
+  longContext?: unknown
+  timeBased?: unknown
+}
+
 export interface OmpModelInfo {
   provider: string
   id: string
@@ -227,6 +243,12 @@ export interface OmpModelInfo {
   status: string
   detail: string | null
   thinking: string[]
+  contextWindow?: number | null
+  maxTokens?: number | null
+  reasoning?: boolean | null
+  input?: string[] | null
+  cost?: OmpModelCost | null
+  pricingStatus?: string | null
   kind?: string
 }
 
@@ -239,7 +261,21 @@ export interface OmpRoleInfo {
   detail: string | null
 }
 
+export interface OmpAgentDefinitionField {
+  state: string
+  text: string | null
+}
+
+export interface OmpAgentDefinition {
+  sourceFile: string
+  sourceFileTruncated?: boolean
+  observedAt: number
+  contextCwd: string | null
+  fields: Record<string, OmpAgentDefinitionField>
+}
+
 export interface OmpAgentInfo {
+  definition?: OmpAgentDefinition | null
   name: string
   description: string
   source: string

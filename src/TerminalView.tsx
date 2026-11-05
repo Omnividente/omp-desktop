@@ -1,3 +1,4 @@
+import { terminalMotion } from "./terminalMotion"
 import { useEffect, useId, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import type { UnlistenFn } from "@tauri-apps/api/event"
@@ -20,11 +21,8 @@ import { Icon } from "./Icon"
 import { ContentActionMenu } from "./ContentActionMenu"
 import {
   bufferCellFromMouseEvent,
-  createMouseSelectionEdit,
   cursorMoveInput,
-  deleteInput,
   formatSelectionReply,
-  type MouseSelectionEdit,
   type TerminalCell,
   terminalInputBlocked,
 } from "./terminalInput"
@@ -72,8 +70,12 @@ function decodeBase64(data: string): Uint8Array {
   return bytes
 }
 
-function canAutoFocusTerminal(): boolean {
-  return !document.activeElement?.closest(".terminal-meta")
+function canFocusTerminal(explicitlyRequested = false): boolean {
+  // Delayed recovery/attachment must not send typing from the picker to the PTY.
+  return (
+    !document.querySelector(".terminal-tab-picker") &&
+    (explicitlyRequested || !document.activeElement?.closest(".terminal-meta"))
+  )
 }
 
 export function TerminalView({
@@ -162,6 +164,7 @@ export function TerminalView({
     }
 
     const isLinuxRuntime = platform === "linux"
+    const motion = terminalMotion(platform)
     let hoveredLink: string | null = null
     const leaveLink = () => {
       hoveredLink = null
@@ -194,7 +197,7 @@ export function TerminalView({
       letterSpacing: 0,
       lineHeight: 1.18,
       scrollback: 12_000,
-      smoothScrollDuration: isLinuxRuntime ? 0 : 90,
+      smoothScrollDuration: motion.duration(),
       linkHandler: {
         activate: activateLink,
         hover: hoverLink,
@@ -236,6 +239,9 @@ export function TerminalView({
         leave: leaveLink,
       }),
     )
+    const disposeMotion = motion.subscribe((duration) => {
+      terminal.options.smoothScrollDuration = duration
+    })
     terminal.open(container)
     if (isLinuxRuntime) terminal.element?.setAttribute(WEBGL_SIMPLE_COLOR_ATTRIBUTE, "")
     const markDomFallback = () => {
@@ -247,11 +253,9 @@ export function TerminalView({
     terminalRef.current = terminal
 
     let pointerDownCell: TerminalCell | null = null
-    let mouseSelection: MouseSelectionEdit | null = null
     const clearArmedSelection = () => {
       selectAllArmedRef.current = false
       setInputSelectionArmed(false)
-      mouseSelection = null
     }
     const sendInput = (data: string) => {
       if (inputBlockedRef.current) return
@@ -313,7 +317,6 @@ export function TerminalView({
       ) {
         selectAllArmedRef.current = true
         setInputSelectionArmed(true)
-        mouseSelection = null
         setSelectionReply(null)
         terminal.clearSelection()
         return consume()
@@ -322,20 +325,22 @@ export function TerminalView({
       const deleteSelection = event.code === "Backspace" || event.code === "Delete"
       if (tab.kind === "agent" && deleteSelection) {
         const selectAllArmed = selectAllArmedRef.current
-        const input =
-          selectAllArmed || (terminal.hasSelection() && mouseSelection)
-            ? deleteInput(terminal, selectAllArmed, mouseSelection)
-            : null
-        if (input !== null) {
+        // Screen selection does not establish the focused editor's editing units
+        // or token boundaries. Keep Copy/Reply available and consume the gesture
+        // instead of synthesizing deletion or falling through to a raw key.
+        if (terminal.hasSelection()) {
+          clearArmedSelection()
+          return consume()
+        }
+        if (selectAllArmed) {
           clearArmedSelection()
           terminal.clearSelection()
-          sendInput(input)
+          sendInput("\x03")
           return consume()
         }
       }
 
       if (selectAllArmedRef.current) clearArmedSelection()
-      if (!terminal.hasSelection()) mouseSelection = null
       const shortcut = terminalShortcutInput(event, tab.kind === "agent")
       if (shortcut !== null) {
         sendInput(shortcut)
@@ -379,7 +384,6 @@ export function TerminalView({
         const range = terminal.getSelectionPosition()
         const text = terminal.getSelection()
         if (range && text) {
-          mouseSelection = createMouseSelectionEdit(terminal, range, releaseCell, text)
           showSelectionReply(event, text)
         }
       } else if (pointerDownCell.x === releaseCell.x && pointerDownCell.y === releaseCell.y) {
@@ -745,10 +749,17 @@ export function TerminalView({
         onReadyRef.current(tab.id)
       }
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
+      // Closing the picker before this frame must not revive its suppressed focus.
+      const focusBlockedByPicker = document.querySelector(".terminal-tab-picker") !== null
       fitFrame = window.requestAnimationFrame(() => {
         fitFrame = null
         fit()
-        if (activeRef.current && !tab.preserveFocusOnAttach && canAutoFocusTerminal())
+        if (
+          !focusBlockedByPicker &&
+          activeRef.current &&
+          !tab.preserveFocusOnAttach &&
+          canFocusTerminal()
+        )
           terminal.focus()
       })
     }
@@ -787,6 +798,7 @@ export function TerminalView({
         unlisten()
       }
       terminalRef.current = null
+      disposeMotion()
       terminal.dispose()
     }
   }, [platform, tab.id, tab.kind, tab.preserveFocusOnAttach])
@@ -809,11 +821,14 @@ export function TerminalView({
     }
     const explicitlyRequested = focusRequestSequence !== lastFocusRequestRef.current
     lastFocusRequestRef.current = focusRequestSequence
+    // Consume requests received in the picker, even if it closes before the frame.
+    const focusBlockedByPicker = document.querySelector(".terminal-tab-picker") !== null
     const frame = window.requestAnimationFrame(() => {
       fitRef.current?.()
       if (
-        explicitlyRequested ||
-        ((!initialAttachment || !tab.preserveFocusOnAttach) && canAutoFocusTerminal())
+        !focusBlockedByPicker &&
+        (explicitlyRequested || !initialAttachment || !tab.preserveFocusOnAttach) &&
+        canFocusTerminal(explicitlyRequested)
       ) {
         terminalRef.current?.focus()
       }

@@ -3,13 +3,17 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
-import { attachTerminal, resizeTerminal } from "./api"
+import { attachTerminal, resizeTerminal, writeTerminal } from "./api"
 import { TerminalView } from "./TerminalView"
 import type { PtyOutputEvent, TerminalTab } from "./types"
 import { forgetTerminalContinuity } from "./terminalContinuity"
 
 const terminalState = vi.hoisted(() => ({
   selection: "",
+  keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
+  dataHandler: null as ((data: string) => void) | null,
+  selectionRange: { start: { x: 2, y: 0 }, end: { x: 6, y: 0 } },
+  initialScrollDuration: undefined as unknown,
   focus: vi.fn(),
   paste: vi.fn(),
   clear: vi.fn(),
@@ -55,10 +59,11 @@ vi.mock("@xterm/xterm", () => ({
     cols = 80
     rows = 24
     modes = { bracketedPasteMode: false, mouseTrackingMode: "none" }
-    buffer = { active: { viewportY: 0, baseY: 0 } }
+    buffer = { active: { viewportY: 0, baseY: 0, cursorX: 6, cursorY: 0 } }
     options: Record<string, unknown>
     private readonly input = document.createElement("textarea")
     constructor(options: Record<string, unknown>) {
+      terminalState.initialScrollDuration = options.smoothScrollDuration
       this.options = options
       terminalState.instance = this
     }
@@ -66,9 +71,15 @@ vi.mock("@xterm/xterm", () => ({
     open(container: HTMLElement) {
       this.input.className = "mock-terminal-input"
       container.appendChild(this.input)
+      const screen = document.createElement("div")
+      screen.className = "xterm-screen"
+      screen.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 240 }) as DOMRect
+      container.appendChild(screen)
     }
     refresh() {}
-    attachCustomKeyEventHandler() {}
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      terminalState.keyHandler = handler
+    }
     onSelectionChange(callback: () => void) {
       terminalState.selectionChanged = callback
       return { dispose() {} }
@@ -77,7 +88,8 @@ vi.mock("@xterm/xterm", () => ({
       terminalState.scrollChanged = callback
       return { dispose() {} }
     }
-    onData() {
+    onData(handler: (data: string) => void) {
+      terminalState.dataHandler = handler
       return { dispose() {} }
     }
     onBinary() {
@@ -88,6 +100,9 @@ vi.mock("@xterm/xterm", () => ({
     }
     getSelection() {
       return terminalState.selection
+    }
+    getSelectionPosition() {
+      return terminalState.selectionRange
     }
     clearSelection() {
       terminalState.clear()
@@ -165,6 +180,9 @@ let root: Root
 beforeEach(async () => {
   vi.clearAllMocks()
   terminalState.selection = ""
+  terminalState.keyHandler = null
+  terminalState.dataHandler = null
+  terminalState.selectionRange = { start: { x: 2, y: 0 }, end: { x: 6, y: 0 } }
   terminalState.fitThrows = false
   terminalState.instance = null
   terminalState.scrollChanged = null
@@ -219,6 +237,140 @@ function menuButton(label: string) {
     (button) => button.textContent === label,
   )!
 }
+
+function terminalKey(code: string, init: KeyboardEventInit = {}, type = "keydown") {
+  const event = new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...init })
+  let allowed = true
+  act(() => {
+    allowed = terminalState.keyHandler!(event)
+  })
+  return { event, allowed }
+}
+
+function dragSelection(text: string, backward = false) {
+  const host = container.querySelector(".terminal-host")!
+  act(() => {
+    host.dispatchEvent(
+      new MouseEvent("mousedown", { bubbles: true, button: 0, clientX: backward ? 60 : 20 }),
+    )
+    terminalState.selection = text
+    host.dispatchEvent(
+      new MouseEvent("mouseup", { bubbles: true, button: 0, clientX: backward ? 20 : 60 }),
+    )
+  })
+}
+
+it.each([false, true])(
+  "consumes destructive keys after %s backward drag without editing, clearing or losing Copy/Reply",
+  async (backward) => {
+    dragSelection("A👩‍👩‍👧‍👦é", backward)
+    for (const code of ["Backspace", "Delete"]) {
+      for (const modifiers of [
+        {},
+        { ctrlKey: true },
+        { altKey: true },
+        { metaKey: true },
+        { shiftKey: true },
+      ]) {
+        const { event, allowed } = terminalKey(code, modifiers)
+        expect(allowed).toBe(false)
+        expect(event.defaultPrevented).toBe(true)
+      }
+    }
+    expect(writeTerminal).not.toHaveBeenCalled()
+    expect(terminalState.clear).not.toHaveBeenCalled()
+    expect(terminalState.selection).toBe("A👩‍👩‍👧‍👦é")
+    expect(terminalKey("KeyC", { ctrlKey: true }).allowed).toBe(false)
+    expect(writeText).toHaveBeenCalledWith("A👩‍👩‍👧‍👦é")
+    expect(terminalState.selection).toBe("A👩‍👩‍👧‍👦é")
+    const reply = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ).find((button) => button.textContent !== "Copy")!
+    await act(async () => reply.click())
+    expect(terminalState.paste.mock.calls[0][0]).toContain("A👩‍👩‍👧‍👦é")
+    expect(terminalState.clear).toHaveBeenCalledOnce()
+    expect(writeTerminal).not.toHaveBeenCalled()
+  },
+)
+
+it("consumes unmapped and changed selection instead of falling through to raw deletion", () => {
+  terminalState.selection = "pending mouse-up"
+  expect(terminalKey("Delete").allowed).toBe(false)
+  dragSelection("initial")
+  terminalState.selection = "changed after drag"
+  terminalState.selectionRange = { start: { x: 10, y: 15 }, end: { x: 70, y: 18 } }
+  expect(terminalKey("Backspace").allowed).toBe(false)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalState.selection).toBe("changed after drag")
+})
+
+it("preserves ordinary typing, no-selection deletion and existing Ctrl+A clear behavior", () => {
+  dragSelection("readonly selection")
+  expect(terminalKey("KeyQ").allowed).toBe(true)
+  act(() => terminalState.dataHandler!("q"))
+  expect(writeTerminal).toHaveBeenLastCalledWith(tab.id, "q")
+  terminalState.selection = ""
+  expect(terminalKey("Backspace").allowed).toBe(true)
+  act(() => terminalState.dataHandler!("\x7f"))
+  expect(writeTerminal).toHaveBeenLastCalledWith(tab.id, "\x7f")
+  expect(terminalKey("Delete").allowed).toBe(true)
+  act(() => terminalState.dataHandler!("\x1b[3~"))
+  expect(writeTerminal).toHaveBeenLastCalledWith(tab.id, "\x1b[3~")
+  expect(terminalKey("KeyA", { ctrlKey: true }).allowed).toBe(false)
+  expect(terminalKey("Backspace").allowed).toBe(false)
+  expect(writeTerminal).toHaveBeenLastCalledWith(tab.id, "\x03")
+})
+
+it("does not intercept keyup, keypress or composing events", () => {
+  terminalState.selection = "selected"
+  expect(terminalKey("Delete", {}, "keyup").allowed).toBe(true)
+  expect(terminalKey("Delete", {}, "keypress").allowed).toBe(true)
+  expect(terminalKey("Backspace", { isComposing: true }).allowed).toBe(true)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.selection).toBe("selected")
+})
+
+it("gives a new visible selection precedence over an earlier Ctrl+A clear arm", () => {
+  expect(terminalKey("KeyA", { ctrlKey: true }).allowed).toBe(false)
+  terminalState.selection = "selection appeared after Ctrl+A"
+  terminalState.clear.mockClear()
+  expect(terminalKey("Delete").allowed).toBe(false)
+  expect(terminalKey("Backspace").allowed).toBe(false)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalState.selection).toBe("selection appeared after Ctrl+A")
+  expect(terminalKey("KeyC", { ctrlKey: true }).allowed).toBe(false)
+  expect(writeText).toHaveBeenCalledWith("selection appeared after Ctrl+A")
+  terminalState.selection = ""
+  expect(terminalKey("Delete").allowed).toBe(true)
+  expect(writeTerminal).not.toHaveBeenCalled()
+})
+
+it("preserves utility-terminal deletion passthrough with a selection", async () => {
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={{ ...tab, kind: "utility" }}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    ),
+  )
+  terminalState.selection = "shell output"
+  expect(terminalKey("Backspace").allowed).toBe(true)
+  expect(terminalKey("Delete").allowed).toBe(true)
+  act(() => terminalState.dataHandler!("\x7f"))
+  expect(writeTerminal).toHaveBeenCalledWith(tab.id, "\x7f")
+  expect(terminalState.clear).not.toHaveBeenCalled()
+})
 
 it("copies the exact selection captured before menu interaction without pasting or clearing it", async () => {
   showSelection("  selected\ntext  ")
@@ -397,6 +549,59 @@ it("preserves replacement focus while allowing explicit requests and later tab a
   }
 })
 
+it("does not take focus from open tab search during attachment, activation or delayed explicit requests", async () => {
+  const frames: FrameRequestCallback[] = []
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+  const picker = document.createElement("section")
+  picker.className = "terminal-tab-picker"
+  const input = document.createElement("input")
+  picker.appendChild(input)
+  document.body.appendChild(picker)
+  const replacement = { ...tab, id: "tab-picker-focus" }
+  const render = (active: boolean, sequence = 0) =>
+    root.render(
+      <TerminalView
+        tab={replacement}
+        active={active}
+        focusRequestSequence={sequence}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    )
+  try {
+    input.focus()
+    terminalState.focus.mockClear()
+    await act(async () => render(true))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(input)
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    await act(async () => render(false))
+    await act(async () => render(true))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(input)
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    await act(async () => render(true, 1))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(input)
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    picker.remove()
+    // The delayed request was consumed, not queued to steal focus after dismissal.
+    await act(async () => render(true, 1))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(terminalState.focus).not.toHaveBeenCalled()
+    await act(async () => render(true, 2))
+    await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+    expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+  } finally {
+    picker.remove()
+  }
+})
+
 it("returns to the latest output only while scrolled back", async () => {
   const buffer = terminalState.instance!.buffer.active
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
@@ -508,4 +713,83 @@ it("replays a new display and de-duplicates live events received while attachmen
   expect(terminalState.written.join("")).toBe(
     "old retained output\r\nduring attach\r\nafter snapshot\r\n",
   )
+})
+
+async function renderMotionTerminal(platform = "windows") {
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={tab}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform={platform}
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    ),
+  )
+}
+
+function mockMotion(reduced: boolean) {
+  let listener: (() => void) | undefined
+  const add = vi.fn((_event: unknown, callback?: () => void) => {
+    listener = callback
+  })
+  const remove = vi.fn()
+  const query = { matches: reduced, addEventListener: add, removeEventListener: remove }
+  const matchMedia = vi.fn(() => query)
+  vi.stubGlobal("matchMedia", matchMedia)
+  return { query, matchMedia, add, remove, notify: () => listener?.() }
+}
+
+it("honors reduced motion and changes xterm scrolling without replacing its instance", async () => {
+  const media = mockMotion(true)
+  await renderMotionTerminal()
+  const terminal = terminalState.instance!
+  expect(terminalState.initialScrollDuration).toBe(0)
+  expect(terminal.options.smoothScrollDuration).toBe(0)
+  expect(media.matchMedia).toHaveBeenCalledWith("(prefers-reduced-motion: reduce)")
+  const attachments = vi.mocked(attachTerminal).mock.calls.length
+  media.query.matches = false
+  act(() => media.notify())
+  expect(terminal.options.smoothScrollDuration).toBe(90)
+  media.query.matches = true
+  act(() => media.notify())
+  expect(terminal.options.smoothScrollDuration).toBe(0)
+  expect(terminalState.instance).toBe(terminal)
+  expect(vi.mocked(attachTerminal).mock.calls.length).toBe(attachments)
+  await act(async () => root.render(null))
+  expect(media.remove).toHaveBeenCalledTimes(1)
+  expect(media.remove).toHaveBeenCalledWith("change", media.add.mock.calls[0][1])
+  media.query.matches = false
+  act(() => media.notify())
+  expect(terminal.options.smoothScrollDuration).toBe(0)
+})
+
+it("retains Windows scrolling when no preference is requested", async () => {
+  mockMotion(false)
+  await renderMotionTerminal()
+  expect(terminalState.instance?.options.smoothScrollDuration).toBe(90)
+})
+
+it("keeps Linux scrolling immediate independently of reduced-motion support", async () => {
+  const media = mockMotion(false)
+  await renderMotionTerminal("linux")
+  expect(terminalState.instance?.options.smoothScrollDuration).toBe(0)
+  expect(media.matchMedia).not.toHaveBeenCalled()
+})
+
+it.each([
+  undefined,
+  () => {
+    throw new Error("unsupported")
+  },
+])("retains existing scrolling when media queries are unavailable or throw", async (matchMedia) => {
+  vi.stubGlobal("matchMedia", matchMedia)
+  await renderMotionTerminal()
+  expect(terminalState.instance?.options.smoothScrollDuration).toBe(90)
 })

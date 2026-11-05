@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, StrictMode } from "react"
+import { act, StrictMode, type ComponentProps } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { open } from "@tauri-apps/plugin-dialog"
@@ -7,7 +7,11 @@ import { importSessions } from "./api"
 import { SessionCopyModal } from "./SessionCopyModal"
 import type { ImportBatchPayload, SessionSummary } from "./types"
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }))
-vi.mock("./api", () => ({ importSessions: vi.fn(), errorMessage: (error: Error) => error.message }))
+vi.mock("./api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./api")>()),
+  importSessions: vi.fn(),
+  errorMessage: (error: Error) => error.message,
+}))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const session = {
   id: "old-id",
@@ -86,7 +90,7 @@ const success = {
       message: null,
     },
   ],
-} as unknown as ImportBatchPayload
+} as unknown as ImportBatchPayload & { bootstrap: NonNullable<ImportBatchPayload["bootstrap"]> }
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((done) => {
@@ -106,13 +110,14 @@ function button(text: string) {
   expect(match).toBeDefined()
   return match!
 }
-async function mount() {
+async function mount(props: Partial<ComponentProps<typeof SessionCopyModal>> = {}) {
   await act(async () =>
     root.render(
       <StrictMode>
         <SessionCopyModal
           session={session}
           language="en"
+          {...props}
           onImported={imported}
           onClose={() => {
             closed()
@@ -395,5 +400,184 @@ describe("Session copy confirmation", () => {
     await choose()
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Permission refused")
     expect(importSessions).not.toHaveBeenCalled()
+  })
+  it("preserves a known copy when only its refresh fails", async () => {
+    vi.mocked(importSessions).mockResolvedValue({
+      ...success,
+      bootstrap: null,
+      refreshError: {
+        code: "session_import_refresh_failed",
+        message: "Synthetic refresh failure",
+        details: null,
+      },
+    })
+    await mount()
+    await choose()
+    await copy()
+    expect(container.textContent).toContain("Copies created")
+    expect(container.textContent).toContain("Synthetic refresh failure")
+    expect(button("Create copy").disabled).toBe(true)
+    expect(imported).not.toHaveBeenCalled()
+    expect(importSessions).toHaveBeenCalledTimes(1)
+  })
+  it.each([
+    undefined,
+    { code: "session_import_refresh_failed", message: 42, details: null },
+    { code: "session_import_refresh_failed", message: "failure", details: {} },
+    { code: "other_error", message: "failure", details: null },
+  ])("does not accept null snapshot with invalid refresh contract %j", async (refreshError) => {
+    vi.mocked(importSessions).mockResolvedValue({
+      ...success,
+      bootstrap: null,
+      refreshError,
+    } as unknown as ImportBatchPayload)
+    await mount()
+    await choose()
+    await copy()
+    expect(imported).not.toHaveBeenCalled()
+    expect(button("Create copy").disabled).toBe(true)
+    expect(container.textContent).toContain("not confirmed")
+    expect(container.querySelector('[role="status"]')).toBeNull()
+  })
+})
+
+describe("Known copy destinations", () => {
+  const workspaces = [
+    { ...bootstrap.workspaces[0], path: "/synthetic/one", key: "one", name: "Shared name" },
+    { ...bootstrap.workspaces[0], path: "/synthetic/two", key: "two", name: "Shared name" },
+  ]
+  const known = () =>
+    container.querySelector<HTMLSelectElement>(".session-copy-project-field select")!
+  const select = async (path: string) => {
+    await act(async () => {
+      known().value = path
+      known().dispatchEvent(new Event("change", { bubbles: true }))
+    })
+  }
+  it("offers exact project paths without choosing or importing until explicit confirmation", async () => {
+    await mount({ workspaces })
+    expect(known()).not.toBeNull()
+    expect(known().value).toBe("")
+    expect(button("Create copy").disabled).toBe(true)
+    expect([...known().options].map((option) => option.textContent)).toEqual([
+      "Choose a known project",
+      "Shared name — /synthetic/one",
+      "Shared name — /synthetic/two",
+    ])
+    await select(workspaces[1].path)
+    expect(container.textContent).toContain("Destination folder: /synthetic/two")
+    expect(open).not.toHaveBeenCalled()
+    expect(importSessions).not.toHaveBeenCalled()
+    await copy()
+    expect(importSessions).toHaveBeenCalledExactlyOnceWith([
+      { path: session.filePath, targetCwd: workspaces[1].path, mode: "skip" },
+    ])
+    expect(known().disabled).toBe(true)
+  })
+  it("preserves the explicit destination across reorder and removal without substituting a project", async () => {
+    await mount({ workspaces })
+    await select(workspaces[1].path)
+    await mount({ workspaces: [...workspaces].reverse() })
+    expect(known().value).toBe(workspaces[1].path)
+    await mount({ workspaces: [workspaces[0]] })
+    expect(known().value).toBe("")
+    expect(container.textContent).toContain("Destination folder: /synthetic/two")
+    await copy()
+    expect(importSessions).toHaveBeenCalledExactlyOnceWith([
+      { path: session.filePath, targetCwd: workspaces[1].path, mode: "skip" },
+    ])
+  })
+  it("lets the native folder picker replace a known destination and preserves it on cancel", async () => {
+    await mount({ workspaces })
+    await select(workspaces[0].path)
+    vi.mocked(open).mockResolvedValueOnce(null)
+    await choose()
+    expect(known().value).toBe(workspaces[0].path)
+    await choose()
+    expect(known().value).toBe("")
+    expect(container.textContent).toContain("Destination folder: /synthetic/live")
+    await copy()
+    expect(importSessions).toHaveBeenCalledExactlyOnceWith([
+      { path: session.filePath, targetCwd: "/synthetic/live", mode: "skip" },
+    ])
+  })
+  it("disables project choice during pending folder selection and import", async () => {
+    const picking = deferred<string | null>()
+    const importing = deferred<ImportBatchPayload>()
+    vi.mocked(open).mockReturnValueOnce(picking.promise)
+    vi.mocked(importSessions).mockReturnValueOnce(importing.promise)
+    await mount({ workspaces })
+    await choose()
+    expect(known().disabled).toBe(true)
+    await select(workspaces[1].path)
+    expect(container.textContent).toContain("Destination folder: —")
+    await act(async () => picking.resolve(workspaces[0].path))
+    expect(known().disabled).toBe(false)
+    await copy()
+    expect(known().disabled).toBe(true)
+    await select(workspaces[1].path)
+    expect(container.textContent).toContain("Destination folder: /synthetic/one")
+    await act(async () => importing.resolve(success))
+    expect(importSessions).toHaveBeenCalledOnce()
+  })
+  it("allows a new target after a known refusal but never after an uncertain outcome", async () => {
+    vi.mocked(importSessions)
+      .mockResolvedValueOnce({
+        ...success,
+        items: [
+          {
+            ...success.items[0],
+            status: "failed",
+            destinationPath: null,
+            message: "Missing folder",
+          },
+        ],
+      })
+      .mockRejectedValueOnce(new Error("Disconnected"))
+    await mount({ workspaces })
+    await select(workspaces[0].path)
+    await copy()
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Missing folder")
+    expect(known().disabled).toBe(false)
+    await select(workspaces[1].path)
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    await copy()
+    expect(known().disabled).toBe(true)
+    await select(workspaces[0].path)
+    expect(container.textContent).toContain("Destination folder: /synthetic/two")
+    expect(importSessions).toHaveBeenCalledTimes(2)
+  })
+  it("keeps source-busy confirmation blocked and supports explicitly chosen duplicate mode", async () => {
+    await mount({ workspaces, sourceBusy: true })
+    await select(workspaces[0].path)
+    expect(button("Create copy").disabled).toBe(true)
+    await mount({ workspaces, sourceBusy: false })
+    const mode = container.querySelectorAll<HTMLSelectElement>("select")[1]
+    await act(async () => {
+      mode.value = "copy"
+      mode.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await copy()
+    expect(importSessions).toHaveBeenCalledExactlyOnceWith([
+      { path: session.filePath, targetCwd: workspaces[0].path, mode: "copy" },
+    ])
+  })
+  it("keeps folder choice when there are no known projects and localizes the selector", async () => {
+    await mount({ workspaces: [] })
+    expect(known()).toBeNull()
+    expect(button("Choose destination folder").disabled).toBe(false)
+    await mount({ workspaces, language: "ru" })
+    expect(container.querySelector(".session-copy-project-field")?.textContent).toContain(
+      "Известный проект",
+    )
+    expect(known().options[0].textContent).toBe("Выбрать известный проект")
+  })
+  it("cancels without importing a selected project", async () => {
+    await mount({ workspaces })
+    await select(workspaces[0].path)
+    await act(async () => button("Cancel").click())
+    expect(closed).toHaveBeenCalledOnce()
+    expect(importSessions).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
   })
 })

@@ -109,6 +109,8 @@ function Harness({
       onError={vi.fn()}
       onExit={vi.fn()}
       onFocusTab={vi.fn()}
+      onFocusTerminal={vi.fn()}
+      onShowWorkspace={vi.fn()}
       onLaunch={vi.fn()}
       onOpenFolder={vi.fn()}
       onReadTranscript={vi.fn()}
@@ -168,6 +170,181 @@ describe("TerminalWorkspace tab drag and drop", () => {
 
     act(() => dispatchDrag(tabs()[2]!, tabs()[0]!))
     expect(labels()).toEqual(["First", "Second", "Third"])
+  })
+})
+
+describe("TerminalWorkspace keyboard tab reorder", () => {
+  let container: HTMLDivElement
+  let root: Root
+  const labels = () =>
+    Array.from(container.querySelectorAll(".terminal-tab-label"), (node) => node.textContent)
+  const header = (label: string) =>
+    Array.from(
+      container.querySelectorAll<HTMLButtonElement>(".terminal-tab > button:first-child"),
+    ).find((button) => button.querySelector(".terminal-tab-label")?.textContent === label)!
+  const press = (target: Element, key: string, overrides: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      altKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+      ...overrides,
+    })
+    act(() => target.dispatchEvent(event))
+    return event
+  }
+
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+    act(() => root.render(<Harness />))
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("moves the focused tab in either direction while preserving selection and focus", () => {
+    const button = header("Second")
+    button.focus()
+    expect(press(button, "ArrowRight").defaultPrevented).toBe(true)
+    expect(labels()).toEqual(["First", "Third", "Second"])
+    expect(document.activeElement).toBe(button)
+    expect(
+      container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+    ).toBe("First")
+    expect(container.querySelector('[aria-live="polite"].sr-only')?.textContent).toBe(
+      "Second: tab 3 of 3",
+    )
+    press(button, "ArrowLeft")
+    expect(labels()).toEqual(["First", "Second", "Third"])
+    expect(document.activeElement).toBe(button)
+    expect(container.querySelector('[aria-live="polite"].sr-only')?.textContent).toBe(
+      "Second: tab 2 of 3",
+    )
+  })
+
+  it("announces literal user labels without treating them as template tokens", () => {
+    act(() =>
+      root.render(<Harness visibleTabs={[tab("a", "$& {position} {count}"), tab("b", "Other")]} />),
+    )
+    press(header("$& {position} {count}"), "ArrowRight")
+    expect(container.querySelector('[aria-live="polite"].sr-only')?.textContent).toBe(
+      "$& {position} {count}: tab 2 of 2",
+    )
+  })
+
+  it("does not wrap at either end", () => {
+    press(header("First"), "ArrowLeft")
+    press(header("Third"), "ArrowRight")
+    expect(labels()).toEqual(["First", "Second", "Third"])
+    expect(container.querySelector('[aria-live="polite"].sr-only')?.textContent).toBe("")
+  })
+
+  it.each([
+    { altKey: false },
+    { shiftKey: false },
+    { ctrlKey: true },
+    { metaKey: true },
+    { isComposing: true },
+    { keyCode: 229 },
+  ])("leaves other modifiers and composition untouched: %j", (overrides) => {
+    expect(press(header("Second"), "ArrowRight", overrides).defaultPrevented).toBe(false)
+    expect(labels()).toEqual(["First", "Second", "Third"])
+  })
+
+  it("does not consume ordinary arrows, other keys, or already handled events", () => {
+    expect(
+      press(header("Second"), "ArrowRight", { altKey: false, shiftKey: false }).defaultPrevented,
+    ).toBe(false)
+    expect(press(header("Second"), "Enter").defaultPrevented).toBe(false)
+    const event = new KeyboardEvent("keydown", {
+      key: "ArrowRight",
+      altKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    event.preventDefault()
+    act(() => header("Second").dispatchEvent(event))
+    expect(labels()).toEqual(["First", "Second", "Third"])
+  })
+
+  it("does not reorder from close controls or the terminal pane", () => {
+    expect(press(container.querySelector(".tab-close")!, "ArrowRight").defaultPrevented).toBe(false)
+    expect(press(container.querySelector(".terminal-pane")!, "ArrowRight").defaultPrevented).toBe(
+      false,
+    )
+    expect(labels()).toEqual(["First", "Second", "Third"])
+  })
+
+  it("tracks the current order after repeated moves and mouse reorder", () => {
+    const button = header("First")
+    button.focus()
+    press(button, "ArrowRight")
+    press(button, "ArrowRight", { repeat: true })
+    expect(labels()).toEqual(["Second", "Third", "First"])
+    act(() => dispatchDrag(button.parentElement!, header("Second").parentElement!))
+    expect(labels()).toEqual(["First", "Second", "Third"])
+    press(button, "ArrowRight")
+    expect(labels()).toEqual(["Second", "First", "Third"])
+  })
+
+  it("reveals an explicitly keyboard-moved header without scrolling ancestors or later rerenders", () => {
+    const strip = container.querySelector<HTMLDivElement>(".terminal-tabs-scroll")!
+    const stage = container.querySelector<HTMLElement>(".main-stage")!
+    const originalRect = Element.prototype.getBoundingClientRect
+    const rect = (left: number, width: number) => ({ left, right: left + width, width }) as DOMRect
+    const geometry = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: Element) {
+        if (this === strip) return rect(100, 308)
+        if (this.classList.contains("terminal-tab")) {
+          const index = Array.from(strip.querySelectorAll(".terminal-tab")).indexOf(this)
+          return rect(104 + index * 200 - strip.scrollLeft, 180)
+        }
+        return originalRect.call(this)
+      })
+    Object.defineProperties(strip, {
+      clientLeft: { configurable: true, value: 4 },
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 600 },
+    })
+    try {
+      stage.scrollTop = 42
+      stage.scrollLeft = 19
+      strip.scrollTop = 7
+      const button = header("First")
+      button.focus()
+      press(button, "ArrowRight")
+      expect(strip.scrollLeft).toBe(80)
+      press(button, "ArrowRight")
+      expect(strip.scrollLeft).toBe(280)
+      press(button, "ArrowLeft")
+      expect(strip.scrollLeft).toBe(200)
+      expect(document.activeElement).toBe(button)
+      expect(stage.scrollTop).toBe(42)
+      expect(stage.scrollLeft).toBe(19)
+      expect(strip.scrollTop).toBe(7)
+      strip.scrollLeft = 17
+      act(() => root.render(<Harness />))
+      expect(strip.scrollLeft).toBe(17)
+      act(() => dispatchDrag(button.parentElement!, header("Third").parentElement!))
+      expect(strip.scrollLeft).toBe(17)
+    } finally {
+      geometry.mockRestore()
+    }
+  })
+
+  it("advertises the scoped shortcut on tab selectors only", () => {
+    expect(header("Second").getAttribute("aria-keyshortcuts")).toBe(
+      "Alt+Shift+ArrowLeft Alt+Shift+ArrowRight",
+    )
+    expect(header("Second").title).toContain("Move tab")
+    expect(container.querySelector(".tab-close")?.hasAttribute("aria-keyshortcuts")).toBe(false)
   })
 })
 

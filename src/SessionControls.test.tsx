@@ -87,6 +87,48 @@ describe("SessionControls primary provider pin", () => {
     container.remove()
   })
 
+  it.each(["constructor", "__proto__", "toString", "ordinary-provider"])(
+    "renders and switches models for provider %s without inherited property collisions",
+    (provider) => {
+      const snapshot = config()
+      const model = snapshot.models[0]
+      snapshot.models = [
+        model,
+        { ...model, provider, id: "one", selector: `${provider}/one`, name: "Custom one" },
+        { ...model, provider, id: "two", selector: `${provider}/two`, name: "Custom two" },
+      ]
+      const onSwitch = vi.fn()
+      act(() => {
+        root.render(
+          <SessionControls
+            installingDesktopUpdate={false}
+            lang="en"
+            ompConfig={snapshot}
+            onDiscardSwitchRecovery={vi.fn()}
+            onSendSwitchRecovery={vi.fn()}
+            onSwitch={onSwitch}
+            onTogglePrimaryProviderPin={vi.fn()}
+            runtimeStatus="normal"
+            tab={tab}
+          />,
+        )
+      })
+      const select = container.querySelector<HTMLSelectElement>(".session-model-select")!
+      expect(select.value).toBe("provider/primary")
+      const groups = [...select.querySelectorAll("optgroup")]
+      expect(groups.map((group) => group.label)).toEqual(["provider", provider])
+      expect([...groups[1].querySelectorAll("option")].map((option) => option.value)).toEqual([
+        `${provider}/one`,
+        `${provider}/two`,
+      ])
+      act(() => {
+        select.value = `${provider}/two`
+        select.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      expect(onSwitch).toHaveBeenCalledExactlyOnceWith("terminal-1", `${provider}/two`, "medium")
+    },
+  )
+
   it("enables the pin without a runtime capability handshake", () => {
     const onToggle = vi.fn()
     act(() => {
