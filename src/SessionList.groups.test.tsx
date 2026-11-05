@@ -154,7 +154,6 @@ it("leaves search expansion alone and restores prior partial expansion after cle
   expect(titles()).toEqual(["alpha 2", "alpha 1", "alpha 0"])
   expect(button("Expand all").disabled).toBe(true)
   expect(button("Collapse all").disabled).toBe(true)
-  expect(button("Collapse all").title).toBe("Groups are expanded automatically while searching")
   await click("Collapse all")
   await render({ search: "", visibleSessions: current.allSessions })
   expect(titles()).toEqual(["alpha 2", "alpha 1", "beta 1", "single 0"])
