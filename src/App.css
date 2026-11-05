@@ -3363,6 +3363,13 @@ button:disabled {
   white-space: nowrap;
 }
 
+.hero-path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .hero-path {
   display: inline-flex;
   align-items: center;

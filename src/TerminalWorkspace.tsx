@@ -195,6 +195,7 @@ export function TerminalWorkspace({
     return (
       <main className="main-stage" ref={stageRef}>
         <WorkspaceHome
+          onError={onError}
           lang={language}
           primaryActionRef={homePrimaryActionRef}
           launching={launching}

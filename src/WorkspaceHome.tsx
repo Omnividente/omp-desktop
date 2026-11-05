@@ -1,4 +1,5 @@
 import type { RefObject } from "react"
+import { CopyButton } from "./CopyButton"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
 import type { RuntimeInfo, SessionSummary, WorkspaceSummary } from "./types"
@@ -13,6 +14,7 @@ interface WorkspaceHomeProps {
   launching: string | null
   lang: Lang
   onLaunch: (session?: SessionSummary) => void
+  onError: (message: string) => void
   onReveal: (path: string) => void
   onOpenFolder: () => void
 }
@@ -26,6 +28,7 @@ export function WorkspaceHome({
   launching,
   lang,
   onLaunch,
+  onError,
   onReveal,
   onOpenFolder,
 }: WorkspaceHomeProps) {
@@ -66,15 +69,23 @@ export function WorkspaceHome({
             {t(lang, "workspaceReady")}
           </span>
           <h1>{workspace.name}</h1>
-          <button
-            className="hero-path"
-            onClick={() => onReveal(workspace.path)}
-            title={t(lang, "showInExplorer")}
-            type="button"
-          >
-            <span>{workspace.path}</span>
-            <Icon name="external" size={14} />
-          </button>
+          <div className="hero-path-actions">
+            <button
+              className="hero-path"
+              onClick={() => onReveal(workspace.path)}
+              title={t(lang, "showInExplorer")}
+              type="button"
+            >
+              <span>{workspace.path}</span>
+              <Icon name="external" size={14} />
+            </button>
+            <CopyButton
+              text={workspace.path}
+              label={t(lang, "copyWorkspacePath")}
+              lang={lang}
+              onError={onError}
+            />
+          </div>
           <p>{t(lang, "workspaceDesc")}</p>
           <div className="hero-actions">
             <button

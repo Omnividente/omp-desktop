@@ -22,6 +22,7 @@ export const UI_TEXT = {
     workspaceSelectionNotSaved:
       "Не удалось запомнить выбор проекта для следующего запуска. Текущий выбор не изменён.",
     showInExplorer: "Показать в проводнике",
+    copyWorkspacePath: "Копировать путь проекта",
     workspaceDesc:
       "Новый терминал наследует эту папку. История OMP остаётся в обычном формате JSONL.",
     btnNewSession: "Новая сессия",
@@ -675,6 +676,7 @@ export const UI_TEXT = {
     workspaceSelectionNotSaved:
       "Could not remember the project selection for the next launch. The current selection is unchanged.",
     showInExplorer: "Show in explorer",
+    copyWorkspacePath: "Copy project path",
     workspaceDesc:
       "New terminal inherits this folder. OMP history remains in standard JSONL format.",
     btnNewSession: "New session",
