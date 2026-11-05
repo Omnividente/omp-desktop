@@ -424,6 +424,10 @@ export const UI_TEXT = {
     taskAgentsUnsupported:
       "Этот runtime не поддерживает настройки агентов. Просмотр доступен, изменение выключено.",
     taskAgentsEmpty: "В этом снимке OMP нет доступных определений агентов.",
+    taskAgentsSearch: "Поиск агентов по имени, описанию или источнику",
+    taskAgentsClearSearch: "Очистить поиск агентов",
+    taskAgentsShown: "Показано агентов",
+    taskAgentsNoMatches: "Нет агентов по этому запросу.",
     agentSource: "Источник определения",
     agentDefinitionModels: "Модели из определения",
     agentRuntimeDefault: "Не указан в доступном определении; наследование определяет OMP",
@@ -1075,6 +1079,10 @@ export const UI_TEXT = {
     taskAgentsUnsupported:
       "This runtime does not support agent settings. Definitions are read-only.",
     taskAgentsEmpty: "No available agent definitions were returned in this OMP snapshot.",
+    taskAgentsSearch: "Search agents by name, description or source",
+    taskAgentsClearSearch: "Clear agent search",
+    taskAgentsShown: "Agents shown",
+    taskAgentsNoMatches: "No agents match this search.",
     agentSource: "Definition source",
     agentDefinitionModels: "Definition model selectors",
     agentRuntimeDefault: "Not specified in the available definition; OMP determines inheritance",

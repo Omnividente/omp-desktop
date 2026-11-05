@@ -412,6 +412,8 @@ export function SettingsPanel({
     Object.fromEntries(initialOmpConfig?.roles.map((role) => [role.role, role.selector]) ?? []),
   )
   const [agentDrafts, setAgentDrafts] = useState<Record<string, AgentDraft>>({})
+  const [agentSearch, setAgentSearch] = useState("")
+  const agentSearchRef = useRef<HTMLInputElement>(null)
   const [advisorEnabled, setAdvisorEnabled] = useState(initialOmpConfig?.advisorEnabled ?? false)
   const [autoResume, setAutoResume] = useState(initialOmpConfig?.autoResume ?? false)
   const [thinkingLevel, setThinkingLevel] = useState(
@@ -663,6 +665,14 @@ export function SettingsPanel({
   )
   const auxiliaryRoles = orderedRoles.filter((role) => !PRIMARY_MODEL_ROLES.includes(role.role))
   const agents = ompConfig?.agents ?? []
+  const agentQuery = agentSearch.normalize("NFC").trim().toLowerCase()
+  const visibleAgents = agentQuery
+    ? agents.filter((agent) =>
+        [agent.name, agent.description, agent.source].some((value) =>
+          value.normalize("NFC").toLowerCase().includes(agentQuery),
+        ),
+      )
+    : agents
   const agentChanges = useMemo(() => {
     const changes: Record<string, OmpAgentChange> = {}
     if (!ompConfig?.agentSettingsSupported) return changes
@@ -2013,7 +2023,46 @@ export function SettingsPanel({
                         {agents.length === 0 && (
                           <p className="field-help">{t(language, "taskAgentsEmpty")}</p>
                         )}
-                        {agents.map((agent) => {
+                        {agents.length > 0 && (
+                          <>
+                            <div className="search-box settings-agent-search">
+                              <Icon name="search" size={15} />
+                              <input
+                                aria-describedby="task-agent-search-results"
+                                aria-label={t(language, "taskAgentsSearch")}
+                                id="task-agent-search"
+                                onChange={(event) => {
+                                  setAgentSearch(event.target.value)
+                                  setOpenRole(null)
+                                }}
+                                placeholder={t(language, "taskAgentsSearch")}
+                                ref={agentSearchRef}
+                                type="search"
+                                value={agentSearch}
+                              />
+                              {agentSearch && (
+                                <button
+                                  aria-label={t(language, "taskAgentsClearSearch")}
+                                  onClick={() => {
+                                    setAgentSearch("")
+                                    setOpenRole(null)
+                                    agentSearchRef.current?.focus()
+                                  }}
+                                  type="button"
+                                >
+                                  <Icon name="close" size={13} />
+                                </button>
+                              )}
+                            </div>
+                            <p className="field-help" id="task-agent-search-results" role="status">
+                              {t(language, "taskAgentsShown")}: {visibleAgents.length} /{" "}
+                              {agents.length}
+                              {visibleAgents.length === 0 &&
+                                ` · ${t(language, "taskAgentsNoMatches")}`}
+                            </p>
+                          </>
+                        )}
+                        {visibleAgents.map((agent) => {
                           const draft = agentDrafts[agent.name] ?? agent
                           return (
                             <article
