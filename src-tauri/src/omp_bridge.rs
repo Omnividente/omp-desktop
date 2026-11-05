@@ -2,9 +2,9 @@ use crate::{
     diagnostics,
     models::{
         sanitize_error_text, AppSettings, BootstrapPayload, OmpAccountLimitInfo,
-        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpAgentInfo, OmpConfigSaveRequest,
-        OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo, OmpModelInfo, OmpOperationalChange,
-        OmpRoleInfo, OmpUpdateInfo, SettingsPatch,
+        OmpAccountRouteInfo, OmpAccountUsageInfo, OmpAgentDefinition, OmpAgentDefinitionField,
+        OmpAgentInfo, OmpConfigSaveRequest, OmpConfigSnapshot, OmpConfigWarning, OmpCredentialInfo,
+        OmpModelInfo, OmpOperationalChange, OmpRoleInfo, OmpUpdateInfo, SettingsPatch,
     },
     omp_command::{run_omp_command, OmpOperation},
     operational_config::{self, OperationalTransaction},
@@ -71,6 +71,19 @@ struct ModelCatalogAttempt {
     attempted_at: Instant,
     forced_at: Option<Instant>,
     error: Option<String>,
+    has_diagnostics: bool,
+}
+
+#[derive(Debug)]
+struct ModelCatalogOutput {
+    value: Value,
+    has_diagnostics: bool,
+}
+
+#[derive(Debug)]
+struct ModelCatalogRefresh {
+    value: Option<Value>,
+    has_diagnostics: bool,
 }
 
 #[derive(Default)]
@@ -84,6 +97,32 @@ impl ModelCatalogState {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 
+    fn list<F>(
+        &self,
+        executable: &str,
+        env: &HashMap<String, String>,
+        fetch: F,
+    ) -> Result<ModelCatalogOutput, String>
+    where
+        F: FnOnce() -> Result<ModelCatalogOutput, String>,
+    {
+        // Serialize listing with refresh so a late listing cannot overwrite a newer
+        // clean refresh. A cache-only listing cannot prove a prior warning resolved.
+        let mut state = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut output = fetch()?;
+        if let Some(entry) = state
+            .as_mut()
+            .filter(|entry| entry.executable == executable && entry.env == *env)
+        {
+            entry.has_diagnostics |= output.has_diagnostics;
+            output.has_diagnostics = entry.has_diagnostics;
+        }
+        Ok(output)
+    }
+
     fn refresh<F>(
         &self,
         executable: &str,
@@ -91,9 +130,9 @@ impl ModelCatalogState {
         force: bool,
         now: Instant,
         fetch: F,
-    ) -> Result<Option<Value>, String>
+    ) -> Result<ModelCatalogRefresh, String>
     where
-        F: FnOnce() -> Result<Value, String>,
+        F: FnOnce() -> Result<ModelCatalogOutput, String>,
     {
         // Keep the lock through discovery so concurrent snapshot loads share one fetch.
         let mut state = self
@@ -120,7 +159,10 @@ impl ModelCatalogState {
         if !should_refresh {
             return match previous.and_then(|entry| entry.error.as_ref()) {
                 Some(error) => Err(error.clone()),
-                None => Ok(None),
+                None => Ok(ModelCatalogRefresh {
+                    value: None,
+                    has_diagnostics: previous.is_some_and(|entry| entry.has_diagnostics),
+                }),
             };
         }
         let forced_at = if force {
@@ -134,6 +176,7 @@ impl ModelCatalogState {
                 entry.attempted_at = now;
                 entry.forced_at = forced_at;
                 entry.error = result.as_ref().err().cloned();
+                entry.has_diagnostics = result.as_ref().is_ok_and(|output| output.has_diagnostics);
             }
             _ => {
                 *state = Some(ModelCatalogAttempt {
@@ -142,10 +185,14 @@ impl ModelCatalogState {
                     attempted_at: now,
                     forced_at,
                     error: result.as_ref().err().cloned(),
+                    has_diagnostics: result.as_ref().is_ok_and(|output| output.has_diagnostics),
                 });
             }
         }
-        result.map(Some)
+        result.map(|output| ModelCatalogRefresh {
+            value: Some(output.value),
+            has_diagnostics: output.has_diagnostics,
+        })
     }
 }
 
@@ -153,6 +200,7 @@ impl ModelCatalogState {
 struct ModelCatalogSnapshot {
     models: Vec<OmpModelInfo>,
     refresh_error: Option<String>,
+    has_diagnostics: bool,
 }
 
 pub fn load_config_snapshot(
@@ -202,6 +250,13 @@ fn load_config_snapshot_with_refresh(
     let mut warnings = Vec::new();
     let catalog_snapshot: ModelCatalogSnapshot =
         snapshot_value_or_warning(models_result, "models", "omp_models_failed", &mut warnings);
+    if catalog_snapshot.has_diagnostics {
+        warnings.push(OmpConfigWarning {
+            source: "models".to_owned(),
+            code: "omp_models_diagnostics".to_owned(),
+            message: "OMP сообщил диагностику при чтении каталога моделей. Список может быть неполным; подробности скрыты, поскольку вывод может содержать секреты.".to_owned(),
+        });
+    }
     if let Some(error) = catalog_snapshot.refresh_error {
         warnings.push(OmpConfigWarning {
             source: "models".to_owned(),
@@ -874,15 +929,7 @@ pub fn save_config(
                 &app_settings.provider_env,
                 false,
                 Instant::now(),
-                || {
-                    run_omp_text(
-                        &omp.executable,
-                        &["models", "refresh"],
-                        &app_settings.provider_env,
-                        OmpOperation::Models,
-                    )
-                    .map(|_| Value::Null)
-                },
+                || run_models_refresh_text(&omp.executable, &app_settings.provider_env),
             )?;
         }
         config_transaction.apply(
@@ -931,15 +978,7 @@ pub fn save_config(
                 &previous_settings.provider_env,
                 false,
                 Instant::now(),
-                || {
-                    run_omp_text(
-                        &omp.executable,
-                        &["models", "refresh"],
-                        &previous_settings.provider_env,
-                        OmpOperation::Models,
-                    )
-                    .map(|_| Value::Null)
-                },
+                || run_models_refresh_text(&omp.executable, &previous_settings.provider_env),
             ) {
                 rollback_errors.push(rollback_error);
             }
@@ -1074,6 +1113,105 @@ pub fn check_update(app: &AppHandle, app_settings: &AppSettings) -> Result<OmpUp
     ))
 }
 
+// Only the model catalog consumes successful stderr diagnostics. Never expose its text:
+// extensions can include credentials that are not present in Desktop's environment map.
+fn parse_models_output(
+    success: bool,
+    stdout: &str,
+    stderr: &str,
+) -> Result<ModelCatalogOutput, String> {
+    if !success {
+        return Err("[omp_command_failed] OMP не смог прочитать каталог моделей".to_owned());
+    }
+    let value: Value = serde_json::from_str(stdout)
+        .map_err(|_| "[omp_invalid_json] OMP вернул не-JSON каталог моделей".to_owned())?;
+    Ok(ModelCatalogOutput {
+        value,
+        has_diagnostics: !stderr.trim().is_empty(),
+    })
+}
+
+// Save/rollback historically accept any successful text refresh, including empty
+// output. Keep that contract and its arguments; only retain a diagnostic flag.
+fn parse_models_refresh_text_output(
+    success: bool,
+    stderr: &str,
+) -> Result<ModelCatalogOutput, String> {
+    if !success {
+        return Err("[omp_command_failed] OMP не смог обновить каталог моделей".to_owned());
+    }
+    Ok(ModelCatalogOutput {
+        value: Value::Null,
+        has_diagnostics: !stderr.trim().is_empty(),
+    })
+}
+
+fn run_models_refresh_text(
+    executable: &str,
+    env_map: &HashMap<String, String>,
+) -> Result<ModelCatalogOutput, String> {
+    let output = run_omp_command(
+        executable,
+        &["models", "refresh"],
+        env_map,
+        OmpOperation::Models,
+    )
+    .map_err(|error| {
+        format!(
+            "[{}] Не удалось выполнить обновление каталога OMP",
+            error.code()
+        )
+    })?;
+    parse_models_refresh_text_output(
+        output.status.success(),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+fn run_models_json(
+    executable: &str,
+    args: &[&str],
+    env_map: &HashMap<String, String>,
+) -> Result<ModelCatalogOutput, String> {
+    let output =
+        run_omp_command(executable, args, env_map, OmpOperation::Models).map_err(|error| {
+            format!(
+                "[{}] Не удалось выполнить чтение каталога OMP",
+                error.code()
+            )
+        })?;
+    parse_models_output(
+        output.status.success(),
+        &String::from_utf8_lossy(&output.stdout),
+        &String::from_utf8_lossy(&output.stderr),
+    )
+}
+
+fn resolve_model_catalog<F>(
+    refreshed: Result<ModelCatalogRefresh, String>,
+    fallback: F,
+) -> Result<(Value, Option<String>, bool), String>
+where
+    F: FnOnce() -> Result<ModelCatalogOutput, String>,
+{
+    match refreshed {
+        Ok(ModelCatalogRefresh {
+            value: Some(value),
+            has_diagnostics,
+        }) => Ok((value, None, has_diagnostics)),
+        Ok(_) => {
+            // The state-aware listing supplies the current flag. Do not OR in an
+            // older refresh snapshot after a concurrent clean refresh cleared it.
+            let output = fallback()?;
+            Ok((output.value, None, output.has_diagnostics))
+        }
+        Err(error) => {
+            let output = fallback()?;
+            Ok((output.value, Some(error), output.has_diagnostics))
+        }
+    }
+}
+
 fn load_models(
     executable: &str,
     env_map: &HashMap<String, String>,
@@ -1081,75 +1219,84 @@ fn load_models(
     force: bool,
 ) -> Result<ModelCatalogSnapshot, String> {
     let refreshed = catalog.refresh(executable, env_map, force, Instant::now(), || {
-        run_omp_json(
+        run_models_json(
             executable,
             &["models", "refresh", "--json", "--kind", "all"],
             env_map,
-            OmpOperation::Models,
         )
     });
-    let (value, refresh_error) = match refreshed {
-        Ok(Some(value)) => (value, None),
-        result => (
-            run_omp_json(
-                executable,
-                &["models", "--json", "--kind", "all"],
-                env_map,
-                OmpOperation::Models,
-            )?,
-            result.err(),
-        ),
-    };
+    let (value, refresh_error, has_diagnostics) = resolve_model_catalog(refreshed, || {
+        catalog.list(executable, env_map, || {
+            run_models_json(executable, &["models", "--json", "--kind", "all"], env_map)
+        })
+    })?;
     let models = value
         .get("models")
         .and_then(Value::as_array)
         .ok_or_else(|| "[omp_invalid_json] OMP не вернул массив models".to_owned())?;
 
     Ok(ModelCatalogSnapshot {
-        models: models
-            .iter()
-            .filter_map(|model| {
-                let provider = model.get("provider")?.as_str()?.to_owned();
-                let id = model.get("id")?.as_str()?.to_owned();
-                let selector = model
-                    .get("selector")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| format!("{provider}/{id}"));
-                let name = model
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| id.clone());
-                let thinking = model
-                    .get("thinking")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                Some(OmpModelInfo {
-                    provider,
-                    id,
-                    selector,
-                    name,
-                    kind: model
-                        .get("kind")
-                        .and_then(Value::as_str)
-                        .unwrap_or("chat")
-                        .to_owned(),
-                    available: true,
-                    status: "ok".to_owned(),
-                    detail: None,
-                    thinking,
-                })
-            })
-            .collect(),
+        models: models.iter().filter_map(parse_model).collect(),
         refresh_error,
+        has_diagnostics,
+    })
+}
+
+fn parse_model(model: &Value) -> Option<OmpModelInfo> {
+    let provider = model.get("provider")?.as_str()?.to_owned();
+    let id = model.get("id")?.as_str()?.to_owned();
+    let selector = model
+        .get("selector")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| format!("{provider}/{id}"));
+    let name = model
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| id.clone());
+    let thinking = model
+        .get("thinking")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(OmpModelInfo {
+        provider,
+        id,
+        selector,
+        name,
+        kind: model
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("chat")
+            .to_owned(),
+        available: true,
+        status: "ok".to_owned(),
+        detail: None,
+        thinking,
+        context_window: model.get("contextWindow").and_then(Value::as_u64),
+        max_tokens: model.get("maxTokens").and_then(Value::as_u64),
+        reasoning: model.get("reasoning").and_then(Value::as_bool),
+        input: model
+            .get("input")
+            .and_then(Value::as_array)
+            .and_then(|items| {
+                items
+                    .iter()
+                    .map(|item| item.as_str().map(str::to_owned))
+                    .collect()
+            }),
+        cost: model.get("cost").filter(|cost| cost.is_object()).cloned(),
+        pricing_status: model
+            .get("pricingStatus")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 
@@ -2136,6 +2283,124 @@ pub(crate) fn model_patterns(value: &Value) -> Option<Vec<String>> {
     })
 }
 
+// Project only a small declaration allowlist. Do not expose system prompts,
+// schema contents, full source paths, or infer runtime defaults/permissions.
+fn agent_definition_field(value: Option<&Value>, key: &str) -> OmpAgentDefinitionField {
+    let field = |state: &str, text: Option<String>| OmpAgentDefinitionField {
+        state: state.to_owned(),
+        text,
+    };
+    let Some(value) = value else {
+        return field("absent", None);
+    };
+    if value.is_null() {
+        return field("null", None);
+    }
+    if key == "output" {
+        let (kind, empty) = match value {
+            Value::Object(map) => (format!("object ({} fields)", map.len()), map.is_empty()),
+            Value::Array(values) => (format!("array ({} items)", values.len()), values.is_empty()),
+            Value::String(text) => ("string".to_owned(), text.is_empty()),
+            Value::Bool(_) => ("boolean".to_owned(), false),
+            Value::Number(_) => ("number".to_owned(), false),
+            Value::Null => unreachable!(),
+        };
+        return field(if empty { "empty" } else { "value" }, Some(kind));
+    }
+    let supported = match key {
+        "tools" | "spawns" => {
+            value.is_string()
+                || value
+                    .as_array()
+                    .is_some_and(|items| items.iter().all(Value::is_string))
+        }
+        "thinkingLevel" => value.is_string(),
+        "blocking" | "structured" => value.is_boolean() || value.is_string(),
+        _ => false,
+    };
+    if !supported {
+        return field("unsupported", None);
+    }
+    if value.as_str() == Some("*") {
+        return field("wildcard", Some("*".to_owned()));
+    }
+    if value.as_str() == Some("") || value.as_array().is_some_and(Vec::is_empty) {
+        return field("empty", Some(value.to_string()));
+    }
+    // Serialize individual small values only; never serialize an unbounded array
+    // to truncate it afterwards. The existing frontmatter parser is unchanged.
+    let (bounded, list_truncated) = if let Some(items) = value.as_array() {
+        (
+            Value::Array(
+                items
+                    .iter()
+                    .take(16)
+                    .map(|item| {
+                        Value::String(
+                            item.as_str()
+                                .unwrap_or_default()
+                                .chars()
+                                .take(121)
+                                .collect(),
+                        )
+                    })
+                    .collect(),
+            ),
+            items.len() > 16
+                || items
+                    .iter()
+                    .take(16)
+                    .any(|item| item.as_str().is_some_and(|text| text.chars().count() > 120)),
+        )
+    } else if let Some(text) = value.as_str() {
+        (
+            Value::String(text.chars().take(121).collect()),
+            text.chars().count() > 120,
+        )
+    } else {
+        (value.clone(), false)
+    };
+    let text = bounded.to_string();
+    let truncated = list_truncated || text.chars().count() > 512;
+    field(
+        if truncated { "truncated" } else { "value" },
+        Some(text.chars().take(512).collect()),
+    )
+}
+
+fn agent_definition_metadata(value: &Value, path: &Path) -> OmpAgentDefinition {
+    let fields = [
+        "tools",
+        "spawns",
+        "thinkingLevel",
+        "output",
+        "blocking",
+        "structured",
+    ]
+    .into_iter()
+    .map(|key| (key.to_owned(), agent_definition_field(value.get(key), key)))
+    .collect();
+    OmpAgentDefinition {
+        source_file_truncated: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.chars().count() > 120),
+        source_file: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .chars()
+            .take(120)
+            .collect(),
+        observed_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_millis().min(u64::MAX as u128) as u64)
+            .unwrap_or(0),
+        context_cwd: None,
+        fields,
+    }
+}
+
 fn read_agent_definition(path: &Path, source: &str) -> Result<OmpAgentInfo, String> {
     let file = fs::File::open(path).map_err(|_| "Не удалось прочитать определение агента")?;
     let mut lines = BufReader::new(file).lines();
@@ -2183,6 +2448,7 @@ fn read_agent_definition(path: &Path, source: &str) -> Result<OmpAgentInfo, Stri
         name: name.to_owned(),
         description: description.to_owned(),
         source: source.to_owned(),
+        definition: Some(agent_definition_metadata(&value, path)),
         enabled: true,
         model_override: None,
         default_model_selectors: value
@@ -2372,12 +2638,18 @@ fn load_agents(
             name,
             description: "".to_owned(),
             source: "configured".to_owned(),
+            definition: None,
             enabled: true,
             model_override: None,
             default_model_selectors: Vec::new(),
         });
     }
     for agent in agents.values_mut() {
+        if let Some(definition) = &mut agent.definition {
+            // Catalog discovery context, not the cwd or permission set of a
+            // running session. Cached bundled observation time stays unchanged.
+            definition.context_cwd = settings.last_workspace.clone();
+        }
         agent.enabled = !disabled.is_some_and(|names| {
             names
                 .iter()
@@ -2940,14 +3212,286 @@ mod tests {
     use super::*;
 
     #[test]
+    fn model_catalog_success_keeps_json_and_only_a_diagnostic_flag() {
+        for models in [
+            serde_json::json!([]),
+            serde_json::json!([{"provider": "healthy", "id": "one"}]),
+            serde_json::json!([{"provider": "synthetic", "id": "cached"}]),
+        ] {
+            let value = serde_json::json!({"models": models});
+            let stdout = value.to_string();
+            for stderr in [
+                "",
+                " \n",
+                "Warning: synthetic discovery failed (cached): secret-from-extension",
+            ] {
+                let output = parse_models_output(true, &stdout, stderr).unwrap();
+                assert_eq!(output.value, value);
+                assert_eq!(output.has_diagnostics, !stderr.trim().is_empty());
+                let result = resolve_model_catalog(
+                    Ok(ModelCatalogRefresh {
+                        value: Some(output.value),
+                        has_diagnostics: output.has_diagnostics,
+                    }),
+                    || panic!("successful refresh must not trigger fallback"),
+                )
+                .unwrap();
+                assert_eq!(result.0, value);
+                assert_eq!(result.1, None);
+                assert_eq!(result.2, !stderr.trim().is_empty());
+                assert!(!format!("{result:?}").contains("secret-from-extension"));
+            }
+        }
+    }
+
+    #[test]
+    fn model_catalog_errors_do_not_echo_stdout_or_stderr() {
+        for (success, stdout) in [
+            (false, "secret-in-stdout"),
+            (true, "secret-in-invalid-json"),
+            (true, ""),
+        ] {
+            let error = parse_models_output(success, stdout, "secret-from-extension").unwrap_err();
+            assert!(!error.contains("secret-"));
+            assert!(error.len() < 200);
+        }
+    }
+
+    #[test]
+    fn model_catalog_nonzero_refresh_still_uses_readable_fallback() {
+        let error = parse_models_output(false, "", "secret-from-extension").unwrap_err();
+        let fallback = serde_json::json!({"models": [{"provider": "healthy", "id": "one"}]});
+        let result = resolve_model_catalog(Err(error), || {
+            parse_models_output(true, &fallback.to_string(), "second-private-diagnostic")
+        })
+        .unwrap();
+        assert_eq!(result.0, fallback);
+        assert!(result.1.is_some());
+        assert!(result.2);
+        assert!(!format!("{result:?}").contains("secret-from-extension"));
+        assert!(!format!("{result:?}").contains("second-private-diagnostic"));
+        assert!(resolve_model_catalog(Err("refresh failed".to_owned()), || {
+            parse_models_output(false, "", "secret-from-extension")
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn model_catalog_diagnostics_survive_cooldown_and_clear_after_clean_refresh() {
+        let state = ModelCatalogState::default();
+        let env = HashMap::new();
+        let start = Instant::now();
+        let first = state
+            .refresh("omp", &env, false, start, || {
+                parse_models_output(true, r#"{"models":[]}"#, "private-diagnostic")
+            })
+            .unwrap();
+        assert!(first.has_diagnostics);
+        let retained = state
+            .refresh("omp", &env, false, start + Duration::from_secs(1), || {
+                panic!("cooldown must not invoke discovery")
+            })
+            .unwrap();
+        assert!(retained.value.is_none());
+        assert!(retained.has_diagnostics);
+        let listed = resolve_model_catalog(Ok(retained), || {
+            state.list("omp", &env, || {
+                parse_models_output(true, r#"{"models":[]}"#, "")
+            })
+        })
+        .unwrap();
+        assert!(listed.2);
+        assert!(listed.1.is_none());
+        let recovered = state
+            .refresh("omp", &env, true, start + Duration::from_secs(2), || {
+                parse_models_output(true, r#"{"models":[]}"#, "")
+            })
+            .unwrap();
+        assert!(!recovered.has_diagnostics);
+        let clean = state
+            .refresh("omp", &env, false, start + Duration::from_secs(3), || {
+                panic!("clean cooldown must not invoke discovery")
+            })
+            .unwrap();
+        assert!(!clean.has_diagnostics);
+    }
+
+    #[test]
+    fn model_catalog_listing_diagnostics_are_visible_during_clean_cooldown() {
+        let result = resolve_model_catalog(
+            Ok(ModelCatalogRefresh {
+                value: None,
+                has_diagnostics: false,
+            }),
+            || parse_models_output(true, r#"{"models":[]}"#, "private-diagnostic"),
+        )
+        .unwrap();
+        assert!(result.2);
+        assert_eq!(result.1, None);
+    }
+
+    #[test]
+    fn model_catalog_listing_warning_persists_after_failed_or_clean_refresh() {
+        for failed in [false, true] {
+            let state = ModelCatalogState::default();
+            let env = HashMap::new();
+            let start = Instant::now();
+            let initial = state.refresh("omp", &env, false, start, || {
+                parse_models_output(!failed, r#"{"models":[]}"#, "")
+            });
+            let _ = initial;
+            let warned = state
+                .list("omp", &env, || {
+                    parse_models_output(true, r#"{"models":[]}"#, "private-listing-diagnostic")
+                })
+                .unwrap();
+            assert!(warned.has_diagnostics);
+            let next = state
+                .list("omp", &env, || {
+                    parse_models_output(true, r#"{"models":[]}"#, "")
+                })
+                .unwrap();
+            assert!(next.has_diagnostics);
+            assert!(!format!("{next:?}").contains("private-listing-diagnostic"));
+            // A real clean refresh, not a cache-only listing, establishes recovery.
+            state
+                .refresh("omp", &env, true, start + Duration::from_secs(1), || {
+                    parse_models_output(true, r#"{"models":[]}"#, "")
+                })
+                .unwrap();
+            let clean = state
+                .list("omp", &env, || {
+                    parse_models_output(true, r#"{"models":[]}"#, "")
+                })
+                .unwrap();
+            assert!(!clean.has_diagnostics);
+        }
+    }
+
+    #[test]
+    fn model_catalog_save_and_rollback_refreshes_retain_diagnostics() {
+        let state = ModelCatalogState::default();
+        let env = HashMap::new();
+        let start = Instant::now();
+        // Both provider Save and rollback invalidate, then use the same text
+        // refresh parser. Neither may replace its diagnostic flag with false.
+        for step in 0..2 {
+            state.invalidate();
+            let output = state
+                .refresh(
+                    "omp",
+                    &env,
+                    false,
+                    start + Duration::from_secs(step),
+                    || parse_models_refresh_text_output(true, "private-save-diagnostic"),
+                )
+                .unwrap();
+            assert!(output.has_diagnostics);
+            let retained = state
+                .refresh(
+                    "omp",
+                    &env,
+                    false,
+                    start + Duration::from_secs(step + 1),
+                    || panic!("immediate post-save snapshot must use cooldown"),
+                )
+                .unwrap();
+            assert!(retained.has_diagnostics);
+            let listed = state
+                .list("omp", &env, || {
+                    parse_models_output(true, r#"{"models":[]}"#, "")
+                })
+                .unwrap();
+            assert!(listed.has_diagnostics);
+        }
+    }
+
+    #[test]
+    fn model_catalog_listing_diagnostics_do_not_cross_contexts() {
+        let state = ModelCatalogState::default();
+        let env = HashMap::new();
+        state
+            .refresh("omp", &env, false, Instant::now(), || {
+                parse_models_output(true, r#"{"models":[]}"#, "")
+            })
+            .unwrap();
+        state
+            .list("other-omp", &env, || {
+                parse_models_output(true, r#"{"models":[]}"#, "private-diagnostic")
+            })
+            .unwrap();
+        assert!(
+            !state
+                .list("omp", &env, || {
+                    parse_models_output(true, r#"{"models":[]}"#, "")
+                })
+                .unwrap()
+                .has_diagnostics
+        );
+    }
+
+    #[test]
+    fn model_catalog_text_refresh_preserves_success_without_requiring_json() {
+        // stdout is deliberately not an input to this parser: empty, plain text,
+        // and JSON all retain the previous success-by-exit-status contract.
+        for stderr in ["", " \n", "private-text-diagnostic"] {
+            let output = parse_models_refresh_text_output(true, stderr).unwrap();
+            assert_eq!(output.value, Value::Null);
+            assert_eq!(output.has_diagnostics, !stderr.trim().is_empty());
+            assert!(!format!("{output:?}").contains("private-text-diagnostic"));
+        }
+        let error = parse_models_refresh_text_output(false, "private-text-diagnostic").unwrap_err();
+        assert!(!error.contains("private-text-diagnostic"));
+    }
+
+    #[test]
+    fn model_catalog_old_refresh_warning_does_not_override_new_clean_state() {
+        let state = ModelCatalogState::default();
+        let env = HashMap::new();
+        let start = Instant::now();
+        state
+            .refresh("omp", &env, false, start, || {
+                parse_models_output(true, r#"{"models":[]}"#, "private-old-diagnostic")
+            })
+            .unwrap();
+        let old = state
+            .refresh("omp", &env, false, start + Duration::from_secs(1), || {
+                panic!("cooldown must not invoke discovery")
+            })
+            .unwrap();
+        assert!(old.has_diagnostics);
+        assert!(old.value.is_none());
+        // Another operation completes a clean refresh before the first lists.
+        state
+            .refresh("omp", &env, true, start + Duration::from_secs(2), || {
+                parse_models_output(true, r#"{"models":[]}"#, "")
+            })
+            .unwrap();
+        let current = resolve_model_catalog(Ok(old), || {
+            state.list("omp", &env, || {
+                parse_models_output(true, r#"{"models":[]}"#, "")
+            })
+        })
+        .unwrap();
+        assert!(!current.2);
+        assert!(current.1.is_none());
+    }
+
+    #[test]
     fn catalog_refresh_respects_success_failure_and_forced_boundaries() {
         let state = ModelCatalogState::default();
         let env = HashMap::new();
         let start = Instant::now();
-        let fetch = || Ok(Value::Null);
+        let fetch = || {
+            Ok(ModelCatalogOutput {
+                value: Value::Null,
+                has_diagnostics: false,
+            })
+        };
         assert!(state
             .refresh("omp", &env, false, start, fetch)
             .unwrap()
+            .value
             .is_some());
         assert!(state
             .refresh(
@@ -2958,15 +3502,18 @@ mod tests {
                 fetch
             )
             .unwrap()
+            .value
             .is_none());
         assert!(state
             .refresh("omp", &env, false, start + MODEL_CATALOG_STALE_AFTER, fetch)
             .unwrap()
+            .value
             .is_some());
         let forced = start + MODEL_CATALOG_STALE_AFTER;
         assert!(state
             .refresh("omp", &env, true, forced, fetch)
             .unwrap()
+            .value
             .is_some());
         assert!(state
             .refresh(
@@ -2977,6 +3524,7 @@ mod tests {
                 fetch
             )
             .unwrap()
+            .value
             .is_none());
         let failed = forced + MODEL_CATALOG_REFRESH_COOLDOWN;
         assert_eq!(
@@ -3006,6 +3554,7 @@ mod tests {
                 fetch
             )
             .unwrap()
+            .value
             .is_some());
         assert!(state
             .refresh(
@@ -3016,6 +3565,7 @@ mod tests {
                 fetch
             )
             .unwrap()
+            .value
             .is_none());
     }
 
@@ -3025,22 +3575,31 @@ mod tests {
         let start = Instant::now();
         let first = HashMap::from([("API_KEY".to_owned(), "fixture-a".to_owned())]);
         let second = HashMap::from([("API_KEY".to_owned(), "fixture-b".to_owned())]);
-        let fetch = || Ok(Value::Null);
+        let fetch = || {
+            Ok(ModelCatalogOutput {
+                value: Value::Null,
+                has_diagnostics: false,
+            })
+        };
         assert!(state
             .refresh("omp-a", &first, true, start, fetch)
             .unwrap()
+            .value
             .is_some());
         assert!(state
             .refresh("omp-b", &first, true, start, fetch)
             .unwrap()
+            .value
             .is_some());
         assert!(state
             .refresh("omp-b", &second, true, start, fetch)
             .unwrap()
+            .value
             .is_some());
         assert!(state
             .refresh("omp-b", &second, true, start, fetch)
             .unwrap()
+            .value
             .is_none());
     }
 
@@ -3062,13 +3621,62 @@ mod tests {
                     state
                         .refresh("omp", &HashMap::new(), false, Instant::now(), || {
                             fetched.fetch_add(1, Ordering::Relaxed);
-                            Ok(Value::Null)
+                            Ok(ModelCatalogOutput {
+                                value: Value::Null,
+                                has_diagnostics: false,
+                            })
                         })
                         .unwrap();
                 });
             }
         });
         assert_eq!(fetched.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn model_passport_accepts_legacy_and_optional_metadata_without_inference() {
+        let legacy =
+            parse_model(&serde_json::json!({"provider": "synthetic", "id": "old"})).unwrap();
+        assert_eq!(legacy.context_window, None);
+        assert_eq!(legacy.max_tokens, None);
+        assert_eq!(legacy.reasoning, None);
+        assert_eq!(legacy.input, None);
+        assert_eq!(legacy.cost, None);
+        assert_eq!(legacy.pricing_status, None);
+        let cost = serde_json::json!({"input": 0, "output": 2.5, "cacheRead": 0.1, "cacheWrite": 0,
+            "longContext": {"inputThreshold": 200000, "input": 4, "output": 5, "cacheRead": 0.2, "cacheWrite": 0}});
+        let current = parse_model(&serde_json::json!({"provider": "synthetic", "id": "new",
+            "contextWindow": 128000, "maxTokens": 8192, "reasoning": false,
+            "input": ["text", "image"], "cost": cost, "pricingStatus": "fixed"}))
+        .unwrap();
+        let wire = serde_json::to_value(current).unwrap();
+        assert_eq!(wire["contextWindow"], 128000);
+        assert_eq!(wire["maxTokens"], 8192);
+        assert_eq!(wire["reasoning"], false);
+        assert_eq!(wire["input"], serde_json::json!(["text", "image"]));
+        assert_eq!(wire["cost"], cost);
+        assert_eq!(wire["pricingStatus"], "fixed");
+    }
+
+    #[test]
+    fn model_passport_preserves_explicit_status_and_drops_invalid_optional_types() {
+        for status in ["fixed", "free", "included", "variable", "unknown", "future"] {
+            let model = parse_model(&serde_json::json!({"provider": "synthetic", "id": "x",
+                "cost": {"input": 0, "output": 0}, "pricingStatus": status}))
+            .unwrap();
+            assert_eq!(model.pricing_status.as_deref(), Some(status));
+        }
+        let model = parse_model(&serde_json::json!({"provider": "synthetic", "id": "x",
+            "contextWindow": -1, "maxTokens": "8192", "reasoning": "true",
+            "input": ["text", 1], "cost": [], "pricingStatus": false}))
+        .unwrap();
+        assert_eq!(model.context_window, None);
+        assert_eq!(model.max_tokens, None);
+        assert_eq!(model.reasoning, None);
+        assert_eq!(model.input, None);
+        assert_eq!(model.cost, None);
+        assert_eq!(model.pricing_status, None);
+        assert!(parse_model(&serde_json::json!({"provider": "synthetic"})).is_none());
     }
 
     fn model(provider: &str, id: &str) -> OmpModelInfo {
@@ -3082,6 +3690,12 @@ mod tests {
             status: "ok".to_owned(),
             detail: None,
             thinking: Vec::new(),
+            context_window: None,
+            max_tokens: None,
+            reasoning: None,
+            input: None,
+            cost: None,
+            pricing_status: None,
         }
     }
 
@@ -3813,5 +4427,98 @@ providers:
                 "raw identity leaked into account snapshot"
             );
         }
+    }
+    #[test]
+    fn agent_definition_passport_distinguishes_raw_declarations() {
+        let value = serde_json::json!({"tools":[], "spawns":"*", "thinkingLevel":"", "output":null, "blocking":false});
+        let passport = agent_definition_metadata(&value, Path::new("/synthetic/private/agent.md"));
+        assert_eq!(passport.source_file, "agent.md");
+        assert!(!passport.source_file_truncated);
+        let long_name = "x".repeat(121);
+        let clipped = agent_definition_metadata(&value, Path::new(&long_name));
+        assert!(clipped.source_file_truncated);
+        assert_eq!(clipped.source_file.chars().count(), 120);
+        assert!(passport.observed_at > 0);
+        assert!(passport.context_cwd.is_none());
+        for (key, state) in [
+            ("tools", "empty"),
+            ("spawns", "wildcard"),
+            ("thinkingLevel", "empty"),
+            ("output", "null"),
+            ("blocking", "value"),
+            ("structured", "absent"),
+        ] {
+            assert_eq!(passport.fields[key].state, state);
+        }
+        assert_eq!(passport.fields["blocking"].text.as_deref(), Some("false"));
+        let no_inference = agent_definition_metadata(
+            &serde_json::json!({"tools":["task"]}),
+            Path::new("agent.md"),
+        );
+        assert_eq!(no_inference.fields["spawns"].state, "absent");
+    }
+
+    #[test]
+    fn agent_definition_passport_bounds_text_and_hides_output_contents() {
+        let value = serde_json::json!({"tools":["x".repeat(5000)], "spawns":42, "output":{"private_schema_key":"SYNTHETIC_SECRET"}, "systemPrompt":"SYNTHETIC_PROMPT"});
+        let passport = agent_definition_metadata(&value, Path::new("agent.md"));
+        assert_eq!(passport.fields["tools"].state, "truncated");
+        assert!(
+            passport.fields["tools"]
+                .text
+                .as_ref()
+                .unwrap()
+                .chars()
+                .count()
+                <= 512
+        );
+        assert_eq!(passport.fields["spawns"].state, "unsupported");
+        assert_eq!(
+            passport.fields["output"].text.as_deref(),
+            Some("object (1 fields)")
+        );
+        let json = serde_json::to_string(&passport).unwrap();
+        for secret in ["private_schema_key", "SYNTHETIC_SECRET", "SYNTHETIC_PROMPT"] {
+            assert!(!json.contains(secret));
+        }
+        assert_eq!(
+            agent_definition_field(Some(&serde_json::json!({})), "output").state,
+            "empty"
+        );
+        assert_eq!(
+            agent_definition_field(Some(&serde_json::json!("")), "output").state,
+            "empty"
+        );
+    }
+
+    #[test]
+    fn agent_definition_passport_reads_distinct_same_name_sources() {
+        let directory = std::env::temp_dir().join(format!(
+            "omp-passport-test-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let cleanup = AgentExportDirectory(directory);
+        let a = cleanup.0.join("a.md");
+        let b = cleanup.0.join("b.md");
+        fs::write(&a, "---\nname: sample\ndescription: A\ntools: []\nspawns: '*'\nblocking: false\n---\nSYNTHETIC_PRIVATE_PROMPT_A\n").unwrap();
+        fs::write(&b, "---\nname: sample\ndescription: B\ntools: [read]\nspawns: []\noutput: {private_schema: SYNTHETIC_SECRET}\nstructured: true\n---\nSYNTHETIC_PRIVATE_PROMPT_B\n").unwrap();
+        let first = read_agent_definition(&a, "project").unwrap();
+        let second = read_agent_definition(&b, "user").unwrap();
+        assert_eq!(first.name, second.name);
+        assert_eq!(first.source, "project");
+        assert_eq!(second.source, "user");
+        let first = first.definition.unwrap();
+        let second = second.definition.unwrap();
+        assert_eq!(first.source_file, "a.md");
+        assert_eq!(second.source_file, "b.md");
+        assert_eq!(first.fields["tools"].state, "empty");
+        assert_eq!(second.fields["spawns"].state, "empty");
+        assert_eq!(second.fields["structured"].text.as_deref(), Some("true"));
+        let json = serde_json::to_string(&second).unwrap();
+        assert!(!json.contains("SYNTHETIC_SECRET"));
+        assert!(!json.contains("SYNTHETIC_PRIVATE_PROMPT"));
+        assert!(!json.contains(&cleanup.0.to_string_lossy().to_string()));
     }
 }

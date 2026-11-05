@@ -34,6 +34,15 @@ describe("import failure presentation", () => {
     expect(importFailureMessage(item(raw), "en")).toBe(raw)
   })
 
+  it.each(["en", "ru"] as const)("localizes invalid UTF-8 in %s", (language) => {
+    const raw = "[session_import_invalid_encoding] Файл сессии содержит некорректный UTF-8"
+    expect(importFailureMessage(item(raw), language)).toBe(
+      language === "en"
+        ? "Cannot import: the file contains invalid UTF-8 text. The source file was not changed."
+        : "Невозможно импортировать: файл содержит повреждённый текст UTF-8. Исходный файл не изменён.",
+    )
+  })
+
   it("retains the source fallback for an absent diagnostic", () => {
     expect(importFailureMessage(item(null), "en")).toBe(item(null).sourcePath)
   })

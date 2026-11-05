@@ -12,12 +12,15 @@ export class TranscriptSearch {
   private readonly entryStarts: Float64Array
   private readonly positions: Uint32Array[] = []
 
-  constructor(contents: readonly { text: string }[], query: string) {
+  constructor(contents: readonly { text: string }[], query: string, matchCase = false) {
     // Prefix counts also map global match indices to entries with no matches.
     this.entryStarts = new Float64Array(contents.length + 1)
     let count = 0
     if (query) {
-      const pattern = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "giu")
+      const pattern = new RegExp(
+        query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+        matchCase ? "gu" : "giu",
+      )
       for (let entryIndex = 0; entryIndex < contents.length; entryIndex++) {
         pattern.lastIndex = 0
         let found: RegExpExecArray | null

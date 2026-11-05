@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react"
 import { errorMessage, saveTerminalCapture } from "./api"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
@@ -36,20 +36,40 @@ export function IncidentCenter({
   onClose,
   onFocusTerminal,
 }: IncidentCenterProps) {
+  const captureHelpId = useId()
   const [filter, setFilter] = useState<IncidentFilter>("active")
+  const [terminalFilter, setTerminalFilter] = useState("")
   const [captures, setCaptures] = useState<Record<string, CaptureState>>({})
   const initialFocusRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLElement>(null)
   const restoreTriggerFocusRef = useRef(true)
   const latestFirst = useMemo(() => runtimeIncidentsLatestFirst(incidents), [incidents])
+  const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
+  const terminalOptions = useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const incident of latestFirst) {
+      if (!labels.has(incident.terminalId)) {
+        labels.set(
+          incident.terminalId,
+          tabById.get(incident.terminalId)?.label ?? incident.terminalLabel ?? incident.terminalId,
+        )
+      }
+    }
+    return labels
+  }, [latestFirst, tabById])
+  const selectedTerminal = terminalOptions.has(terminalFilter) ? terminalFilter : ""
+  useEffect(() => {
+    if (terminalFilter && !terminalOptions.has(terminalFilter)) setTerminalFilter("")
+  }, [terminalFilter, terminalOptions])
   const visibleIncidents = useMemo(
     () =>
-      filter === "active"
-        ? latestFirst.filter((incident) => incident.status === "active")
-        : latestFirst,
-    [filter, latestFirst],
+      latestFirst.filter(
+        (incident) =>
+          (filter === "all" || incident.status === "active") &&
+          (!selectedTerminal || incident.terminalId === selectedTerminal),
+      ),
+    [filter, latestFirst, selectedTerminal],
   )
-  const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
   const resolvedCount = incidents.filter((incident) => incident.status === "resolved").length
   const activeCount = incidents.filter((incident) => incident.status === "active").length
 
@@ -187,6 +207,10 @@ export function IncidentCenter({
           </button>
         </header>
 
+        <p className="incident-capture-help" id={captureHelpId}>
+          {t(language, "incidentCaptureHelp")}
+        </p>
+
         <div className="incident-center-toolbar">
           <div
             aria-label={t(language, "incidentFilterLabel")}
@@ -213,6 +237,20 @@ export function IncidentCenter({
               <span>{incidents.length}</span>
             </button>
           </div>
+          <label className="incident-terminal-filter">
+            <span>{t(language, "incidentTerminalFilter")}</span>
+            <select
+              onChange={(event) => setTerminalFilter(event.currentTarget.value)}
+              value={selectedTerminal}
+            >
+              <option value="">{t(language, "incidentAllTerminals")}</option>
+              {[...terminalOptions].map(([terminalId, label]) => (
+                <option key={terminalId} value={terminalId}>
+                  {label === terminalId ? terminalId : `${label} (${terminalId})`}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             className="button secondary incident-clear-button"
             disabled={resolvedCount === 0}
@@ -230,7 +268,11 @@ export function IncidentCenter({
               <strong>
                 {t(
                   language,
-                  incidents.length === 0 ? "incidentNoIncidents" : "incidentNoActiveIncidents",
+                  incidents.length === 0
+                    ? "incidentNoIncidents"
+                    : selectedTerminal
+                      ? "incidentNoActiveForTerminal"
+                      : "incidentNoActiveIncidents",
                 )}
               </strong>
             </div>
@@ -328,6 +370,7 @@ export function IncidentCenter({
                       {tab ? (
                         <div className="incident-row-actions">
                           <button
+                            aria-describedby={captureHelpId}
                             className="button secondary incident-save-capture"
                             disabled={capture?.status === "saving"}
                             onClick={() => void saveCapture(incident.terminalId)}
@@ -358,15 +401,21 @@ export function IncidentCenter({
                     </footer>
 
                     {capture?.status === "saved" && (
-                      <p
-                        aria-live="polite"
-                        className="incident-capture-result"
-                        title={capture.capture.path}
-                      >
-                        {t(language, "incidentCaptureSaved")
-                          .replace("{size}", formatCaptureSize(capture.capture.bytes))
-                          .replace("{path}", capture.capture.path)}
-                      </p>
+                      <div aria-live="polite" className="incident-capture-status">
+                        <p className="incident-capture-result" title={capture.capture.path}>
+                          {t(language, "incidentCaptureSaved")
+                            .replace("{size}", formatCaptureSize(capture.capture.bytes))
+                            .replace("{path}", capture.capture.path)}
+                        </p>
+                        {capture.capture.truncated && (
+                          <p className="incident-capture-truncation">
+                            {t(language, "incidentCaptureTruncated").replace(
+                              "{bytes}",
+                              String(capture.capture.droppedBytes),
+                            )}
+                          </p>
+                        )}
+                      </div>
                     )}
                     {capture?.status === "failed" && (
                       <p aria-live="polite" className="incident-capture-result is-failed">

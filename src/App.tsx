@@ -112,6 +112,7 @@ import type {
   WorkspaceSummary,
 } from "./types"
 import {
+  isSuccessfulTerminalTab,
   localeTag,
   mergeSessionIntoPayload,
   normalizedPath,
@@ -822,10 +823,16 @@ function App() {
   const removeWorkspace = useCallback(
     async (workspace: WorkspaceSummary) => {
       if (workspaceBusyKey === workspace.key) return
-      const shouldRemove = await confirm(
-        t(lang, "removeProjectConfirm").replace("{name}", workspace.name),
-        { title: t(lang, "removeProject"), kind: "warning" },
-      )
+      let shouldRemove: boolean
+      try {
+        shouldRemove = await confirm(
+          t(lang, "removeProjectConfirm").replace("{name}", workspace.name),
+          { title: t(lang, "removeProject"), kind: "warning" },
+        )
+      } catch (error) {
+        showError(errorMessage(error, lang))
+        return
+      }
       if (!shouldRemove) return
       setWorkspaceBusyKey(workspace.key)
       try {
@@ -1372,11 +1379,12 @@ function App() {
   }, [payload, selectedWorkspace])
 
   const visibleSessions = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase(localeTag(lang))
+    const query = search.trim().normalize("NFC").toLocaleLowerCase(localeTag(lang))
     if (!query) return workspaceSessions
     return workspaceSessions.filter((session) =>
       [session.title, session.model ?? "", session.id, session.source]
         .join(" ")
+        .normalize("NFC")
         .toLocaleLowerCase(localeTag(lang))
         .includes(query),
     )
@@ -1755,7 +1763,7 @@ function App() {
           mode: importMode,
         })),
       )
-      applyPayload(result.bootstrap)
+      if (result.bootstrap) applyPayload(result.bootstrap)
       const failures = result.items.filter((item) => item.status === "failed")
       const completed = result.items.filter((item) => item.status !== "failed")
       if (currentView() && completed.length > 0) {
@@ -1784,6 +1792,9 @@ function App() {
         showError(failures.map((item) => importFailureMessage(item, lang)).join("\n"))
       } else if (currentView()) {
         setCodexOpen(false)
+      }
+      if (result.refreshError) {
+        showError(errorMessage(result.refreshError, lang, { includeDetails: true }))
       }
     } catch (error) {
       showError(errorMessage(error, lang))
@@ -1836,13 +1847,16 @@ function App() {
           mode: importMode,
         },
       ])
-      applyPayload(result.bootstrap)
+      if (result.bootstrap) applyPayload(result.bootstrap)
       const failure = result.items.find((item) => item.status === "failed")
       showNotice(summarizeImport(result.items, lang))
       if (failure) {
         showError(importFailureMessage(failure, lang))
       } else {
         setPendingOmpImportPath(null)
+      }
+      if (result.refreshError) {
+        showError(errorMessage(result.refreshError, lang, { includeDetails: true }))
       }
     } catch (error) {
       showError(errorMessage(error, lang))
@@ -2103,6 +2117,11 @@ function App() {
     setTabs((current) => reorderTerminalTabs(current, draggedId, targetId))
   }, [])
 
+  const closingSuccessfulTabsRef = useRef(false)
+  useEffect(() => {
+    closingSuccessfulTabsRef.current = false
+  }, [tabs])
+
   const performCloseTab = useCallback(
     (terminalId: string) => {
       forgetTerminalContinuity(terminalId)
@@ -2135,6 +2154,15 @@ function App() {
     },
     [lang, refresh, showError],
   )
+
+  const closeSuccessfulTabs = useCallback(() => {
+    if (closingSuccessfulTabsRef.current) return
+    // Recheck the current tabs, not the count from the triggering render.
+    const completed = tabsRef.current.filter(isSuccessfulTerminalTab)
+    if (completed.length === 0) return
+    closingSuccessfulTabsRef.current = true
+    for (const tab of completed) performCloseTab(tab.id)
+  }, [performCloseTab])
 
   const closeTab = useCallback(
     (terminalId: string) => {
@@ -2682,9 +2710,16 @@ function App() {
           ompConfig={ompConfig}
           onDiscardSwitchRecovery={(terminalId) => void discardRecoveredSwitchInput(terminalId)}
           onCloseTab={closeTab}
+          onCloseSuccessfulTabs={closeSuccessfulTabs}
           onError={showError}
           onExit={handleExit}
           onFocusTab={focusTab}
+          onFocusTerminal={focusTerminal}
+          onShowWorkspace={() => {
+            if (launchingRef.current || isInstallingClientUpdate()) return
+            ++sessionSelectionRequestRef.current
+            setActiveTabId(null)
+          }}
           onLaunch={(session) => void launchSession(session)}
           onOpenFolder={() => void openFolder()}
           onReadTranscript={readTerminalTranscript}
@@ -2713,6 +2748,7 @@ function App() {
           onClose={closeResourceHealth}
           returnFocusRef={resourceHealthTriggerRef}
           snapshot={resourceHealth}
+          tabs={tabs}
         />
       )}
 
@@ -2794,6 +2830,7 @@ function App() {
         <SessionCopyModal
           key={copySession.session.filePath}
           session={copySession.session}
+          workspaces={payload.workspaces}
           language={lang}
           sourceBusy={
             launching === copySession.session.id ||
@@ -2811,6 +2848,7 @@ function App() {
             setCopySession(null)
           }}
           onImported={(result) => {
+            if (!result.bootstrap) return
             if (payloadRevisionRef.current !== copySession.payloadRevision) {
               void refresh()
               return

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react"
 import { Icon } from "./Icon"
+import { ModelPassport } from "./ModelPassport"
+import { catalogModelForSelector } from "./modelPassportMetadata"
 import { statusLabel, t, thinkingLevelLabel, type Lang } from "./i18n"
 import type { OmpModelInfo } from "./types"
 
@@ -77,8 +79,7 @@ export function selectorWithThinking(selector: string, thinking: string | null):
   return thinking ? `${base}:${thinking}` : base
 }
 
-function selectorForModel(model: OmpModelInfo, current: string): string {
-  const { thinking } = splitSelector(current)
+function selectorForModel(model: OmpModelInfo, thinking: string | null): string {
   if (thinking && thinkingOptionsForModel(model).includes(thinking)) {
     return `${model.selector}:${thinking}`
   }
@@ -96,15 +97,8 @@ export function matchesSelector(model: OmpModelInfo, selector: string): boolean 
 
 interface ModelEntry {
   model: OmpModelInfo
-  selector: string
-  id: string
-  providerId: string
   searchText: string
   sortKey: string
-}
-
-function matchesBase(entry: ModelEntry, base: string): boolean {
-  return entry.selector === base || entry.id === base || entry.providerId === base
 }
 
 export function ModelPicker({
@@ -127,20 +121,23 @@ export function ModelPicker({
     () =>
       models.map((model) => ({
         model,
-        selector: model.selector.toLowerCase(),
-        id: model.id.toLowerCase(),
-        providerId: `${model.provider}/${model.id}`.toLowerCase(),
         searchText: [model.name, model.provider, model.id, model.selector].join(" ").toLowerCase(),
         sortKey: `${model.provider}/${model.name}`,
       })),
     [models],
   )
   const configured = splitSelector(value)
-  const selectedBase = configured.base.toLowerCase()
-  const selectedModel = modelEntries.find((entry) => matchesBase(entry, selectedBase))?.model
+  const selectedModel = catalogModelForSelector(models, value, configured.base)
+  const normalizedValue = value.toLowerCase()
+  const literalSelector =
+    selectedModel !== undefined &&
+    (selectedModel.selector.toLowerCase() === normalizedValue ||
+      `${selectedModel.provider}/${selectedModel.id}`.toLowerCase() === normalizedValue ||
+      selectedModel.id.toLowerCase() === normalizedValue)
+  const selectedBase = literalSelector ? value : configured.base
   const selectedStatus =
     selectedModel?.status ?? (value ? (selectorSuggestions ? "runtime" : "missing") : "unset")
-  const configuredThinking = configured.thinking
+  const configuredThinking = literalSelector ? null : configured.thinking
   const thinkingLevels = thinkingOptionsForModel(selectedModel)
 
   const sortedEntries = useMemo(
@@ -192,7 +189,7 @@ export function ModelPicker({
     const previous = previousNavigation.current
     previousNavigation.current = { entries: filteredEntries, open, query, value }
     if (!open) return
-    const selectedIndex = filteredEntries.findIndex((entry) => matchesBase(entry, selectedBase))
+    const selectedIndex = filteredEntries.findIndex((entry) => entry.model === selectedModel)
     const fallbackIndex = selectedIndex >= 0 ? selectedIndex : filteredEntries.length > 0 ? 0 : -1
     setActiveIndex((currentIndex) => {
       if (previous?.open && previous.query === query && previous.value === value) {
@@ -204,12 +201,12 @@ export function ModelPicker({
       }
       return fallbackIndex
     })
-  }, [filteredEntries, open, query, selectedBase, value])
+  }, [filteredEntries, open, query, selectedModel, value])
 
   const chooseActiveModel = () => {
     const entry = filteredEntries[activeIndex]
     if (!entry) return
-    onChange(selectorForModel(entry.model, value))
+    onChange(selectorForModel(entry.model, configuredThinking))
     closePicker()
   }
 
@@ -288,6 +285,10 @@ export function ModelPicker({
         <Icon className="model-picker-chevron" name="chevron" size={15} />
       </button>
 
+      {selectedModel && (
+        <ModelPassport key={selectedModel.selector} model={selectedModel} language={language} />
+      )}
+
       {thinkingLevels.length > 0 && (
         <label className="model-picker-thinking">
           <span>{t(language, "modelThinkingLevel")}</span>
@@ -295,7 +296,9 @@ export function ModelPicker({
             <select
               aria-label={t(language, "modelThinkingLevel")}
               onChange={(event) =>
-                onChange(selectorWithThinking(value, event.target.value || null))
+                onChange(
+                  event.target.value ? `${selectedBase}:${event.target.value}` : selectedBase,
+                )
               }
               value={configuredThinking ?? ""}
             >
@@ -353,7 +356,7 @@ export function ModelPicker({
           >
             {filteredEntries.map((entry, index) => {
               const { model } = entry
-              const selected = matchesBase(entry, selectedBase)
+              const selected = model === selectedModel
               return (
                 <button
                   aria-selected={selected}
@@ -361,7 +364,7 @@ export function ModelPicker({
                   id={`${panelId}-option-${index}`}
                   key={model.selector}
                   onClick={() => {
-                    onChange(selectorForModel(model, value))
+                    onChange(selectorForModel(model, configuredThinking))
                     closePicker()
                   }}
                   onFocus={() => setActiveIndex(index)}

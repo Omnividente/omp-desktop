@@ -260,6 +260,131 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it("offers match case for loaded transcript text and resets match navigation without rereading", async () => {
+  transcript.entries[120] = { ...transcript.entries[120], text: "path PATH Path" }
+  transcript.entries[170] = {
+    ...transcript.entries[170],
+    text: "PATH path",
+    dialogueText: "PATH path",
+  }
+  await click("Reread file")
+  await searchFor("PATH")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 5")
+  await click("Previous match")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("5 / 5")
+  const reads = vi.mocked(readSessionTranscript).mock.calls.length
+  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Match case"]')!
+  expect(toggle).not.toBeNull()
+  expect(toggle.getAttribute("aria-pressed")).toBe("false")
+  act(() => toggle.focus())
+  await click("Match case")
+  expect(document.activeElement).toBe(toggle)
+  expect(toggle.getAttribute("aria-pressed")).toBe("true")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.textContent).toBe("PATH")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("120")
+  await click("Previous match")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("2 / 2")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("170")
+  await click("Match case")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 5")
+  expect(vi.mocked(readSessionTranscript).mock.calls.length).toBe(reads)
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("keeps match case through refresh and appearance changes, handles zero matches, and resets on reopen", async () => {
+  await searchFor("NEEDLE")
+  await click("Match case")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  expect(container.querySelector("mark")).toBeNull()
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Next match"]')?.disabled).toBe(
+    true,
+  )
+  await click("Reread file")
+  await searchFor("NEEDLE")
+  expect(container.querySelector('[aria-label="Match case"]')?.getAttribute("aria-pressed")).toBe(
+    "true",
+  )
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  await click("Source")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  await searchFor("needle")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 4")
+  await click("Close")
+  await click("Open transcript")
+  expect(container.querySelector('[aria-label="Match case"]')?.getAttribute("aria-pressed")).toBe(
+    "false",
+  )
+})
+
+it("does not move the reading position when match case changes with an empty query", async () => {
+  const scroll = await scrollTo(80 * 102 + 25)
+  const before = scroll.scrollTop
+  await click("Match case")
+  expect(scroll.scrollTop).toBe(before)
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  await click("Match case")
+  expect(scroll.scrollTop).toBe(before)
+})
+
+it("shows loaded session details without launching, rereading or copying", async () => {
+  const loaded = {
+    ...session,
+    id: "loaded-identity",
+    cwd: "/synthetic/loaded-project",
+    model: "synthetic/loaded-model",
+    parentSessionPath: "raw-previous-reference",
+  }
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, session: loaded })
+  await click("Open transcript")
+  const calls = vi.mocked(readSessionTranscript).mock.calls.length
+  const details = container.querySelector<HTMLDetailsElement>(".session-details")!
+  expect(details.open).toBe(false)
+  await act(async () => details.querySelector("summary")!.click())
+  expect(details.open).toBe(true)
+  expect(details.textContent).toContain("loaded-identity")
+  expect(details.textContent).toContain("/synthetic/loaded-project")
+  expect(details.textContent).toContain("synthetic/loaded-model")
+  expect(details.textContent).toContain("raw-previous-reference")
+  expect(readSessionTranscript).toHaveBeenCalledTimes(calls)
+  expect(writeText).not.toHaveBeenCalled()
+  expect(openContentLink).not.toHaveBeenCalled()
+})
+
+it("hides session details while reloading and after a failed read", async () => {
+  await act(async () =>
+    container
+      .querySelector(".session-details summary")!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  )
+  let reject!: (error: Error) => void
+  vi.mocked(readSessionTranscript).mockImplementationOnce(
+    () =>
+      new Promise((_, fail) => {
+        reject = fail
+      }),
+  )
+  await click("Reread file")
+  expect(container.querySelector(".session-details")).toBeNull()
+  await act(async () => reject(new Error("Synthetic read failure")))
+  expect(container.querySelector(".session-details")).toBeNull()
+  expect(container.textContent).toContain("Synthetic read failure")
+  vi.mocked(readSessionTranscript).mockResolvedValue(transcript)
+  await click("Reread file")
+  expect(container.querySelector<HTMLDetailsElement>(".session-details")?.open).toBe(false)
+})
+
+it("does not carry expanded details to another history", async () => {
+  await act(async () => container.querySelector<HTMLElement>(".session-details summary")!.click())
+  const next = { ...session, id: "other-id", filePath: "/synthetic/other.jsonl" }
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, session: next })
+  await click("Open other transcript")
+  const details = container.querySelector<HTMLDetailsElement>(".session-details")!
+  expect(details.open).toBe(false)
+  expect(details.textContent).toContain("other-id")
+  expect(details.textContent).toContain("/synthetic/other.jsonl")
+})
+
 it("announces empty and filtered-out transcripts as status changes", async () => {
   vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries: [] })
   await click("Open transcript")
@@ -916,3 +1041,370 @@ it("navigates and wraps a million-match entry with bounded replacement windows t
   await searchFor("x")
   expectWindow(0)
 })
+
+it("jumps to an unmounted user message after search and keeps subsequent manual reading", async () => {
+  const entries = transcript.entries.map((entry, index) => ({
+    ...entry,
+    role: index === 40 || index === 120 ? "user" : "assistant",
+  }))
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries })
+  await click("Reread file")
+  await searchFor("needle")
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  expect(select.options.length).toBe(3)
+  const choose = async () => {
+    await act(async () => {
+      select.focus()
+      select.value = "entry-40"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    await flushFrames()
+    expect(select.value).toBe("entry-40")
+    await click("Go to message")
+  }
+  await choose()
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  expect(select.isConnected).toBe(true)
+  expect(container.querySelector<HTMLInputElement>('input[type="search"]')!.value).toBe("")
+  await scrollTo(60 * 102)
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+  await click("Latest message")
+  await choose()
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  await searchFor("needle")
+  expect(currentOccurrence()).not.toBeNull()
+})
+
+it("disables the user-message outline when there are no loaded user entries", () => {
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  expect(select.disabled).toBe(true)
+  expect(select.options.length).toBe(1)
+})
+
+it("retains native selection without moving the reader until the explicit Go action", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    entries: transcript.entries.map((entry) => ({ ...entry, role: "user" })),
+  })
+  await click("Reread file")
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  expect(select.options.length).toBe(101)
+  expect(container.textContent).toContain("The list shows the first 100 user messages")
+  await act(async () => {
+    select.value = "entry-40"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  await flushFrames()
+  expect(select.value).toBe("entry-40")
+  expect(readingRow().dataset.virtualIndex).toBe("0")
+  await act(async () => {
+    select.value = "entry-41"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  expect(select.value).toBe("entry-41")
+  expect(readingRow().dataset.virtualIndex).toBe("0")
+  await click("Go to message")
+  expect(readingRow().dataset.virtualIndex).toBe("41")
+})
+
+it.each(["same-turn", "before-animation-frame"])(
+  "does not replay a %s jump after refresh replaces its snapshot",
+  async (timing) => {
+    const snapshot = {
+      ...transcript,
+      entries: transcript.entries.map((entry, index) => ({
+        ...entry,
+        role: index === 40 ? "user" : "assistant",
+      })),
+    }
+    vi.mocked(readSessionTranscript).mockResolvedValue(snapshot)
+    await click("Reread file")
+    await scrollTo(60 * 102)
+    const select = container.querySelector<HTMLSelectElement>(
+      '[aria-label="Select a user message"]',
+    )!
+    await act(async () => {
+      select.value = "entry-40"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    let finish!: (value: SessionTranscript) => void
+    vi.mocked(readSessionTranscript).mockImplementationOnce(
+      () =>
+        new Promise<SessionTranscript>((resolve) => {
+          finish = resolve
+        }),
+    )
+    const go = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Go to message",
+    )!
+    const refresh = container.querySelector<HTMLButtonElement>('[title="Reread file"]')!
+    if (timing === "before-animation-frame") {
+      await act(async () => go.click())
+      expect(frames.size).toBeGreaterThan(0)
+      await act(async () => refresh.click())
+    } else {
+      await act(async () => {
+        go.click()
+        refresh.click()
+      })
+    }
+    expect(select.isConnected).toBe(false)
+    expect(container.querySelector('[aria-label="Select a user message"]')).toBeNull()
+    await act(async () => {
+      finish({
+        ...snapshot,
+        updatedAt: 2,
+        entries: snapshot.entries.map((entry, index) =>
+          index === 40 ? { ...entry, id: "replacement-40" } : entry,
+        ),
+      })
+    })
+    await flushFrames()
+    const refreshedSelect = container.querySelector<HTMLSelectElement>(
+      '[aria-label="Select a user message"]',
+    )!
+    expect(refreshedSelect).not.toBe(select)
+    expect(refreshedSelect.disabled).toBe(false)
+    expect(readingRow().dataset.virtualIndex).toBe("60")
+  },
+)
+
+it("cancels an unsettled jump on direct snapshot replacement without preservePosition", async () => {
+  const first = {
+    ...transcript,
+    entries: transcript.entries.map((entry, index) => ({
+      ...entry,
+      role: index === 40 ? "user" : "assistant",
+    })),
+  }
+  const renderSnapshot = (value: SessionTranscript) => {
+    root.render(
+      <TranscriptModal
+        lang="en"
+        transcriptSession={session}
+        transcript={value}
+        transcriptLoading={false}
+        transcriptError={null}
+        transcriptSearch=""
+        transcriptMode="dialogue"
+        launching={null}
+        runtimeAvailable
+        visibleEntries={value.entries}
+        onClose={() => undefined}
+        onRefresh={() => undefined}
+        onError={() => undefined}
+        onReread={() => undefined}
+        onSearchChange={() => undefined}
+        onClearSearch={() => undefined}
+        onModeChange={() => undefined}
+      />,
+    )
+  }
+  await act(async () => renderSnapshot(first))
+  await flushFrames()
+  await scrollTo(60 * 102)
+  const select = container.querySelector<HTMLSelectElement>('[aria-label="Select a user message"]')!
+  await act(async () => {
+    select.value = "entry-40"
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+  const go = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "Go to message",
+  )!
+  await act(async () => go.click())
+  expect(frames.size).toBeGreaterThan(0)
+  await act(async () =>
+    renderSnapshot({
+      ...first,
+      updatedAt: 2,
+      entries: first.entries.map((entry, index) =>
+        index === 40 ? first.entries[100] : index === 100 ? first.entries[40] : entry,
+      ),
+    }),
+  )
+  await flushFrames()
+  // The first jump already moved the viewport. Cancellation must not chase the
+  // old entry ID to its new location in the replacement snapshot.
+  expect(readingRow().dataset.virtualIndex).toBe("40")
+  expect(select.value).toBe("entry-40")
+  await scrollTo(60 * 102)
+  expect(readingRow().dataset.virtualIndex).toBe("60")
+})
+it("copies the loaded dialogue beyond the mounted rows, excluding service text", async () => {
+  expect(container.querySelectorAll("article").length).toBeLessThan(transcript.entries.length)
+  expect(container.textContent).not.toContain("Message 179")
+  await click("Copy loaded dialogue (Markdown)")
+  const copied = vi.mocked(writeText).mock.calls.at(-1)![0]
+  expect(copied).toContain("  selected\ntext  ")
+  expect(copied).toContain("Message 179")
+  expect(copied).not.toContain("context")
+  expect(copied).toContain("This is not a complete session export.")
+  expect(copied).not.toContain(session.filePath)
+  expect(readSessionTranscript).toHaveBeenCalledTimes(1)
+})
+
+it("copies the same loaded dialogue after search, display and service-filter changes", async () => {
+  await click("Copy loaded dialogue (Markdown)")
+  const original = vi.mocked(writeText).mock.calls.at(-1)![0]
+  await searchFor("nothing-matches-this")
+  await click("Source")
+  await click("Dialogue only")
+  await click("Copy loaded dialogue (Markdown)")
+  expect(vi.mocked(writeText).mock.calls.at(-1)![0]).toBe(original)
+})
+
+it("does not offer a loaded-dialogue copy during refresh or after a failed read", async () => {
+  let rejectRead!: (reason: unknown) => void
+  vi.mocked(readSessionTranscript).mockReturnValueOnce(
+    new Promise((_, reject) => {
+      rejectRead = reject
+    }),
+  )
+  await click("Reread file")
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  await act(async () => rejectRead(new Error("synthetic read failure")))
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("does not offer a copy for service-only transcripts", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce({
+    ...transcript,
+    entries: transcript.entries.map((entry) => ({ ...entry, dialogueText: null })),
+  })
+  await click("Reread file")
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("waits for the clipboard response and prevents repeated copy while pending", async () => {
+  let complete!: () => void
+  vi.mocked(writeText).mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      complete = resolve
+    }),
+  )
+  await click("Copy loaded dialogue (Markdown)")
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy loaded dialogue (Markdown)"]',
+  )!
+  expect(button.disabled).toBe(true)
+  expect(button.textContent).toBe("Copying…")
+  await act(async () => button.click())
+  expect(writeText).toHaveBeenCalledTimes(1)
+  await act(async () => complete())
+  expect(button.disabled).toBe(false)
+  expect(button.textContent).toBe("Copied")
+})
+
+it("does not apply an old clipboard response to a different transcript", async () => {
+  let complete!: () => void
+  vi.mocked(writeText).mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      complete = resolve
+    }),
+  )
+  await click("Copy loaded dialogue (Markdown)")
+  const other = {
+    ...transcript,
+    session: { ...session, filePath: `${session.filePath}.other` },
+    entries: [{ ...transcript.entries[0], dialogueText: "Other session" }],
+  }
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(other)
+  await click("Open other transcript")
+  await act(async () => complete())
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy loaded dialogue (Markdown)"]',
+  )!
+  expect(button.textContent).toBe("Copy loaded dialogue (Markdown)")
+  expect(writeText).toHaveBeenCalledTimes(1)
+  await click("Copy loaded dialogue (Markdown)")
+  expect(vi.mocked(writeText).mock.calls.at(-1)![0]).toContain("Other session")
+  expect(vi.mocked(writeText).mock.calls.at(-1)![0]).not.toContain("Message 179")
+})
+
+it("explains the clipboard and privacy scope before copying", () => {
+  const button = container.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy loaded dialogue (Markdown)"]',
+  )!
+  const hint = document.getElementById(button.getAttribute("aria-describedby")!)!
+  expect(hint.textContent).toContain("system clipboard")
+  expect(hint.textContent).toContain("private data")
+  expect(hint.textContent).toContain("Search and display filters do not limit the copy")
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("refuses oversized dialogue without dispatching a clipboard request", async () => {
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce({
+    ...transcript,
+    entries: [{ ...transcript.entries[0], dialogueText: "x".repeat(4 * 1024 * 1024) }],
+  })
+  await click("Reread file")
+  expect(container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')).toBeNull()
+  expect(container.querySelector(".transcript-copy-action [role=status]")?.textContent).toContain(
+    "too large",
+  )
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["another session", "resolve"],
+  ["another session", "reject"],
+  ["a refreshed snapshot", "resolve"],
+  ["a refreshed snapshot", "reject"],
+])(
+  "ignores old clipboard feedback after %s with identical content (%s)",
+  async (context, outcome) => {
+    const onError = vi.fn()
+    const render = async (value: SessionTranscript) => {
+      await act(async () =>
+        root.render(
+          <TranscriptModal
+            lang="en"
+            transcriptSession={value.session}
+            transcript={value}
+            transcriptLoading={false}
+            transcriptError={null}
+            transcriptSearch=""
+            transcriptMode="all"
+            launching={null}
+            runtimeAvailable
+            visibleEntries={value.entries}
+            onClose={() => undefined}
+            onRefresh={() => undefined}
+            onReread={() => undefined}
+            onError={onError}
+            onSearchChange={() => undefined}
+            onClearSearch={() => undefined}
+            onModeChange={() => undefined}
+          />,
+        ),
+      )
+      await flushFrames()
+    }
+    await render(transcript)
+    let settle!: () => void
+    vi.mocked(writeText).mockReturnValueOnce(
+      new Promise<void>((resolve, reject) => {
+        settle =
+          outcome === "resolve"
+            ? resolve
+            : () => reject(new Error("old synthetic clipboard failure"))
+      }),
+    )
+    await click("Copy loaded dialogue (Markdown)")
+    await render({
+      ...transcript,
+      session:
+        context === "another session"
+          ? { ...session, filePath: `${session.filePath}.other` }
+          : session,
+    })
+    await act(async () => settle())
+    expect(onError).not.toHaveBeenCalled()
+    expect(
+      container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')?.textContent,
+    ).toBe("Copy loaded dialogue (Markdown)")
+    expect(writeText).toHaveBeenCalledTimes(1)
+  },
+)

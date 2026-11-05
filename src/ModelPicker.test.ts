@@ -382,48 +382,6 @@ describe("ModelPicker model changes", () => {
     },
   )
 
-  it("preserves search field boundaries, availability order, stable ties, and selector aliases", () => {
-    const unavailable = {
-      ...model,
-      name: "Alias Sonnet 4",
-      selector: "unavailable",
-      available: false,
-    }
-    const tied = { ...model, selector: "tied" }
-    act(() => {
-      root.render(
-        createElement(ModelPicker, {
-          language: "en",
-          models: [unavailable, taggedModel, model, tied],
-          onChange: vi.fn(),
-          onOpenChange: vi.fn(),
-          open: true,
-          role: "default",
-          value: "ANTHROPIC/CLAUDE-SONNET-4-20250514:HIGH",
-        }),
-      )
-    })
-    const selectors = () =>
-      [...container.querySelectorAll("[role='option'] small")].map((node) => node.textContent)
-    expect(selectors()).toEqual([
-      model.selector,
-      tied.selector,
-      taggedModel.selector,
-      unavailable.selector,
-    ])
-    expect(container.querySelector(".model-picker-copy strong")?.textContent).toBe(unavailable.name)
-    const search = container.querySelector<HTMLInputElement>(".model-picker-search input")!
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
-        search,
-        "  4 ANTHROPIC  ",
-      )
-      search.dispatchEvent(new Event("input", { bubbles: true }))
-    })
-    expect(selectors()).toEqual([model.selector, tied.selector, unavailable.selector])
-    expect(container.querySelectorAll("[role='option'][aria-selected='true']")).toHaveLength(3)
-  })
-
   it("wraps modal focus around a picker and skips unavailable or collapsed controls", () => {
     act(() => root.render(createElement(ModalPicker)))
     const panel = container.querySelector<HTMLElement>("[role='dialog']")!

@@ -146,6 +146,7 @@ describe("relative date calendar presentation", () => {
           <>
             <SessionRow {...rowProps} lang={lang} session={session} />
             <WorkspaceHome
+              onError={vi.fn()}
               primaryActionRef={{ current: null }}
               workspace={{
                 key: "project",
@@ -169,6 +170,7 @@ describe("relative date calendar presentation", () => {
               launching={null}
               lang={lang}
               onLaunch={vi.fn()}
+              onReadTranscript={vi.fn()}
               onReveal={vi.fn()}
               onOpenFolder={vi.fn()}
             />

@@ -12,6 +12,7 @@ import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { SessionRow } from "./SessionRow"
 import { useVirtualList } from "./useVirtualList"
+import { filterSessionsByModel, sessionModelOptions } from "./sessionModelFilter"
 import {
   type FlattenedSessionTreeItem,
   buildSessionTree,
@@ -106,23 +107,48 @@ export function SessionList({
     origin: Element
     target: HTMLElement | null
   } | null>(null)
+  const [modelFilter, setModelFilter] = useState<{
+    workspace: string | null
+    model: string | null
+  }>({ workspace: selectedWorkspacePath, model: null })
+  const selectedModel = modelFilter.workspace === selectedWorkspacePath ? modelFilter.model : null
+  const models = useMemo(
+    () => sessionModelOptions(allSessions, selectedModel),
+    [allSessions, selectedModel],
+  )
+  const matchingSessions = useMemo(
+    () => filterSessionsByModel(visibleSessions, selectedModel),
+    [visibleSessions, selectedModel],
+  )
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(() => new Set())
   const sessionTree = useMemo(
     () => buildSessionTree(allSessions, platform),
     [allSessions, platform],
   )
-  const searchActive = search.trim().length > 0
+  const filtersActive = search.trim().length > 0 || selectedModel !== null
+  const sessionGroupIds = useMemo(() => {
+    const ids: string[] = []
+    const pending = [...sessionTree]
+    while (pending.length > 0) {
+      const node = pending.pop()!
+      if (node.children.length === 0) continue
+      ids.push(node.session.id)
+      for (const child of node.children) pending.push(child)
+    }
+    return ids
+  }, [sessionTree])
   const filteredTree = useMemo(() => {
-    if (!searchActive) return sessionTree
-    return filterSessionTree(sessionTree, new Set(visibleSessions.map((session) => session.id)))
-  }, [searchActive, sessionTree, visibleSessions])
+    if (!filtersActive) return sessionTree
+    return filterSessionTree(sessionTree, new Set(matchingSessions.map((session) => session.id)))
+  }, [filtersActive, sessionTree, matchingSessions])
   const flattenedSessions = useMemo(
-    () => flattenSessionTree(filteredTree, expandedSessionIds, searchActive),
-    [expandedSessionIds, filteredTree, searchActive],
+    () => flattenSessionTree(filteredTree, expandedSessionIds, filtersActive),
+    [expandedSessionIds, filteredTree, filtersActive],
   )
 
   useEffect(() => {
     setExpandedSessionIds(new Set())
+    setModelFilter({ workspace: selectedWorkspacePath, model: null })
   }, [selectedWorkspacePath])
 
   useEffect(() => {
@@ -220,14 +246,14 @@ export function SessionList({
   })
   const lastVirtualItem = virtualItems.at(-1)
 
-  // Selection clears the filter in App. Reveal that exact result once, rather
+  // Selection clears text in App and the local model filter. Reveal the result once, rather
   // than following selection during polling, ordinary scrolling or tab changes.
   const selectSession = (session: SessionSummary) => {
     const origin = sessionRowsRef.current
       .get(session.id)
       ?.querySelector<HTMLElement>(".session-select")
     searchSelectionRef.current =
-      searchActive && origin
+      filtersActive && origin
         ? {
             id: session.id,
             workspace: selectedWorkspacePath,
@@ -235,10 +261,11 @@ export function SessionList({
             restoreFocus: document.activeElement === origin,
           }
         : null
-    if (searchActive) {
+    if (filtersActive) {
       const ancestors = sessionGroupExpansionIds(sessionTree, session.id)
       setExpandedSessionIds((current) => new Set([...current, ...ancestors]))
     }
+    setModelFilter({ workspace: selectedWorkspacePath, model: null })
     onSelectSession(session)
   }
 
@@ -254,7 +281,7 @@ export function SessionList({
       searchSelectionRef.current = null
       return
     }
-    if (searchActive) return
+    if (filtersActive) return
     const index = flattenedSessions.findIndex((item) => item.session.id === pending.id)
     if (index < 0) return
     const item = virtualItems.find((item) => item.index === index)
@@ -357,6 +384,59 @@ export function SessionList({
             </button>
           )}
         </label>
+        <label className="session-model-filter">
+          <span>{t(lang, "sessionModelFilter")}</span>
+          <select
+            disabled={!selectedWorkspacePath}
+            value={selectedModel === null ? "all" : JSON.stringify(selectedModel)}
+            onChange={(event) => {
+              searchSelectionRef.current = null
+              setModelFilter({
+                workspace: selectedWorkspacePath,
+                model: event.target.value === "all" ? null : JSON.parse(event.target.value),
+              })
+            }}
+          >
+            <option value="all">{t(lang, "sessionAllModels")}</option>
+            {models.map((model) => (
+              <option key={model} value={JSON.stringify(model)}>
+                {model || t(lang, "sessionModelUnknown")}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedModel !== null && (
+          <p className="session-filter-summary" role="status">
+            {t(lang, "sessionModelMatches").replace("{count}", String(matchingSessions.length))}{" "}
+            {t(lang, "sessionModelFilterHelp")}
+          </p>
+        )}
+        {sessionGroupIds.length > 0 && (
+          <div className="session-group-actions" role="group" aria-label={t(lang, "sessionGroups")}>
+            <button
+              type="button"
+              disabled={filtersActive || renamingSessionId !== null}
+              title={filtersActive ? t(lang, "sessionGroupsSearchHint") : undefined}
+              onClick={() => {
+                setExpandedSessionIds(new Set(sessionGroupIds))
+                scrollToIndex(0)
+              }}
+            >
+              {t(lang, "expandAllSessionGroups")}
+            </button>
+            <button
+              type="button"
+              disabled={filtersActive || renamingSessionId !== null}
+              title={filtersActive ? t(lang, "sessionGroupsSearchHint") : undefined}
+              onClick={() => {
+                setExpandedSessionIds(new Set())
+                scrollToIndex(0)
+              }}
+            >
+              {t(lang, "collapseAllSessionGroups")}
+            </button>
+          </div>
+        )}
       </div>
 
       <div
@@ -513,9 +593,15 @@ export function SessionList({
 
         {showEmpty && (
           <div className="sidebar-empty">
-            <Icon name={search ? "search" : "history"} />
-            <strong>{search ? t(lang, "nothingFound") : t(lang, "historyEmpty")}</strong>
-            <span>{search ? t(lang, "tryAnotherQuery") : t(lang, "createFirstSession")}</span>
+            <Icon name={filtersActive ? "search" : "history"} />
+            <strong>{filtersActive ? t(lang, "nothingFound") : t(lang, "historyEmpty")}</strong>
+            <span>
+              {selectedModel !== null
+                ? t(lang, "tryAnotherModelFilter")
+                : filtersActive
+                  ? t(lang, "tryAnotherQuery")
+                  : t(lang, "createFirstSession")}
+            </span>
           </div>
         )}
       </div>

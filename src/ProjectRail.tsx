@@ -1,7 +1,9 @@
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
+  useState,
   type FocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react"
@@ -9,7 +11,7 @@ import { Icon, type IconName } from "./Icon"
 import { t } from "./i18n"
 import { SessionList, type SessionListProps } from "./SessionList"
 import type { RailMode, WorkspaceSummary } from "./types"
-import { formatShortcut } from "./uiUtils"
+import { formatShortcut, localeTag } from "./uiUtils"
 
 interface ProjectRailProps {
   autoHidePaused: boolean
@@ -68,6 +70,18 @@ export function ProjectRail({
   onRemoveWorkspace,
 }: ProjectRailProps) {
   const { lang } = sessionList
+  const [projectSearch, setProjectSearch] = useState("")
+  const [projectOrder, setProjectOrder] = useState("default")
+  const orderedWorkspaces = useMemo(() => {
+    if (projectOrder !== "name") return workspaces
+    const collator = new Intl.Collator(localeTag(lang), { numeric: true, sensitivity: "base" })
+    return [...workspaces].sort(
+      (a, b) =>
+        collator.compare(a.name, b.name) ||
+        collator.compare(a.path, b.path) ||
+        (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    )
+  }, [lang, projectOrder, workspaces])
   const shortcutHint = formatShortcut(t(lang, "railModeShortcut"), sessionList.platform)
   const railRef = useRef<HTMLElement>(null)
   const openFolderRef = useRef<HTMLButtonElement>(null)
@@ -81,6 +95,14 @@ export function ProjectRail({
   const closeTimerRef = useRef<number | null>(null)
   const revealed = mode === "expanded" || (mode === "autoHide" && autoOpen)
   const compact = mode === "collapsed" || !revealed
+  const query = revealed ? projectSearch.trim().normalize("NFC").toLowerCase() : ""
+  const visibleWorkspaces = orderedWorkspaces.filter(
+    (workspace) =>
+      workspace.key === renamingWorkspaceKey ||
+      [workspace.name, workspace.path].some((value) =>
+        value.normalize("NFC").toLowerCase().includes(query),
+      ),
+  )
 
   useEffect(() => {
     if (autoHidePaused && closeTimerRef.current !== null) {
@@ -184,6 +206,8 @@ export function ProjectRail({
     const timer = window.setTimeout(() => {
       if (openTimerRef.current !== timer) return
       openTimerRef.current = null
+      // Revealing must not remove a compact project row that just received focus.
+      setProjectSearch("")
       onAutoOpenChange(true)
     }, 220)
     openTimerRef.current = timer
@@ -209,7 +233,11 @@ export function ProjectRail({
       onBlur={handleBlur}
       onFocusCapture={() => {
         cancelAutoClose()
-        if (mode === "autoHide") onAutoOpenChange(true)
+        cancelAutoOpen()
+        if (mode === "autoHide") {
+          if (!autoOpen) setProjectSearch("")
+          onAutoOpenChange(true)
+        }
       }}
       onMouseEnter={scheduleAutoOpen}
       onMouseLeave={scheduleAutoClose}
@@ -243,10 +271,47 @@ export function ProjectRail({
         >
           <Icon name="plus" size={16} />
         </button>
+        {revealed && (
+          <label className="project-order">
+            <span>{t(lang, "projectOrder")}</span>
+            <select
+              disabled={workspaces.length < 2 || renamingWorkspaceKey !== null}
+              onChange={(event) => setProjectOrder(event.target.value)}
+              value={projectOrder}
+            >
+              <option value="default">{t(lang, "projectOrderDefault")}</option>
+              <option value="name">{t(lang, "projectOrderName")}</option>
+            </select>
+          </label>
+        )}
+        {revealed && (
+          <div className="project-search">
+            <input
+              aria-label={t(lang, "searchProjects")}
+              disabled={renamingWorkspaceKey !== null}
+              onChange={(event) => setProjectSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  setProjectSearch("")
+                }
+              }}
+              placeholder={t(lang, "searchProjects")}
+              type="search"
+              value={projectSearch}
+            />
+            <span aria-atomic="true" aria-live="polite" className="project-search-count">
+              {query
+                ? t(lang, "projectsShown").replace("{count}", String(visibleWorkspaces.length))
+                : ""}
+            </span>
+          </div>
+        )}
       </div>
 
       <nav className="project-list" aria-label={t(lang, "projects")}>
-        {workspaces.map((workspace) => {
+        {visibleWorkspaces.map((workspace) => {
           const active = selectedWorkspace?.key === workspace.key
           const renaming = renamingWorkspaceKey === workspace.key
           const busy = workspaceBusyKey === workspace.key
@@ -288,10 +353,13 @@ export function ProjectRail({
               ) : (
                 <button
                   aria-expanded={active && revealed}
-                  aria-label={`${workspace.name}, ${workspace.sessionCount} ${t(lang, "sessShort")}`}
+                  aria-label={`${workspace.name}, ${query ? workspace.path : `${workspace.sessionCount} ${t(lang, "sessShort")}`}`}
                   className={`project-item${active ? " is-active is-expanded" : ""}`}
                   disabled={busy}
-                  onClick={() => onSelectWorkspace(workspace.key)}
+                  onClick={() => {
+                    setProjectSearch("")
+                    onSelectWorkspace(workspace.key)
+                  }}
                   title={`${workspace.name}\n${workspace.path}`}
                   type="button"
                 >
@@ -301,7 +369,7 @@ export function ProjectRail({
                   <span className="project-copy">
                     <strong>{workspace.name}</strong>
                     <small>
-                      {workspace.sessionCount} {t(lang, "sessShort")}
+                      {query ? workspace.path : `${workspace.sessionCount} ${t(lang, "sessShort")}`}
                     </small>
                   </span>
                   <span aria-hidden="true" className="project-expand-marker">

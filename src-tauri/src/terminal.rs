@@ -54,7 +54,7 @@ const MAX_REPLAY_OUTPUT: usize = 2 * 1024 * 1024;
 const PTY_OUTPUT_BATCH_INTERVAL: Duration = Duration::from_millis(5);
 const PTY_EXIT_FINALIZE_TIMEOUT: Duration = Duration::from_secs(5);
 const PTY_EXIT_TRUNCATION_ERROR: &str =
-    "Вывод PTY обрезан: процесс-потомок удерживает консоль после завершения OMP";
+    "Вывод PTY может быть неполным: истекло время ожидания оставшегося вывода после завершения OMP";
 const PTY_OUTPUT_BATCH_LIMIT: usize = 64 * 1024;
 const PTY_OUTPUT_QUEUE_CAPACITY: usize = 64;
 const PTY_INPUT_QUEUE_CAPACITY: usize = 64;
@@ -5602,8 +5602,7 @@ mod tests {
         SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
         TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
         BREADCRUMB_FILE_PREFIX, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC, PTY_EXIT_TRUNCATION_ERROR, PTY_OUTPUT_BATCH_INTERVAL,
-        PTY_OUTPUT_BATCH_LIMIT,
+        OMP_THINKING_CYCLE_ESC, PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -6312,9 +6311,44 @@ mod tests {
 
         assert!(!event.success);
         assert!(event.output_truncated);
-        assert_eq!(event.error.as_deref(), Some(PTY_EXIT_TRUNCATION_ERROR));
+        assert_eq!(event.exit_code, Some(0));
         assert!(output_sender.send(b"late".to_vec()).is_err());
         drop(exit_sender);
+    }
+
+    #[test]
+    fn output_timeout_preserves_process_failure_and_exit_code() {
+        let (output_sender, output_receiver) = mpsc::sync_channel(1);
+        let (exit_sender, exit_receiver) = mpsc::sync_channel(1);
+        exit_sender
+            .send(PtyExitEvent {
+                terminal_id: "terminal-1".to_owned(),
+                exit_code: Some(7),
+                success: false,
+                error: Some("synthetic process failure".to_owned()),
+                output_truncated: false,
+            })
+            .expect("queued exit");
+        output_sender.send(Vec::new()).expect("exit wake-up");
+
+        let mut observed = None;
+        run_output_pipeline(
+            output_receiver,
+            exit_receiver,
+            Duration::ZERO,
+            |_| panic!("the wake-up is not output"),
+            |event| observed = Some(event),
+        );
+
+        let event = observed.expect("timeout must finalize the exit");
+        assert_eq!(event.exit_code, Some(7));
+        assert!(!event.success);
+        assert!(event.output_truncated);
+        assert!(event
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("synthetic process failure")));
+        assert!(output_sender.send(b"late".to_vec()).is_err());
     }
 
     #[test]

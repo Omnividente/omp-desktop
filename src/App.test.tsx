@@ -21,6 +21,7 @@ import type {
   SingleInstanceEvent,
   PtySessionEvent,
   TerminalStarted,
+  TerminalTab,
 } from "./types"
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
@@ -65,7 +66,23 @@ vi.mock("./clientUpdater", () => ({
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn().mockResolvedValue("0.9.3") }))
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(), open: vi.fn() }))
-vi.mock("./TerminalView", () => ({ TerminalView: () => <div /> }))
+vi.mock("./TerminalView", () => ({
+  TerminalView: ({
+    tab,
+    active,
+    focusRequestSequence,
+  }: {
+    tab: TerminalTab
+    active: boolean
+    focusRequestSequence: number
+  }) => (
+    <div
+      data-terminal-id={tab.id}
+      data-active={active}
+      data-focus-sequence={focusRequestSequence}
+    />
+  ),
+}))
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -342,6 +359,50 @@ describe("App lifecycle serialization", () => {
     await act(async () => element('[title="Продолжить сессию"]').click())
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
+
+  it("opens the selected project overview without closing its running terminal", async () => {
+    await mountAndResume()
+    const pane = element(".terminal-pane")
+    await act(async () => element(".workspace-overview-button").click())
+    expect(container.querySelector(".workspace-home h1")?.textContent).toBe("Fixture")
+    expect(element(".terminal-pane")).toBe(pane)
+    expect(container.querySelector(".terminal-pane.is-active")).toBeNull()
+    expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    await act(async () =>
+      element(".workspace-overview-button").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "w", code: "KeyW", ctrlKey: true, bubbles: true }),
+      ),
+    )
+    expect(confirm).not.toHaveBeenCalled()
+    await act(async () => element(".terminal-tab > button").click())
+    expect(container.querySelector(".workspace-home")).toBeNull()
+    expect(element(".terminal-pane.is-active")).toBe(pane)
+  })
+
+  it("resumes the existing session from overview without starting a second process", async () => {
+    await mountAndResume()
+    await act(async () => element(".workspace-overview-button").click())
+    await act(async () => element(".hero-actions .secondary").click())
+    expect(container.querySelector(".workspace-home")).toBeNull()
+    expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it("returns to a newly launched session from overview and blocks overview while launching", async () => {
+    await mountAndResume()
+    await act(async () => element(".workspace-overview-button").click())
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => element(".hero-actions .primary").click())
+    expect(element(".workspace-overview-button").disabled).toBe(true)
+    await act(async () =>
+      pending.resolve({ ...started, terminalId: "terminal-overview-new", processId: 202 }),
+    )
+    expect(container.querySelector(".workspace-home")).toBeNull()
+    expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
 
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
@@ -853,6 +914,66 @@ describe("App lifecycle serialization", () => {
     else document.documentElement.setAttribute("lang", previousDocumentLanguage)
     vi.restoreAllMocks()
   })
+
+  it.each(["en", "ru"] as const)(
+    "matches canonical session titles without changing identity in %s",
+    async (lang) => {
+      const titles = ["Café", "Cafe\u0301", "йога", "и\u0306ога"]
+      const sessions = titles.map((title, index) => ({
+        ...bootstrap.sessions[0],
+        id: `unicode-${index}`,
+        title,
+        filePath: `C:/fixture/sessions/unicode-${index}.jsonl`,
+      }))
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language: lang },
+        sessions,
+      })
+      await act(async () => root.render(<App />))
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      const queryFor = (query: string) =>
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+            search,
+            query,
+          )
+          search.dispatchEvent(new Event("input", { bubbles: true }))
+        })
+      act(() => element<HTMLButtonElement>('.session-select[aria-label="Cafe\u0301"]').click())
+      for (const [index, query] of titles.entries()) {
+        queryFor(`  ${query.toLocaleUpperCase(lang)}  `)
+        const rows = Array.from(container.querySelectorAll(".session-select"), (row) =>
+          row.getAttribute("aria-label"),
+        )
+        expect(rows).toHaveLength(2)
+        expect(rows).toEqual(
+          expect.arrayContaining(titles.slice(index < 2 ? 0 : 2, index < 2 ? 2 : 4)),
+        )
+      }
+      for (const query of ["Cafe", "иога", "Ｃａｆé"]) {
+        queryFor(query)
+        expect(container.querySelectorAll(".session-select")).toHaveLength(0)
+      }
+      queryFor("unicode-1")
+      expect(container.querySelectorAll(".session-select")).toHaveLength(1)
+      expect(element<HTMLElement>(".session-item.is-selected").textContent).toContain(titles[1])
+      queryFor("")
+      expect(container.querySelectorAll(".session-select")).toHaveLength(4)
+      expect(element<HTMLElement>(".session-item.is-selected").textContent).toContain(titles[1])
+      expect(sessions.map((session) => session.title)).toEqual(titles)
+      expect(sessions.map((session) => session.id)).toEqual([
+        "unicode-0",
+        "unicode-1",
+        "unicode-2",
+        "unicode-3",
+      ])
+      expect(sessions.map((session) => session.filePath)).toEqual(
+        titles.map((_, index) => `C:/fixture/sessions/unicode-${index}.jsonl`),
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
 
   it.each([
     ["click", false],
@@ -1847,6 +1968,61 @@ describe("App lifecycle serialization", () => {
     expect(element(".session-select").textContent).toContain("Fixture session")
   })
 
+  it("copies into a known project only after explicit confirmation without opening a folder picker", async () => {
+    const target = {
+      ...bootstrap.workspaces[0],
+      key: "target",
+      path: "C:/fixture/target",
+      name: "Target",
+    }
+    const initial = {
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en" as const },
+      workspaces: [...bootstrap.workspaces, target],
+    }
+    vi.mocked(api.bootstrap).mockResolvedValue(initial)
+    const original = initial.sessions[0]
+    const copied = {
+      ...original,
+      id: "known-copy",
+      cwd: target.path,
+      projectKey: target.key,
+      filePath: "C:/fixture/sessions/known-copy.jsonl",
+    }
+    invokeMock.mockResolvedValue({
+      bootstrap: { ...initial, sessions: [...initial.sessions, copied] },
+      items: [
+        {
+          sourcePath: original.filePath,
+          destinationPath: copied.filePath,
+          status: "imported",
+          message: null,
+        },
+      ],
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element('[title="Copy session to another project"]').click())
+    const selector = element(".session-copy-project-field select") as HTMLSelectElement
+    expect(selector.value).toBe("")
+    await act(async () => {
+      selector.value = target.path
+      selector.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([])
+    expect(open).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    await act(async () => element('[aria-labelledby="session-copy-title"] .primary').click())
+    expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([
+      [
+        "import_sessions",
+        { requests: [{ path: original.filePath, targetCwd: target.path, mode: "skip" }] },
+        undefined,
+      ],
+    ])
+    expect(element(".project-item.is-active").textContent).toContain("Target")
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
   it.each(settingsWire)(
     "copy recovery accepts actual Rust warning combinations %j",
     async (settings) => {
@@ -2428,6 +2604,60 @@ describe("App lifecycle serialization", () => {
     expect(element(".codex-import-panel").querySelectorAll("[role=alert]")).toHaveLength(1)
   })
 
+  it.each(["en", "ru"] as const)(
+    "reads a recent session from Home without launching OMP (%s)",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        runtime: { ...bootstrap.runtime, ompAvailable: false },
+      })
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "read_session_transcript") {
+          return Promise.resolve({
+            session: bootstrap.sessions[0],
+            entries: [],
+            updatedAt: 1,
+            truncated: false,
+            malformedRecords: 0,
+            incompleteLastRecord: false,
+          })
+        }
+        throw new Error(`Unexpected Home reader command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      const read = element<HTMLButtonElement>(".recent-read")
+      expect(read.textContent).toContain(t(language, "transcriptRead"))
+      expect(read.getAttribute("aria-label")).toBe(
+        `${t(language, "openTranscript")}: ${bootstrap.sessions[0].title}`,
+      )
+      expect(read.type).toBe("button")
+      expect(read.disabled).toBe(false)
+      expect(read.closest("button")?.parentElement?.closest("button")).toBeNull()
+      await act(async () => {
+        read.focus()
+        read.click()
+      })
+      expect(container.querySelector(".transcript-panel")).not.toBeNull()
+      expect(invokeMock).toHaveBeenCalledWith(
+        "read_session_transcript",
+        { path: bootstrap.sessions[0].filePath },
+        undefined,
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      await act(async () => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+        )
+      })
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(document.activeElement).toBe(read)
+      await act(async () => read.click())
+      expect(container.querySelector(".transcript-panel")).not.toBeNull()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it("closes a transcript when external refresh removes its session", async () => {
     vi.mocked(api.bootstrap)
       .mockResolvedValueOnce(bootstrap)
@@ -2755,6 +2985,90 @@ describe("App lifecycle serialization", () => {
     await act(async () => pin.click())
     expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledTimes(1)
   })
+
+  it("explicitly focuses a tab picked from search even when it is already active", async () => {
+    await mountAndResume()
+    const terminal = (id: string) => element<HTMLElement>(`[data-terminal-id="${id}"]`)
+    const sequence = (id: string) => Number(terminal(id).dataset.focusSequence)
+    const openPicker = async () => {
+      const trigger = element<HTMLButtonElement>(".terminal-tab-picker-trigger")
+      trigger.focus()
+      await act(async () => trigger.click())
+    }
+    const before = sequence(started.terminalId)
+    await openPicker()
+    await act(async () =>
+      element<HTMLButtonElement>(".terminal-tab-picker-result[aria-current]").click(),
+    )
+    expect(sequence(started.terminalId)).toBeGreaterThan(before)
+    expect(terminal(started.terminalId).dataset.active).toBe("true")
+    expect(container.querySelector(".terminal-tab-picker")).toBeNull()
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+
+    vi.mocked(api.startTerminal).mockResolvedValue({
+      ...started,
+      terminalId: "terminal-2",
+      processId: 102,
+    })
+    await act(async () => element<HTMLButtonElement>(".new-tab-button").click())
+    const priorSequence = sequence(started.terminalId)
+    await openPicker()
+    await act(async () =>
+      element<HTMLButtonElement>(".terminal-tab-picker-result:not([aria-current])").click(),
+    )
+    expect(terminal(started.terminalId).dataset.active).toBe("true")
+    expect(sequence(started.terminalId)).toBeGreaterThan(priorSequence)
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["send", "discard"] as const)(
+    "retains open tab search while pending %s recovery requests terminal focus",
+    async (action) => {
+      const initial = config("Initial")
+      const alternate = config("Alternate").models[0]
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, alternate],
+      })
+      const recovery = {
+        terminalId: started.terminalId,
+        generation: 3,
+        token: "synthetic-recovery",
+        byteCount: 25,
+        state: "pending" as const,
+      }
+      vi.mocked(api.switchTerminal).mockRejectedValue({
+        code: "terminal_switch_input_recovery",
+        message: "Preserved draft",
+        recovery,
+      })
+      const pending = deferred<void>()
+      vi.mocked(
+        action === "send" ? api.sendSwitchInputRecovery : api.discardSwitchInputRecovery,
+      ).mockReturnValue(pending.promise)
+      await mountAndResume()
+      await act(async () => {
+        const selector = element<HTMLSelectElement>(".session-model-select")
+        selector.value = alternate.selector
+        selector.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      const recoveryButtons = element(
+        ".switch-input-recovery-actions",
+      ).querySelectorAll<HTMLButtonElement>("button")
+      await act(async () => recoveryButtons[action === "send" ? 0 : 1].click())
+      const before = Number(element<HTMLElement>("[data-terminal-id]").dataset.focusSequence)
+      await act(async () => element<HTMLButtonElement>(".terminal-tab-picker-trigger").click())
+      const input = element<HTMLInputElement>(".terminal-tab-picker input")
+      expect(document.activeElement).toBe(input)
+      await act(async () => pending.resolve(undefined))
+      expect(container.querySelector(".switch-input-recovery")).toBeNull()
+      expect(
+        Number(element<HTMLElement>("[data-terminal-id]").dataset.focusSequence),
+      ).toBeGreaterThan(before)
+      expect(container.querySelector(".terminal-tab-picker input")).toBe(input)
+      expect(document.activeElement).toBe(input)
+    },
+  )
 
   it("lets the user discard preserved input after an unstructured send failure without offering a duplicate send", async () => {
     const initial = config("Initial")
@@ -3560,6 +3874,38 @@ describe("App lifecycle serialization", () => {
       },
     )
 
+    it("shows current terminal context beside a matching resource measurement without starting another terminal", async () => {
+      await mountResources()
+      await act(async () => element(".resource-panel-header button").click())
+      const processId = started.processId
+      if (processId === null) throw new Error("The synthetic terminal needs a process ID")
+      nextSample = () =>
+        Promise.resolve({
+          ...snapshot(),
+          processes: [
+            {
+              source: "omp",
+              terminalId: started.terminalId,
+              processId,
+              residentBytes: 1024,
+            },
+          ],
+        })
+      await act(async () => element(".new-session-button").click())
+      const title = element(".terminal-tab-label").textContent ?? ""
+      expect(title).not.toBe("")
+      await act(async () => element(".resource-health-trigger").click())
+      expect(container.querySelector(".resource-process-tab")).toBeNull()
+      await advance(30_000)
+      expect(element(".resource-process-tab").textContent).toContain(
+        t("ru", "resourceCurrentTab").replace("{title}", title),
+      )
+      expect(element(".resource-process-tab").textContent).toContain(started.cwd)
+      expect(element(".resource-process").textContent).toContain(started.terminalId)
+      expect(vi.mocked(api.startTerminal)).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(api.switchTerminal)).not.toHaveBeenCalled()
+    })
+
     it("samples the current workspace immediately after an obsolete request settles", async () => {
       await mountResources()
       const old = holdSample()
@@ -3846,5 +4192,103 @@ describe("App lifecycle serialization", () => {
       "This session is already open in another OMP Desktop process",
     )
     expect(api.errorMessage(raw, "en")).not.toContain(destination)
+  })
+  it.each(["ru", "en"] as const)(
+    "preserves known OMP results when refresh fails (%s)",
+    async (language) => {
+      const payload = { ...bootstrap, settings: { ...bootstrap.settings, language } }
+      vi.mocked(api.bootstrap).mockResolvedValue(payload)
+      const path = "C:/fixture/refresh-import.jsonl"
+      vi.mocked(open).mockResolvedValue(path)
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "import_sessions")
+          return Promise.resolve({
+            bootstrap: null,
+            items: [
+              {
+                sourcePath: path,
+                destinationPath: "C:/fixture/destination.jsonl",
+                status: "imported",
+                message: null,
+              },
+            ],
+            refreshError: {
+              code: "session_import_refresh_failed",
+              message: "Backend fallback",
+              details: "Synthetic scan failure",
+            },
+          } satisfies ImportBatchPayload)
+        throw new Error(command)
+      })
+      await act(async () => root.render(<App />))
+      const sessionsBefore = [...container.querySelectorAll(".session-item")].map(
+        (x) => x.textContent,
+      )
+      await act(async () => element(`[title="${t(language, "importSession")}"]`).click())
+      await act(async () => element('[aria-labelledby="omp-import-title"] .primary').click())
+      expect(container.querySelector('[aria-labelledby="omp-import-title"]')).toBeNull()
+      expect([...container.querySelectorAll(".session-item")].map((x) => x.textContent)).toEqual(
+        sessionsBefore,
+      )
+      expect(container.textContent).toContain(
+        language === "en"
+          ? "the session list could not refresh"
+          : "не удалось обновить список сессий",
+      )
+      expect(container.textContent).toContain("Synthetic scan failure")
+      expect(api.bootstrap).toHaveBeenCalledTimes(1)
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "import_sessions"),
+      ).toHaveLength(1)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps only failed Codex sources selected when refresh fails", async () => {
+    const fixture = await openImportFeedbackFixture(2)
+    fixture.setOutcome(async (batch) => ({
+      bootstrap: null,
+      items: batch.map((request, index) => ({
+        sourcePath: request.path,
+        destinationPath: index === 0 ? "C:/fixture/copied.jsonl" : null,
+        status: index === 0 ? "copied" : "failed",
+        message: index === 0 ? null : "Synthetic item failure",
+      })),
+      refreshError: { code: "session_import_refresh_failed", message: "fallback", details: null },
+    }))
+    await act(async () => element(".codex-import-panel .primary").click())
+    const selected = [...container.querySelectorAll<HTMLInputElement>(".codex-item input")].map(
+      (x) => x.checked,
+    )
+    expect(selected).toEqual([false, true])
+    expect(element(".codex-import-error").textContent).toContain("Synthetic item failure")
+    expect(container.textContent).toContain("не удалось обновить список сессий")
+    expect(fixture.batches).toHaveLength(1)
+    expect(api.bootstrap).toHaveBeenCalledTimes(1)
+    await act(async () => element(".codex-import-panel .primary").click())
+    expect(fixture.batches[1].map((x) => x.path)).toEqual([fixture.sources[1]])
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("reports a rejected workspace removal dialog without mutating the workspace", async () => {
+    const projects = workspacePayload("A", "B")
+    projects.settings = { ...projects.settings, lastWorkspace: "C:/fixture/B" }
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    vi.mocked(confirm).mockRejectedValueOnce(new Error("synthetic dialog unavailable"))
+    await act(async () => root.render(<App />))
+    await act(async () => element(".project-item-row.is-active .project-remove").click())
+    expect(container.textContent).toContain("synthetic dialog unavailable")
+    expect(api.removeWorkspace).not.toHaveBeenCalled()
+    expect(api.deleteSession).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    expect(container.querySelectorAll(".project-item")).toHaveLength(2)
+    expect(element<HTMLButtonElement>(".project-item-row.is-active .project-remove").disabled).toBe(
+      false,
+    )
+    vi.mocked(confirm).mockResolvedValueOnce(false)
+    await act(async () => element(".project-item-row.is-active .project-remove").click())
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(api.removeWorkspace).not.toHaveBeenCalled()
   })
 })
