@@ -3031,6 +3031,12 @@ button:disabled {
   background: var(--panel-raised);
 }
 
+.transcript-find-navigation button[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--panel-raised);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .transcript-filter {
   display: flex;
   padding: 3px;

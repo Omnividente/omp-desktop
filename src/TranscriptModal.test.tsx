@@ -260,6 +260,73 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+it("offers match case for loaded transcript text and resets match navigation without rereading", async () => {
+  transcript.entries[120] = { ...transcript.entries[120], text: "path PATH Path" }
+  transcript.entries[170] = {
+    ...transcript.entries[170],
+    text: "PATH path",
+    dialogueText: "PATH path",
+  }
+  await click("Reread file")
+  await searchFor("PATH")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 5")
+  await click("Previous match")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("5 / 5")
+  const reads = vi.mocked(readSessionTranscript).mock.calls.length
+  const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Match case"]')!
+  expect(toggle).not.toBeNull()
+  expect(toggle.getAttribute("aria-pressed")).toBe("false")
+  act(() => toggle.focus())
+  await click("Match case")
+  expect(document.activeElement).toBe(toggle)
+  expect(toggle.getAttribute("aria-pressed")).toBe("true")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.textContent).toBe("PATH")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("120")
+  await click("Previous match")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("2 / 2")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("170")
+  await click("Match case")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 5")
+  expect(vi.mocked(readSessionTranscript).mock.calls.length).toBe(reads)
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("keeps match case through refresh and appearance changes, handles zero matches, and resets on reopen", async () => {
+  await searchFor("NEEDLE")
+  await click("Match case")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  expect(container.querySelector("mark")).toBeNull()
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Next match"]')?.disabled).toBe(
+    true,
+  )
+  await click("Reread file")
+  await searchFor("NEEDLE")
+  expect(container.querySelector('[aria-label="Match case"]')?.getAttribute("aria-pressed")).toBe(
+    "true",
+  )
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  await click("Source")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  await searchFor("needle")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 4")
+  await click("Close")
+  await click("Open transcript")
+  expect(container.querySelector('[aria-label="Match case"]')?.getAttribute("aria-pressed")).toBe(
+    "false",
+  )
+})
+
+it("does not move the reading position when match case changes with an empty query", async () => {
+  const scroll = await scrollTo(80 * 102 + 25)
+  const before = scroll.scrollTop
+  await click("Match case")
+  expect(scroll.scrollTop).toBe(before)
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  await click("Match case")
+  expect(scroll.scrollTop).toBe(before)
+})
+
 it("announces empty and filtered-out transcripts as status changes", async () => {
   vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries: [] })
   await click("Open transcript")

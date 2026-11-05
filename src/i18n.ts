@@ -76,6 +76,7 @@ export const UI_TEXT = {
     contentLinkReveal: "Показать в папке",
     transcriptPreviousMatch: "Предыдущее совпадение",
     transcriptNextMatch: "Следующее совпадение",
+    transcriptMatchCase: "Учитывать регистр",
     transcriptMatchCount: "Совпадения",
     operationsTab: "Работа OMP",
     operationsHelp:
@@ -730,6 +731,7 @@ export const UI_TEXT = {
     contentLinkReveal: "Show in folder",
     transcriptPreviousMatch: "Previous match",
     transcriptNextMatch: "Next match",
+    transcriptMatchCase: "Match case",
     transcriptMatchCount: "Matches",
     operationsTab: "OMP operation",
     operationsHelp:

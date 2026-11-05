@@ -80,6 +80,7 @@ export function TranscriptModal({
   const searchRef = useRef<HTMLInputElement>(null)
   const handleModalKeyDown = useModalFocus(panelRef, onClose)
   const [sourceMode, setSourceMode] = useState(false)
+  const [matchCase, setMatchCase] = useState(false)
   const [latestRequest, setLatestRequest] = useState(0)
   const [menu, setMenu] = useState<{
     left: number
@@ -219,9 +220,11 @@ export function TranscriptModal({
       ),
     [visibleEntries, transcriptMode, sourceMode],
   )
+  // Changing an idle search option must not move the reader's current position.
+  const searchMatchCase = Boolean(transcriptSearch) && matchCase
   const search = useMemo(
-    () => new TranscriptSearch(contents, transcriptSearch),
-    [contents, transcriptSearch],
+    () => new TranscriptSearch(contents, transcriptSearch, searchMatchCase),
+    [contents, transcriptSearch, searchMatchCase],
   )
   const [navigation, setNavigation] = useState({ search, index: 0 })
   if (navigation.search !== search) setNavigation({ search, index: 0 })
@@ -375,6 +378,15 @@ export function TranscriptModal({
     onClearSearch()
     searchRef.current?.focus({ preventScroll: true })
   }
+  const toggleMatchCase = () => {
+    if (transcriptSearch) {
+      pendingRestoreRef.current = null
+      pendingLatestRef.current = false
+      followLatestRef.current = false
+    }
+    setMenu(null)
+    setMatchCase((value) => !value)
+  }
   const showLatest = () => {
     onClearSearch()
     pendingMatchRef.current = null
@@ -517,6 +529,15 @@ export function TranscriptModal({
               )}
             </div>
             <div className="transcript-find-navigation">
+              <button
+                type="button"
+                aria-label={t(lang, "transcriptMatchCase")}
+                title={t(lang, "transcriptMatchCase")}
+                aria-pressed={matchCase}
+                onClick={toggleMatchCase}
+              >
+                Aa
+              </button>
               <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
                 {currentIndex + 1} / {search.count}
               </span>
