@@ -111,6 +111,17 @@ export function SessionList({
     () => buildSessionTree(allSessions, platform),
     [allSessions, platform],
   )
+  const sessionGroupIds = useMemo(() => {
+    const ids: string[] = []
+    const pending = [...sessionTree]
+    while (pending.length > 0) {
+      const node = pending.pop()!
+      if (node.children.length === 0) continue
+      ids.push(node.session.id)
+      for (const child of node.children) pending.push(child)
+    }
+    return ids
+  }, [sessionTree])
   const searchActive = search.trim().length > 0
   const filteredTree = useMemo(() => {
     if (!searchActive) return sessionTree
@@ -357,6 +368,32 @@ export function SessionList({
             </button>
           )}
         </label>
+        {sessionGroupIds.length > 0 && (
+          <div className="session-group-actions" role="group" aria-label={t(lang, "sessionGroups")}>
+            <button
+              type="button"
+              disabled={searchActive || renamingSessionId !== null}
+              title={searchActive ? t(lang, "sessionGroupsSearchHint") : undefined}
+              onClick={() => {
+                setExpandedSessionIds(new Set(sessionGroupIds))
+                scrollToIndex(0)
+              }}
+            >
+              {t(lang, "expandAllSessionGroups")}
+            </button>
+            <button
+              type="button"
+              disabled={searchActive || renamingSessionId !== null}
+              title={searchActive ? t(lang, "sessionGroupsSearchHint") : undefined}
+              onClick={() => {
+                setExpandedSessionIds(new Set())
+                scrollToIndex(0)
+              }}
+            >
+              {t(lang, "collapseAllSessionGroups")}
+            </button>
+          </div>
+        )}
       </div>
 
       <div

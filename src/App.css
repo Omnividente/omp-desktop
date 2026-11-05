@@ -1264,6 +1264,39 @@ button:disabled {
   gap: 4px;
 }
 
+.session-group-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.session-group-actions button {
+  padding: 4px 7px;
+  border: 1px solid var(--chrome-border, var(--line));
+  border-radius: 5px;
+  color: var(--chrome-text-soft, var(--text-soft));
+  background: transparent;
+  font: inherit;
+  font-size: 0.625rem;
+  cursor: pointer;
+}
+
+.session-group-actions button:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.session-group-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.session-group-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .settings-panel {
   overflow: hidden;
 }
