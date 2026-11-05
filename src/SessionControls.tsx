@@ -1,4 +1,4 @@
-import { type ChangeEvent, useLayoutEffect, useRef } from "react"
+import { type ChangeEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { Icon } from "./Icon"
 import {
   matchesSelector,
@@ -33,6 +33,30 @@ export function SessionControls({
   onSwitch,
   onTogglePrimaryProviderPin,
 }: SessionControlsProps) {
+  const [modelQuery, setModelQuery] = useState("")
+  const [modelSearchOpen, setModelSearchOpen] = useState(false)
+  const modelSearchId = useId()
+  const modelControlRef = useRef<HTMLDivElement>(null)
+  const modelSearchRef = useRef<HTMLInputElement>(null)
+  const modelSearchButtonRef = useRef<HTMLButtonElement>(null)
+  useLayoutEffect(() => {
+    setModelQuery("")
+    setModelSearchOpen(false)
+  }, [tab.id])
+  useLayoutEffect(() => {
+    if (modelSearchOpen) modelSearchRef.current?.focus({ preventScroll: true })
+  }, [modelSearchOpen])
+  useEffect(() => {
+    if (!modelSearchOpen) return
+    const dismissOutsideSearch = (event: PointerEvent) => {
+      if (event.target instanceof Node && !modelControlRef.current?.contains(event.target)) {
+        setModelQuery("")
+        setModelSearchOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", dismissOutsideSearch)
+    return () => document.removeEventListener("pointerdown", dismissOutsideSearch)
+  }, [modelSearchOpen])
   const controlsRef = useRef<HTMLDivElement>(null)
   const providerPinRef = useRef<HTMLButtonElement>(null)
   const pinFocusRequestedRef = useRef<string | null>(null)
@@ -76,7 +100,16 @@ export function SessionControls({
     ompConfig.defaultThinkingLevel,
   )
 
-  const modelsByProvider = chatModels.reduce<Record<string, typeof chatModels>>(
+  const normalizedQuery = modelQuery.trim().toLocaleLowerCase()
+  const matchingModels = normalizedQuery
+    ? chatModels.filter((model) =>
+        [model.name, model.provider, model.id, model.selector]
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(normalizedQuery),
+      )
+    : chatModels
+  const modelsByProvider = matchingModels.reduce<Record<string, typeof chatModels>>(
     (providers, model) => {
       const provider = model.provider || "unknown"
       ;(providers[provider] ??= []).push(model)
@@ -86,6 +119,11 @@ export function SessionControls({
   )
 
   const recoveryPending = tab.switchRecovery !== null
+  const modelControlsDisabled = tab.switching || tab.primaryProviderPinPending || recoveryPending
+  const closeModelSearch = () => {
+    setModelQuery("")
+    setModelSearchOpen(false)
+  }
   const switchSelection = (model: string, thinking: string | null) => {
     if (!model || tab.switching || tab.primaryProviderPinPending || recoveryPending) return
     onSwitch(tab.id, model, thinking)
@@ -147,28 +185,93 @@ export function SessionControls({
         role="group"
         tabIndex={-1}
       >
-        <select
-          aria-label={t(lang, "sessionModel")}
-          className="session-model-select"
-          disabled={tab.switching || tab.primaryProviderPinPending || recoveryPending}
-          onChange={handleModelChange}
-          title={t(lang, "sessionModel")}
-          value={baseModel}
+        <div
+          className="session-model-control"
+          onBlur={(event) => {
+            const next = event.relatedTarget
+            if (next instanceof Node && !event.currentTarget.contains(next)) closeModelSearch()
+          }}
+          onKeyDown={(event) => {
+            if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229)
+              return
+            if (event.key === "Escape" && modelSearchOpen) {
+              event.preventDefault()
+              event.stopPropagation()
+              closeModelSearch()
+              modelSearchButtonRef.current?.focus({ preventScroll: true })
+            }
+          }}
+          ref={modelControlRef}
         >
-          {!selectedModel && baseModel && <option value={baseModel}>{baseModel}</option>}
-          {Object.entries(modelsByProvider).map(([provider, models]) => (
-            <optgroup label={provider} key={provider}>
-              {models.map((model) => {
-                const selector = splitSelector(model.selector).base
-                return (
-                  <option disabled={!model.available} key={model.selector} value={selector}>
-                    {model.name}
-                  </option>
-                )
-              })}
-            </optgroup>
-          ))}
-        </select>
+          {modelSearchOpen && (
+            <div className="session-model-search-panel" id={modelSearchId}>
+              <input
+                aria-label={t(lang, "searchModels")}
+                className="session-model-search"
+                disabled={modelControlsDisabled}
+                onChange={(event) => setModelQuery(event.target.value)}
+                placeholder={t(lang, "searchModelsPlaceholder")}
+                ref={modelSearchRef}
+                type="search"
+                value={modelQuery}
+              />
+              {normalizedQuery && matchingModels.length === 0 && (
+                <span className="session-model-search-empty" role="status">
+                  {t(lang, "noModelsFound")}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="session-model-choice">
+            <select
+              aria-label={t(lang, "sessionModel")}
+              className="session-model-select"
+              disabled={modelControlsDisabled}
+              onChange={handleModelChange}
+              title={t(lang, "sessionModel")}
+              value={baseModel}
+            >
+              {baseModel && (!selectedModel || !matchingModels.includes(selectedModel)) && (
+                <option value={baseModel}>
+                  {selectedModel ? `${selectedModel.name} (${baseModel})` : baseModel}
+                </option>
+              )}
+              {matchingModels.length === 0 && normalizedQuery && (
+                <option disabled value="">
+                  {t(lang, "noModelsFound")}
+                </option>
+              )}
+              {Object.entries(modelsByProvider).map(([provider, models]) => (
+                <optgroup label={provider} key={provider}>
+                  {models.map((model) => {
+                    const selector = splitSelector(model.selector).base
+                    return (
+                      <option disabled={!model.available} key={model.selector} value={selector}>
+                        {model.name}
+                      </option>
+                    )
+                  })}
+                </optgroup>
+              ))}
+            </select>
+            <button
+              aria-controls={modelSearchId}
+              aria-expanded={modelSearchOpen}
+              aria-label={t(lang, modelSearchOpen ? "closeModelSearch" : "searchModels")}
+              className="session-model-search-toggle"
+              disabled={modelControlsDisabled}
+              onClick={() => {
+                if (modelSearchOpen) closeModelSearch()
+                else setModelSearchOpen(true)
+              }}
+              ref={modelSearchButtonRef}
+              title={t(lang, modelSearchOpen ? "closeModelSearch" : "searchModels")}
+              type="button"
+            >
+              <Icon name={modelSearchOpen ? "close" : "search"} size={13} />
+            </button>
+          </div>
+        </div>
         <select
           aria-label={t(lang, "sessionThinking")}
           className="session-thinking-select"

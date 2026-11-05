@@ -3896,7 +3896,9 @@ button:disabled {
   min-width: 0;
 }
 
-.session-controls select {
+.session-controls select,
+.session-model-search,
+.session-model-search-toggle {
   height: 25px;
   min-width: 0;
   padding: 0 24px 0 8px;
@@ -3910,17 +3912,23 @@ button:disabled {
   font-size: 0.5625rem;
 }
 
-.session-controls select:hover:not(:disabled) {
+.session-controls select:hover:not(:disabled),
+.session-model-search:hover:not(:disabled),
+.session-model-search-toggle:hover:not(:disabled) {
   color: var(--chrome-text, #dce4de);
   border-color: var(--chrome-border, #465048);
 }
 
-.session-controls select:focus-visible {
+.session-controls select:focus-visible,
+.session-model-search:focus-visible,
+.session-model-search-toggle:focus-visible {
   border-color: var(--chrome-accent-border, rgba(185, 242, 124, 0.7));
   box-shadow: 0 0 0 2px rgba(185, 242, 124, 0.1);
 }
 
-.session-controls select:disabled {
+.session-controls select:disabled,
+.session-model-search:disabled,
+.session-model-search-toggle:disabled {
   cursor: default;
   opacity: 0.55;
 }
@@ -3931,8 +3939,56 @@ button:disabled {
   background: var(--chrome-surface-raised, #171b18);
 }
 
-.session-model-select {
+.session-model-control {
+  position: relative;
+  min-width: 0;
   width: min(190px, 24vw);
+}
+
+.session-model-choice {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.session-model-select {
+  flex: 1;
+  width: 0;
+}
+
+.session-model-search-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 100%;
+  max-height: 96px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--chrome-border, #303732);
+  border-radius: 4px;
+  background: var(--chrome-surface-raised, #171b18);
+  box-shadow: 0 4px 12px #0005;
+}
+
+.session-model-search-empty {
+  display: block;
+  margin-top: 4px;
+  color: var(--chrome-text, #b7c0ba);
+}
+
+.session-model-search {
+  width: 100%;
+  padding: 0 6px;
+}
+
+.session-model-search-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 25px;
+  padding: 0;
+  cursor: pointer;
 }
 
 .session-thinking-select {
