@@ -2500,6 +2500,18 @@ function App() {
       className={`app-shell${payload.runtime.platform === "linux" ? " is-linux" : ""}`}
       style={{ fontFamily: payload.settings.appFontFamily }}
     >
+      <a
+        className="workspace-skip-link"
+        href="#workspace-main"
+        onClick={(event) => {
+          event.preventDefault()
+          const shell = event.currentTarget.closest(".app-shell")
+          if (shell?.hasAttribute("inert") || document.querySelector('[aria-modal="true"]')) return
+          shell?.querySelector<HTMLElement>("#workspace-main")?.focus({ preventScroll: true })
+        }}
+      >
+        {t(lang, "skipToWorkspace")}
+      </a>
       <Topbar
         appVersion={appVersion}
         checkingUpdate={checkingUpdate}

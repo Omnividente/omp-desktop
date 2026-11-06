@@ -454,6 +454,106 @@ describe("App lifecycle serialization", () => {
     return element<HTMLButtonElement>(`[data-startup-action="${action}"]`)
   }
 
+  it.each(["ru", "en"] as const)(
+    "skips project navigation to the named workspace region in %s without acting on it",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+      })
+      await act(async () => root.render(<App />))
+      const skip = element<HTMLAnchorElement>(".workspace-skip-link")
+      const stage = element<HTMLElement>("#workspace-main")
+      expect(skip.textContent).toBe(
+        language === "ru" ? "Перейти к рабочей области" : "Skip to workspace",
+      )
+      expect(stage.getAttribute("aria-label")).toBe(
+        language === "ru" ? "Рабочая область" : "Workspace",
+      )
+      expect(skip.getAttribute("href")).toBe("#workspace-main")
+      expect(container.querySelector("a[href], button, input, select, textarea")).toBe(skip)
+      expect(stage.tabIndex).toBe(-1)
+      expect(container.querySelectorAll("#workspace-main")).toHaveLength(1)
+      const originalHash = window.location.hash
+      const project = element(".project-item.is-active")
+      const focus = vi.spyOn(stage, "focus")
+      vi.mocked(api.saveWorkspaceSelection).mockClear()
+      invokeMock.mockClear()
+      act(() => skip.focus())
+      const click = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+      })
+      await act(async () => skip.dispatchEvent(click))
+      expect(click.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(stage)
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+      expect(window.location.hash).toBe(originalHash)
+      expect(element(".project-item.is-active")).toBe(project)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+      expect(invokeMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["expanded", "collapsed", "autoHide"] as const)(
+    "skips to an empty workspace with a %s project rail",
+    async (railMode) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, railMode },
+        workspaces: [],
+        sessions: [],
+      })
+      await act(async () => root.render(<App />))
+      const skip = element<HTMLAnchorElement>(".workspace-skip-link")
+      await act(async () => skip.click())
+      expect(document.activeElement).toBe(element("#workspace-main"))
+      expect(container.querySelector(".empty-workspace")).not.toBeNull()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(open).not.toHaveBeenCalled()
+    },
+  )
+
+  it("skips to the live workspace without selecting, restarting, or closing a terminal", async () => {
+    await mountAndResume()
+    const activeTab = element(".terminal-tab.is-active")
+    vi.mocked(api.startTerminal).mockClear()
+    invokeMock.mockClear()
+    await act(async () => element<HTMLAnchorElement>(".workspace-skip-link").click())
+    expect(document.activeElement).toBe(element("#workspace-main"))
+    expect(container.querySelectorAll("#workspace-main")).toHaveLength(1)
+    expect(element(".terminal-tab.is-active")).toBe(activeTab)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(api.switchTerminal).not.toHaveBeenCalled()
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it("does not let a background skip link move focus out of a modal", async () => {
+    await act(async () => root.render(<App />))
+    const skip = element<HTMLAnchorElement>(".workspace-skip-link")
+    await act(async () => element(".runtime-pill").click())
+    const dialog = element<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    const focused = document.activeElement
+    expect(dialog.contains(focused)).toBe(true)
+    await act(async () => skip.click())
+    expect(document.activeElement).toBe(focused)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("does not let a background skip link bypass startup recovery", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    await act(async () => root.render(<App />))
+    const gate = element<HTMLElement>('[aria-labelledby="startup-workspace-title"]')
+    const focused = document.activeElement
+    expect(gate.contains(focused)).toBe(true)
+    await act(async () => element<HTMLAnchorElement>(".workspace-skip-link").click())
+    expect(document.activeElement).toBe(focused)
+    expect(element(".app-shell").hasAttribute("inert")).toBe(true)
+    expect(api.resolveStartupWorkspace).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
   it("keeps an unavailable explicit launch gated without persisting the fallback", async () => {
     vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
     await act(async () => root.render(<App />))

@@ -244,7 +244,13 @@ export function TerminalWorkspace({
 
   if (tabs.length === 0) {
     return (
-      <main className="main-stage" ref={stageRef}>
+      <main
+        aria-label={t(language, "workspaceRegion")}
+        className="main-stage"
+        id="workspace-main"
+        ref={stageRef}
+        tabIndex={-1}
+      >
         <WorkspaceHome
           onError={onError}
           lang={language}
@@ -269,7 +275,10 @@ export function TerminalWorkspace({
     : "normal"
   return (
     <main
+      aria-label={t(language, "workspaceRegion")}
       className="main-stage"
+      id="workspace-main"
+      tabIndex={-1}
       onFocusCapture={(event) => {
         focusOriginRef.current = event.target
       }}

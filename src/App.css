@@ -95,6 +95,40 @@ button:disabled {
   background: var(--chrome-accent-fill, rgba(168, 222, 119, 0.88));
 }
 
+.workspace-skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--panel-raised);
+  font: inherit;
+}
+
+.workspace-skip-link:focus {
+  width: auto;
+  height: auto;
+  max-width: calc(100vw - 16px);
+  padding: 10px 14px;
+  clip-path: none;
+  white-space: normal;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  outline: 2px solid var(--chrome-focus, rgba(185, 242, 124, 0.8));
+  outline-offset: 2px;
+}
+
+.main-stage:focus-visible {
+  outline: 2px solid var(--chrome-focus, rgba(185, 242, 124, 0.8));
+  outline-offset: -2px;
+}
+
 .app-shell {
   display: grid;
   grid-template-rows: 54px auto minmax(0, 1fr);
