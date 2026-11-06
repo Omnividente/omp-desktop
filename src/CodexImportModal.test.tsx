@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from "react"
+import { act, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { CodexImportModal } from "./CodexImportModal"
@@ -49,6 +49,53 @@ function dialog() {
 function closeButton() {
   return dialog().querySelector<HTMLButtonElement>("header button")!
 }
+
+it("keeps selection fixed during import and restores editing and focus navigation afterwards", () => {
+  const second = { ...session, id: "second", filePath: "/synthetic/second.jsonl" }
+  const onSelectedChange = vi.fn()
+  function Fixture({ importing }: { importing: boolean }) {
+    const [selected, setSelected] = useState<Record<string, boolean>>({ [session.filePath]: true })
+    return (
+      <CodexImportModal
+        language="en"
+        loading={false}
+        importing={importing}
+        mode="copy"
+        sessions={[session, second]}
+        selected={selected}
+        onSelectedChange={(next) => {
+          onSelectedChange(next)
+          setSelected(next)
+        }}
+        onClose={vi.fn()}
+        onImport={vi.fn()}
+        onModeChange={vi.fn()}
+      />
+    )
+  }
+  const inputs = () => [...container.querySelectorAll<HTMLInputElement>(".codex-item input")]
+  act(() => root.render(<Fixture importing={false} />))
+  inputs()[0].focus()
+  act(() => root.render(<Fixture importing />))
+  expect(document.activeElement).toBe(dialog())
+  act(() => {
+    inputs()[0].click()
+    inputs()[1].click()
+    inputs()[1].closest("label")!.click()
+  })
+  expect(onSelectedChange).not.toHaveBeenCalled()
+  expect(inputs().map((input) => input.checked)).toEqual([true, false])
+  expect(inputs().every((input) => input.disabled)).toBe(true)
+  press(dialog(), "Tab")
+  expect(document.activeElement).toBe(dialog())
+  act(() => root.render(<Fixture importing={false} />))
+  expect(inputs().every((input) => !input.disabled)).toBe(true)
+  press(dialog(), "Tab")
+  expect(document.activeElement).toBe(closeButton())
+  act(() => inputs()[1].click())
+  expect(onSelectedChange).toHaveBeenCalledOnce()
+  expect(inputs().map((input) => input.checked)).toEqual([true, true])
+})
 
 it.each([100, 500, 10000])(
   "keeps %i failed import rows navigable with persistent reasons outside virtual rows",

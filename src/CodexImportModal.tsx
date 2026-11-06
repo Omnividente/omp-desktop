@@ -224,6 +224,7 @@ export function CodexImportModal({
                           : undefined
                       }
                       checked={Boolean(selected[session.filePath])}
+                      disabled={importing}
                       onFocus={() => {
                         const failurePage = failurePages.get(session.filePath)
                         if (failurePage !== undefined) setRequestedPage(failurePage)
