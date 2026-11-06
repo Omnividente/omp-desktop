@@ -252,3 +252,61 @@ it("bounds marks across split Markdown leaves and reserves the late active ancho
     expect(container.textContent).toBe(content.text)
   }
 })
+
+it.each([
+  ["backticks at EOF", "```", "\t", false],
+  ["tildes at EOF", "~~~", " \t ", false],
+  ["backticks before a closing fence", "```", "\t", true],
+  ["tildes before a closing fence", "~~~", " \t ", true],
+] as const)(
+  "keeps a tab-suffixed fence and its following text: %s",
+  async (_name, fence, suffix, closed) => {
+    const literal = `  alpha\n${fence}${suffix}\n\nIMPORTANT follow-up\n`
+    const source = `${fence}text\n${literal}${closed ? fence : ""}`
+    const content = markdownContent(source)
+    expect(content.text).toBe(literal)
+    const search = new TranscriptSearch([content], "IMPORTANT")
+    expect(search.count).toBe(1)
+    act(() =>
+      root.render(
+        <MarkdownContent
+          content={content}
+          lang="en"
+          onOpen={vi.fn()}
+          onError={vi.fn()}
+          matches={search.matchesForEntry(0, 0)}
+          currentMatch={0}
+        />,
+      ),
+    )
+    expect(container.querySelector("pre code")?.textContent).toBe(literal)
+    expect(container.querySelector("mark.is-current")?.textContent).toBe("IMPORTANT")
+    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click())
+    expect(writeText).toHaveBeenCalledWith(literal)
+    const raw = markdownContent(source, true)
+    act(() =>
+      root.render(<MarkdownContent content={raw} lang="en" onOpen={vi.fn()} onError={vi.fn()} />),
+    )
+    expect(raw.text).toBe(source)
+    expect(container.textContent).toBe(source)
+    expect(new TranscriptSearch([raw], "IMPORTANT").count).toBe(1)
+  },
+)
+
+it.each([
+  ["equal closing fence at EOF", "```\nalpha\n```", "alpha\n"],
+  ["longer fence and spaces before LF", "```\nalpha\n````  \n", "alpha\n"],
+  ["three-space closing indent", "~~~\nalpha\n   ~~~\n", "alpha\n"],
+  ["opening indentation and blank lines", "  ```\n    alpha\n\n  ```", "  alpha\n\n"],
+  ["shorter fence", "````\nalpha\n```\ntail\n", "alpha\n```\ntail\n"],
+  ["other fence character", "```\nalpha\n~~~\ntail\n", "alpha\n~~~\ntail\n"],
+  ["four-space closing indent", "```\nalpha\n    ```\ntail\n", "alpha\n    ```\ntail\n"],
+  ["text after fence", "~~~\nalpha\n~~~x\ntail\n", "alpha\n~~~x\ntail\n"],
+])("preserves fenced code boundaries: %s", (_name, source, expected) => {
+  const content = markdownContent(source)
+  expect(content.text).toBe(expected)
+  act(() =>
+    root.render(<MarkdownContent content={content} lang="en" onOpen={vi.fn()} onError={vi.fn()} />),
+  )
+  expect(container.querySelector("pre code")?.textContent).toBe(expected)
+})
