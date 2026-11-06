@@ -108,7 +108,12 @@ export function WorkspaceHome({
                 type="button"
               >
                 <Icon name="play" />
-                {t(lang, "btnResumeLast")}
+                {t(
+                  lang,
+                  selectedSession && selectedSession.id !== latest?.id
+                    ? "btnResumeSelected"
+                    : "btnResumeLast",
+                )}
               </button>
             )}
           </div>
