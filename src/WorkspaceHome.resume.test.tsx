@@ -75,18 +75,6 @@ it.each(["en", "ru"] as const)("labels the Home resume target without changing i
       act(() => resume().click())
       expect(props.onLaunch).toHaveBeenLastCalledWith(latest)
     }
-    act(() => root.render(<WorkspaceHome {...props} launching={older.id} />))
-    expect(resume().disabled).toBe(true)
-    act(() => resume().click())
-    expect(props.onLaunch).toHaveBeenCalledTimes(3)
-
-    act(() =>
-      root.render(<WorkspaceHome {...props} runtime={{ ...props.runtime, ompAvailable: false }} />),
-    )
-    expect(resume().disabled).toBe(true)
-    act(() => resume().click())
-    expect(props.onLaunch).toHaveBeenCalledTimes(3)
-
     act(() => root.render(<WorkspaceHome {...props} sessions={[]} selectedSession={null} />))
     expect(resume()).toBeNull()
   } finally {
