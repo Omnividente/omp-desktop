@@ -29,30 +29,67 @@ export function formatTerminalExitLine(event: PtyExitEvent, language: Lang): str
 const relativeFormatters = {
   en: {
     relative: new Intl.RelativeTimeFormat("en", { numeric: "auto" }),
-    date: new Intl.DateTimeFormat("en", { day: "numeric", month: "short", timeZone: "UTC" }),
+    date: new Intl.DateTimeFormat("en", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    dateWithEra: new Intl.DateTimeFormat("en", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      era: "short",
+      timeZone: "UTC",
+    }),
   },
   ru: {
     relative: new Intl.RelativeTimeFormat("ru", { numeric: "auto" }),
-    date: new Intl.DateTimeFormat("ru", { day: "numeric", month: "short", timeZone: "UTC" }),
+    date: new Intl.DateTimeFormat("ru", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    dateWithEra: new Intl.DateTimeFormat("ru", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      era: "short",
+      timeZone: "UTC",
+    }),
   },
-} satisfies Record<Lang, { relative: Intl.RelativeTimeFormat; date: Intl.DateTimeFormat }>
+} satisfies Record<
+  Lang,
+  {
+    relative: Intl.RelativeTimeFormat
+    date: Intl.DateTimeFormat
+    dateWithEra: Intl.DateTimeFormat
+  }
+>
 
 export function formatRelative(timestamp: number, lang: Lang): string {
   if (!timestamp) {
     return lang === "en" ? "no runs" : "нет запусков"
   }
-  const { relative: relativeTime, date: calendarDate } = relativeFormatters[lang]
+  const { relative: relativeTime, date, dateWithEra } = relativeFormatters[lang]
   const seconds = Math.round((timestamp - Date.now()) / 1000)
   const absolute = Math.abs(seconds)
   if (absolute < 60) return relativeTime.format(seconds, "second")
   if (absolute < 3_600) return relativeTime.format(Math.round(seconds / 60), "minute")
   if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour")
   if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day")
-  // EN/RU show only Gregorian month/day here. Project the live local fields into
-  // a neutral leap year so cached UTC formatters retain Feb 29, even after a
-  // system-zone change. Local fields also preserve historical sub-minute offsets.
+  // Keep the live local date without constructing formatters per row. A leap-year
+  // surrogate avoids both Date.UTC's 0–99 remapping and UTC projection overflow
+  // at the Date limits. Only replace the year part in these EN/RU Gregorian labels.
   const localDate = new Date(timestamp)
-  return calendarDate.format(Date.UTC(2000, localDate.getMonth(), localDate.getDate()))
+  const year = localDate.getFullYear()
+  const calendarDate = year > 0 ? date : dateWithEra
+  const surrogate = Date.UTC(year > 0 ? 2000 : -400, localDate.getMonth(), localDate.getDate())
+  return calendarDate
+    .formatToParts(surrogate)
+    .map((part) => (part.type === "year" ? String(year > 0 ? year : 1 - year) : part.value))
+    .join("")
 }
 
 export function normalizedPath(path: string, platform: string): string {

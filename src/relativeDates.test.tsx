@@ -94,6 +94,20 @@ const rowProps: Omit<ComponentProps<typeof SessionRow>, "lang" | "session"> = {
   onRenameChange: vi.fn(),
   onRenameKeyDown: vi.fn(),
 }
+// The live local formatter is an independent oracle. Rejoining parts preserves
+// Intl literals, including Russian narrow no-break spaces.
+function calendarLabel(timestamp: number, lang: "en" | "ru"): string {
+  return new Intl.DateTimeFormat(lang, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(new Date(timestamp).getFullYear() <= 0 ? { era: "short" as const } : {}),
+  })
+    .formatToParts(timestamp)
+    .map((part) => part.value)
+    .join("")
+}
+
 describe("relative date calendar presentation", () => {
   it("restores timezone after thrown work and repeated cleanup", () => {
     expect(() => {
@@ -117,8 +131,8 @@ describe("relative date calendar presentation", () => {
     expect(cleanup).toThrow("Synthetic unmount failure")
     restoreTimezone()
   })
-  it("keeps Home/import dates aligned with the sidebar after timezone and language changes", async () => {
-    expect(formatRelative(session.updatedAt, "en")).toBe("Oct 1")
+  it("keeps years aligned across mounted sidebar, Home and import after timezone/language changes", async () => {
+    expect(formatRelative(session.updatedAt, "en")).toBe("Oct 1, 2026")
     vi.stubEnv("TZ", "America/Los_Angeles")
     vi.stubGlobal(
       "ResizeObserver",
@@ -140,74 +154,87 @@ describe("relative date calendar presentation", () => {
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
-    for (const lang of ["en", "ru", "en"] as const) {
-      await act(async () =>
-        root!.render(
-          <>
-            <SessionRow {...rowProps} lang={lang} session={session} />
-            <WorkspaceHome
-              onError={vi.fn()}
-              primaryActionRef={{ current: null }}
-              workspace={{
-                key: "project",
-                path: session.cwd,
-                name: "Synthetic",
-                sessionCount: 1,
-                lastActive: session.updatedAt,
-                pinned: false,
-              }}
-              sessions={[session]}
-              selectedSession={session}
-              runtime={{
-                platform: "linux",
-                arch: "x64",
-                language: lang,
-                ompAvailable: false,
-                ompExecutable: "",
-                ompVersion: null,
-                sessionRoot: "/synthetic",
-              }}
-              launching={null}
-              lang={lang}
-              onLaunch={vi.fn()}
-              onReadTranscript={vi.fn()}
-              onReveal={vi.fn()}
-              onOpenFolder={vi.fn()}
-            />
-            <CodexImportModal
-              language={lang}
-              loading={false}
-              importing={false}
-              mode="skip"
-              sessions={[{ ...session, preview: "Synthetic" }]}
-              selected={{}}
-              onClose={vi.fn()}
-              onImport={vi.fn()}
-              onModeChange={vi.fn()}
-              onSelectedChange={vi.fn()}
-            />
-          </>,
-        ),
-      )
-      for (let turn = 0; frames.size && turn < 20; turn++) {
-        const batch = [...frames.values()]
-        frames.clear()
-        await act(async () => {
-          for (const callback of batch) callback(turn)
-        })
+    for (const timestamp of [
+      "2024-10-01T00:30:00Z",
+      "2025-10-01T00:30:00Z",
+      "2026-10-01T00:30:00Z",
+      "2027-10-01T00:30:00Z",
+      "2026-01-01T00:30:00Z",
+      "0000-02-29T12:00:00Z",
+    ].map(Date.parse)) {
+      const renderedSession = { ...session, updatedAt: timestamp }
+      for (const timezone of ["UTC", "America/Los_Angeles", "Pacific/Kiritimati"]) {
+        vi.stubEnv("TZ", timezone)
+        for (const lang of ["en", "ru", "en"] as const) {
+          await act(async () =>
+            root!.render(
+              <>
+                <SessionRow {...rowProps} lang={lang} session={renderedSession} />
+                <WorkspaceHome
+                  onError={vi.fn()}
+                  primaryActionRef={{ current: null }}
+                  workspace={{
+                    key: "project",
+                    path: renderedSession.cwd,
+                    name: "Synthetic",
+                    sessionCount: 1,
+                    lastActive: renderedSession.updatedAt,
+                    pinned: false,
+                  }}
+                  sessions={[renderedSession]}
+                  selectedSession={renderedSession}
+                  runtime={{
+                    platform: "linux",
+                    arch: "x64",
+                    language: lang,
+                    ompAvailable: false,
+                    ompExecutable: "",
+                    ompVersion: null,
+                    sessionRoot: "/synthetic",
+                  }}
+                  launching={null}
+                  lang={lang}
+                  onLaunch={vi.fn()}
+                  onReadTranscript={vi.fn()}
+                  onReveal={vi.fn()}
+                  onOpenFolder={vi.fn()}
+                />
+                <CodexImportModal
+                  language={lang}
+                  loading={false}
+                  importing={false}
+                  mode="skip"
+                  sessions={[{ ...renderedSession, preview: "Synthetic" }]}
+                  selected={{}}
+                  onClose={vi.fn()}
+                  onImport={vi.fn()}
+                  onModeChange={vi.fn()}
+                  onSelectedChange={vi.fn()}
+                />
+              </>,
+            ),
+          )
+          for (let turn = 0; frames.size && turn < 20; turn++) {
+            const batch = [...frames.values()]
+            frames.clear()
+            await act(async () => {
+              for (const callback of batch) callback(turn)
+            })
+          }
+          const expected = calendarLabel(timestamp, lang)
+          expect(container.querySelector(".session-select small")?.textContent).toContain(expected)
+          expect(container.querySelector(".recent-copy small")?.textContent).toContain(expected)
+          expect(container.querySelector(".stats-grid .stat-text")?.textContent).toBe(expected)
+          const importDate = [...container.querySelectorAll(".codex-import-panel small")].find(
+            (element) => element.textContent?.includes(renderedSession.cwd),
+          )
+          expect(importDate?.textContent).toContain(expected)
+        }
       }
-      const expected = lang === "en" ? "Sep 30" : "30 сент."
-      expect(container.querySelector(".session-select small")?.textContent).toContain(expected)
-      expect(container.querySelector(".recent-copy small")?.textContent).toContain(expected)
-      expect(container.querySelector(".stats-grid .stat-text")?.textContent).toBe(expected)
-      const importDate = [...container.querySelectorAll(".codex-import-panel small")].find(
-        (element) => element.textContent?.includes(session.cwd),
-      )
-      expect(importDate?.textContent).toContain(expected)
     }
   })
   it.each(["en", "ru"] as const)(
-    "matches live Gregorian month/day across zones and calendar boundaries (%s)",
+    "matches live Gregorian dates across zones, 0–99 years and Date limits (%s)",
     (lang) => {
       const timestamps = [
         "2026-10-01T00:30:00Z",
@@ -223,6 +250,13 @@ describe("relative date calendar presentation", () => {
       ]
         .map(Date.parse)
         .concat([-8640000000000000, 8640000000000000])
+        .concat(
+          Array.from({ length: 100 }, (_, year) => {
+            const date = new Date("2000-02-28T23:30:00Z")
+            date.setUTCFullYear(year)
+            return date.getTime()
+          }),
+        )
       for (const timezone of [
         "UTC",
         "Europe/Berlin",
@@ -235,10 +269,8 @@ describe("relative date calendar presentation", () => {
         "Pacific/Pago_Pago",
       ]) {
         vi.stubEnv("TZ", timezone)
-        const expected = new Intl.DateTimeFormat(lang, { day: "numeric", month: "short" })
-        expect(expected.resolvedOptions().calendar).toBe("gregory")
         for (const timestamp of timestamps)
-          expect(formatRelative(timestamp, lang)).toBe(expected.format(timestamp))
+          expect(formatRelative(timestamp, lang)).toBe(calendarLabel(timestamp, lang))
       }
     },
   )
@@ -246,14 +278,14 @@ describe("relative date calendar presentation", () => {
     const timestamp = Date.parse("2026-01-01T07:30:00Z")
     vi.stubEnv("TZ", "America/Phoenix")
     const phoenixOffset = new Date(now).getTimezoneOffset()
-    expect(formatRelative(timestamp, "en")).toBe("Jan 1")
+    expect(formatRelative(timestamp, "en")).toBe("Jan 1, 2026")
     vi.stubEnv("TZ", "America/Los_Angeles")
     expect(new Date(now).getTimezoneOffset()).toBe(phoenixOffset)
-    expect(formatRelative(timestamp, "en")).toBe("Dec 31")
+    expect(formatRelative(timestamp, "en")).toBe("Dec 31, 2025")
   })
   it("uses local calendar fields rather than rounded offset arithmetic", () => {
     vi.stubEnv("TZ", "Europe/Paris")
-    expect(formatRelative(Date.parse("1890-01-01T23:50:50Z"), "en")).toBe("Jan 2")
+    expect(formatRelative(Date.parse("1890-01-01T23:50:50Z"), "en")).toBe("Jan 2, 1890")
   })
   it("preserves zero, invalid, relative and future timestamp behavior", () => {
     expect(formatRelative(0, "en")).toBe("no runs")
@@ -265,6 +297,50 @@ describe("relative date calendar presentation", () => {
     expect(formatRelative(now - 25 * 3600000, "ru")).toBe("вчера")
     expect(formatRelative(now + 3600000, "en")).toBe("in 1 hour")
   })
+  it.each(["en", "ru"] as const)("distinguishes calendar years and eras (%s)", (lang) => {
+    const labels = [
+      "2024-10-01",
+      "2025-10-01",
+      "2026-10-01",
+      "2027-10-01",
+      "0000-10-01",
+      "0001-10-01",
+    ].map((day) => formatRelative(Date.parse(day + "T12:00:00Z"), lang))
+    expect(new Set(labels).size).toBe(labels.length)
+    for (let index = 0; index < 4; index++) expect(labels[index]).toContain(String(2024 + index))
+  })
+  it.each(["en", "ru"] as const)(
+    "preserves both signs and rounding at relative thresholds (%s)",
+    (lang) => {
+      const formatter = new Intl.RelativeTimeFormat(lang, { numeric: "auto" })
+      for (const [delta, value, unit] of [
+        [0, 0, "second"],
+        [59000, 59, "second"],
+        [59500, 1, "minute"],
+        [-59500, -59, "second"],
+        [60000, 1, "minute"],
+        [-60000, -1, "minute"],
+        [3599000, 60, "minute"],
+        [-3599000, -60, "minute"],
+        [3600000, 1, "hour"],
+        [-3600000, -1, "hour"],
+        [86399000, 24, "hour"],
+        [-86399000, -24, "hour"],
+        [86400000, 1, "day"],
+        [-86400000, -1, "day"],
+        [604799000, 7, "day"],
+        [-604799000, -7, "day"],
+      ] as const)
+        expect(formatRelative(now + delta, lang)).toBe(formatter.format(value, unit))
+      for (const delta of [-604800000, 604800000]) {
+        expect(formatRelative(now + delta, lang)).toBe(calendarLabel(now + delta, lang))
+      }
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2027-01-01T00:00:00Z"))
+      expect(formatRelative(Date.parse("2026-12-31T23:00:00Z"), lang)).toBe(
+        formatter.format(-1, "hour"),
+      )
+    },
+  )
   it("reuses cached Intl formatters for repeated calendar and relative labels", () => {
     const dateFormatter = vi.spyOn(Intl, "DateTimeFormat")
     const relativeFormatter = vi.spyOn(Intl, "RelativeTimeFormat")
