@@ -2549,6 +2549,31 @@ button:disabled {
   overflow: auto;
 }
 
+.model-picker-input-filter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--chrome-text-soft, #9daa9d);
+  font-size: 0.6875rem;
+}
+
+.model-picker-input-filter input {
+  flex: 0 0 auto;
+}
+
+.model-picker-input-filter span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.model-picker-filter-help {
+  margin: 0;
+  color: var(--chrome-text-soft, #9daa9d);
+  font-size: 0.625rem;
+  overflow-wrap: anywhere;
+}
+
 .model-picker-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -112,6 +112,7 @@ export function ModelPicker({
   selectorSuggestions,
 }: ModelPickerProps) {
   const [query, setQuery] = useState("")
+  const [imageInputOnly, setImageInputOnly] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -152,14 +153,17 @@ export function ModelPicker({
   )
   const filteredEntries = useMemo(() => {
     const normalized = query.trim().toLowerCase()
-    return normalized
-      ? sortedEntries.filter((entry) => entry.searchText.includes(normalized))
-      : sortedEntries
-  }, [sortedEntries, query])
+    return sortedEntries.filter(
+      (entry) =>
+        (!imageInputOnly || entry.model.input?.includes("image")) &&
+        (!normalized || entry.searchText.includes(normalized)),
+    )
+  }, [sortedEntries, query, imageInputOnly])
 
   const setOpen = (next: boolean) => {
     if (!next) {
       setQuery("")
+      setImageInputOnly(false)
       setActiveIndex(-1)
     }
     onOpenChange(next)
@@ -182,17 +186,23 @@ export function ModelPicker({
     entries: ModelEntry[]
     open: boolean
     query: string
+    imageInputOnly: boolean
     value: string
   } | null>(null)
 
   useEffect(() => {
     const previous = previousNavigation.current
-    previousNavigation.current = { entries: filteredEntries, open, query, value }
+    previousNavigation.current = { entries: filteredEntries, open, query, imageInputOnly, value }
     if (!open) return
     const selectedIndex = filteredEntries.findIndex((entry) => entry.model === selectedModel)
     const fallbackIndex = selectedIndex >= 0 ? selectedIndex : filteredEntries.length > 0 ? 0 : -1
     setActiveIndex((currentIndex) => {
-      if (previous?.open && previous.query === query && previous.value === value) {
+      if (
+        previous?.open &&
+        previous.query === query &&
+        previous.imageInputOnly === imageInputOnly &&
+        previous.value === value
+      ) {
         const activeSelector = previous.entries[currentIndex]?.model.selector
         const retainedIndex = filteredEntries.findIndex(
           (entry) => entry.model.selector === activeSelector,
@@ -201,7 +211,7 @@ export function ModelPicker({
       }
       return fallbackIndex
     })
-  }, [filteredEntries, open, query, selectedModel, value])
+  }, [filteredEntries, open, query, imageInputOnly, selectedModel, value])
 
   const chooseActiveModel = () => {
     const entry = filteredEntries[activeIndex]
@@ -343,6 +353,21 @@ export function ModelPicker({
               value={query}
             />
           </label>
+
+          <label className="model-picker-input-filter">
+            <input
+              aria-describedby={imageInputOnly ? `${panelId}-image-input-help` : undefined}
+              checked={imageInputOnly}
+              onChange={(event) => setImageInputOnly(event.target.checked)}
+              type="checkbox"
+            />
+            <span>{t(language, "modelImageInputFilter")}</span>
+          </label>
+          {imageInputOnly && (
+            <p className="model-picker-filter-help" id={`${panelId}-image-input-help`}>
+              {t(language, "modelImageInputFilterHelp")}
+            </p>
+          )}
 
           <div
             aria-activedescendant={
