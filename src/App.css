@@ -3771,7 +3771,7 @@ button:disabled {
   text-align: left;
 }
 
-.recent-resume:hover {
+.recent-resume:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--chrome-border, #364039);
   background: var(--chrome-hover-surface, #181d19);

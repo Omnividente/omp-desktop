@@ -168,7 +168,12 @@ export function WorkspaceHome({
           <div className="recent-list">
             {sessions.slice(0, 4).map((session) => (
               <div className="recent-session" key={session.id}>
-                <button className="recent-resume" onClick={() => onLaunch(session)} type="button">
+                <button
+                  className="recent-resume"
+                  disabled={launching !== null || !runtime.ompAvailable}
+                  onClick={() => onLaunch(session)}
+                  type="button"
+                >
                   <span className="recent-icon">
                     <Icon name="history" />
                   </span>
