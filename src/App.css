@@ -5468,6 +5468,7 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 
 .incident-filter {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 3px;
   padding: 3px;
   border: 1px solid var(--chrome-border, #2d342f);

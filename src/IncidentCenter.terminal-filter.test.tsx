@@ -3,6 +3,8 @@
 import { act, createRef } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { saveTerminalCapture } from "./api"
+import { t } from "./i18n"
 import { IncidentCenter } from "./IncidentCenter"
 import type { Lang } from "./i18n"
 import type { RuntimeIncident } from "./runtimeIncidents"
@@ -232,5 +234,142 @@ describe("Incident Center terminal filter", () => {
       ),
     )
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  function statusButton(status: "active" | "all" | "resolved", language: Lang = "en") {
+    const label = t(
+      language,
+      {
+        active: "incidentFilterActive",
+        all: "incidentFilterAll",
+        resolved: "incidentFilterResolved",
+      }[status] as "incidentFilterActive" | "incidentFilterAll" | "incidentFilterResolved",
+    )
+    const element = [
+      ...container.querySelectorAll<HTMLButtonElement>(".incident-filter button"),
+    ].find((button) => button.firstChild?.textContent === label)
+    expect(element).toBeDefined()
+    return element!
+  }
+
+  it("shows only resolved records in latest-first order without altering incidents or triggering actions", async () => {
+    const incidents = [
+      incident(1, "a", true),
+      incident(4, "b"),
+      incident(3, "b", true),
+      incident(2, "a"),
+    ]
+    const before = structuredClone(incidents)
+    Object.freeze(incidents)
+    await render(incidents)
+    expect(visibleReasons()).toEqual(["Synthetic reason 4", "Synthetic reason 2"])
+    const resolved = statusButton("resolved")
+    resolved.focus()
+    await act(() => resolved.click())
+    expect(visibleReasons()).toEqual(["Synthetic reason 3", "Synthetic reason 1"])
+    expect(resolved.getAttribute("aria-pressed")).toBe("true")
+    expect(document.activeElement).toBe(resolved)
+    expect(container.querySelectorAll('.incident-filter [aria-pressed="true"]')).toHaveLength(1)
+    await act(() => resolved.click())
+    expect(visibleReasons()).toEqual(["Synthetic reason 3", "Synthetic reason 1"])
+    await act(() => statusButton("all").click())
+    expect(visibleReasons()).toEqual([
+      "Synthetic reason 4",
+      "Synthetic reason 3",
+      "Synthetic reason 2",
+      "Synthetic reason 1",
+    ])
+    await act(() => statusButton("active").click())
+    expect(visibleReasons()).toEqual(["Synthetic reason 4", "Synthetic reason 2"])
+    expect(incidents).toEqual(before)
+    expect(onClearResolved).not.toHaveBeenCalled()
+    expect(onFocusTerminal).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(saveTerminalCapture).not.toHaveBeenCalled()
+  })
+
+  it.each(["en", "ru"] as const)(
+    "intersects resolved and terminal filters and explains empty results (%s)",
+    async (language) => {
+      const incidents = [incident(1, "a"), incident(2, "b", true), incident(3, "c", true)]
+      await render(incidents, [], language)
+      await act(() => statusButton("resolved", language).click())
+      await choose("b")
+      expect(visibleReasons()).toEqual(["Synthetic reason 2"])
+      expect(statusButton("resolved", language).querySelector("span")?.textContent).toBe("2")
+      await choose("a")
+      expect(visibleReasons()).toEqual([])
+      expect(container.querySelector(".incident-empty")?.textContent).toContain(
+        t(language, "incidentNoResolvedForTerminal"),
+      )
+      await choose("")
+      await render([incident(1, "a")], [], language)
+      expect(container.querySelector(".incident-empty")?.textContent).toContain(
+        t(language, "incidentNoResolvedIncidents"),
+      )
+      expect(statusButton("resolved", language).querySelector("span")?.textContent).toBe("0")
+      await render([], [], language)
+      expect(container.querySelector(".incident-empty")?.textContent).toContain(
+        t(language, "incidentNoIncidents"),
+      )
+    },
+  )
+
+  it("uses current resolved state after updates and does not revive a removed terminal filter", async () => {
+    await render([incident(1, "a"), incident(2, "b", true)])
+    await choose("a")
+    const resolved = statusButton("resolved")
+    resolved.focus()
+    await act(() => resolved.click())
+    expect(visibleReasons()).toEqual([])
+    await render([incident(1, "a", true), incident(2, "b", true), incident(3, "a")])
+    expect(visibleReasons()).toEqual(["Synthetic reason 1"])
+    expect(document.activeElement).toBe(resolved)
+    await render([incident(1, "a"), incident(2, "b", true)])
+    expect(visibleReasons()).toEqual([])
+    await render([incident(2, "b", true)])
+    expect(select().value).toBe("")
+    expect(visibleReasons()).toEqual(["Synthetic reason 2"])
+    await render([incident(2, "b", true), incident(4, "a", true)])
+    expect(select().value).toBe("")
+    expect(visibleReasons()).toEqual(["Synthetic reason 4", "Synthetic reason 2"])
+  })
+
+  it("keeps clear-all global while preserving the resolved view after parent removal", async () => {
+    await render([incident(1, "a", true), incident(2, "b", true), incident(3, "b")])
+    await choose("a")
+    await act(() => statusButton("resolved").click())
+    const clear = container.querySelector<HTMLButtonElement>(".incident-clear-button")!
+    expect(clear.textContent).toBe("Clear all resolved")
+    await act(() => clear.click())
+    expect(onClearResolved).toHaveBeenCalledOnce()
+    expect(onClearResolved).toHaveBeenCalledWith()
+    await render([incident(3, "b")])
+    expect(select().value).toBe("")
+    expect(statusButton("resolved").getAttribute("aria-pressed")).toBe("true")
+    expect(visibleReasons()).toEqual([])
+    expect(clear.disabled).toBe(true)
+    expect(container.querySelector(".incident-empty")?.textContent).toContain(
+      "No resolved runtime incidents",
+    )
+    expect(document.activeElement).toBe(statusButton("active"))
+  })
+
+  it("keeps Escape dismissal and returns to default Active on remount", async () => {
+    const incidents = [incident(1, "a"), incident(2, "b", true)]
+    await render(incidents)
+    const resolved = statusButton("resolved")
+    await act(() => resolved.click())
+    resolved.focus()
+    await act(() =>
+      resolved.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    )
+    expect(onClose).toHaveBeenCalledOnce()
+    await act(() => root.render(null))
+    await render(incidents)
+    expect(statusButton("active").getAttribute("aria-pressed")).toBe("true")
+    expect(visibleReasons()).toEqual(["Synthetic reason 1"])
   })
 })
