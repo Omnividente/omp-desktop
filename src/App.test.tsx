@@ -360,6 +360,47 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
 
+  it.each(["en", "ru"] as const)(
+    "names the selected Home resume target after choosing an older session (%s)",
+    async (language) => {
+      const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
+      const older = {
+        ...latest,
+        id: "session-older",
+        title: "Older synthetic session",
+        filePath: "C:/fixture/sessions/older.jsonl",
+        updatedAt: 1,
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        sessions: [latest, older],
+      })
+      await act(async () => root.render(<App />))
+      expect(element(".hero-actions .secondary").textContent).toBe(
+        language === "en" ? "Resume last" : "Продолжить последнюю",
+      )
+      const olderRow = [...container.querySelectorAll<HTMLElement>(".session-select")].find((row) =>
+        row.textContent?.includes(older.title),
+      )
+      expect(olderRow).toBeDefined()
+      await act(async () => olderRow!.click())
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      const resume = element(".hero-actions .secondary")
+      const label = resume.textContent
+      await act(async () => resume.click())
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        older.cwd,
+        older.filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+      expect(label).toBe(language === "en" ? "Resume selected" : "Продолжить выбранную")
+    },
+  )
+
   it("opens the selected project overview without closing its running terminal", async () => {
     await mountAndResume()
     const pane = element(".terminal-pane")
