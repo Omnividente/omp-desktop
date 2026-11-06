@@ -147,6 +147,16 @@ describe("open terminal tab search", () => {
     return event
   }
 
+  function filterProcessState(value: "all" | "running" | "exited") {
+    const select = container.querySelector<HTMLSelectElement>(".terminal-tab-picker-state select")
+    expect(select).not.toBeNull()
+    act(() => {
+      select!.value = value
+      select!.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    return select!
+  }
+
   beforeEach(() => {
     vi.clearAllMocks()
     container = document.createElement("div")
@@ -200,6 +210,123 @@ describe("open terminal tab search", () => {
     expect(results()[1].textContent).toContain("/synthetic/project-2")
     act(() => results()[1].click())
     expect(focus).toHaveBeenCalledExactlyOnceWith("terminal-2")
+    expect(effect).not.toHaveBeenCalled()
+  })
+
+  it.each(["en", "ru"] as const)(
+    "filters identical title/path tabs by observed process state in %s without changing terminals",
+    (language) => {
+      const tabs: TerminalTab[] = [
+        tab(1, "Same"),
+        { ...tab(2, "Same"), status: "exited", success: true },
+        { ...tab(3, "Same"), status: "exited", success: false },
+        { ...tab(4, "Same"), status: "exited", success: null },
+        { ...tab(5, "Same"), kind: "utility", activity: "thinking" },
+      ].map((entry) => ({ ...entry, cwd: "/synthetic/same project" })) as TerminalTab[]
+      act(() => root.render(<Harness tabs={tabs} language={language} />))
+      const before = JSON.stringify(tabs)
+      const mounts = mounted.mock.calls.length
+      const unmounts = unmounted.mock.calls.length
+      open()
+      expect(results()).toHaveLength(5)
+      const running = language === "ru" ? "Процесс запущен" : "Process running"
+      const exited = language === "ru" ? "Процесс завершён" : "Process exited"
+      expect(results()[0].textContent).toContain(running)
+      expect(results()[1].textContent).toContain(exited)
+      filterProcessState("running")
+      expect(results()).toHaveLength(2)
+      expect(results().every((result) => result.textContent?.includes(running))).toBe(true)
+      filterProcessState("exited")
+      expect(results()).toHaveLength(3)
+      expect(results().every((result) => result.textContent?.includes(exited))).toBe(true)
+      expect(dialog()?.textContent).toContain(
+        language === "ru" ? "Вкладки: 3 из 5" : "Tabs: 3 of 5",
+      )
+      expect(container.querySelectorAll(".terminal-pane")).toHaveLength(5)
+      expect(mounted).toHaveBeenCalledTimes(mounts)
+      expect(unmounted).toHaveBeenCalledTimes(unmounts)
+      expect(focus).not.toHaveBeenCalled()
+      expect(effect).not.toHaveBeenCalled()
+      expect(JSON.stringify(tabs)).toBe(before)
+      act(() => results()[2].click())
+      expect(focus).toHaveBeenCalledExactlyOnceWith("terminal-4")
+    },
+  )
+
+  it("intersects process state with canonical search and current props without auto-selecting", () => {
+    const tabs = [tab(1, "Café"), { ...tab(2, "Cafe\u0301"), status: "exited" as const }, tab(3)]
+    act(() => root.render(<Harness tabs={tabs} />))
+    open()
+    search(" CAFE\u0301 ")
+    filterProcessState("running")
+    expect(results()).toHaveLength(1)
+    expect(results()[0].textContent).toContain("/synthetic/project-1")
+    results()[0].focus()
+    const updated = [tabs[2], { ...tabs[0], status: "exited" as const }, tabs[1]]
+    act(() => root.render(<Harness tabs={updated} />))
+    expect(results()).toHaveLength(0)
+    expect(document.activeElement).toBe(dialog())
+    expect(input().value).toBe(" CAFE\u0301 ")
+    expect(
+      container.querySelector<HTMLSelectElement>(".terminal-tab-picker-state select")?.value,
+    ).toBe("running")
+    expect(dialog()?.textContent).toContain("Tabs: 0 of 3")
+    key(input(), "Enter")
+    expect(focus).not.toHaveBeenCalled()
+    filterProcessState("exited")
+    expect(results()).toHaveLength(2)
+    expect(results()[0].textContent).toContain("/synthetic/project-1")
+    filterProcessState("all")
+    search("project-3")
+    expect(results()).toHaveLength(1)
+    expect(results()[0].textContent).toContain("/synthetic/project-3")
+    expect(effect).not.toHaveBeenCalled()
+  })
+
+  it("keeps native-select Escape and Enter local and guards filtered single-result selection", () => {
+    const tabs = [tab(1), { ...tab(2), status: "exited" as const }]
+    act(() => root.render(<Harness tabs={tabs} />))
+    open()
+    const select = filterProcessState("exited")
+    select.focus()
+    key(select, "Enter")
+    expect(focus).not.toHaveBeenCalled()
+    expect(key(select, "Escape").defaultPrevented).toBe(false)
+    expect(dialog()).not.toBeNull()
+    input().focus()
+    for (const extra of [
+      { isComposing: true },
+      { keyCode: 229 },
+      { ctrlKey: true },
+      { shiftKey: true },
+    ]) {
+      key(input(), "Enter", extra)
+    }
+    expect(focus).not.toHaveBeenCalled()
+    key(input(), "Enter")
+    expect(focus).toHaveBeenCalledExactlyOnceWith("terminal-2")
+    expect(effect).not.toHaveBeenCalled()
+  })
+
+  it("traps focus after an empty filter and resets both controls only on reopening", () => {
+    open()
+    const select = filterProcessState("exited")
+    search("missing")
+    expect(results()).toHaveLength(0)
+    select.focus()
+    expect(key(select, "Tab").defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(dialog()?.querySelector("button"))
+    input().focus()
+    key(input(), "Escape")
+    expect(dialog()).toBeNull()
+    expect(document.activeElement).toBe(trigger())
+    open()
+    expect(input().value).toBe("")
+    expect(
+      container.querySelector<HTMLSelectElement>(".terminal-tab-picker-state select")?.value,
+    ).toBe("all")
+    expect(results()).toHaveLength(30)
+    expect(focus).not.toHaveBeenCalled()
     expect(effect).not.toHaveBeenCalled()
   })
 

@@ -24,14 +24,17 @@ export function TerminalTabPicker({
   const panelRef = useRef<HTMLElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState("")
+  const [processState, setProcessState] = useState<"all" | TerminalTab["status"]>("all")
   const onKeyDown = useModalFocus(panelRef, onClose)
   useLayoutEffect(() => inputRef.current?.focus({ preventScroll: true }), [])
 
   const normalizedQuery = query.trim().normalize("NFC").toLocaleLowerCase(language)
-  const results = tabs.filter((tab) =>
-    [tab.label, tab.cwd].some((value) =>
-      value.normalize("NFC").toLocaleLowerCase(language).includes(normalizedQuery),
-    ),
+  const results = tabs.filter(
+    (tab) =>
+      (processState === "all" || tab.status === processState) &&
+      [tab.label, tab.cwd].some((value) =>
+        value.normalize("NFC").toLocaleLowerCase(language).includes(normalizedQuery),
+      ),
   )
 
   return (
@@ -89,6 +92,19 @@ export function TerminalTabPicker({
           type="search"
           value={query}
         />
+        <label className="terminal-tab-picker-state">
+          <span>{t(language, "terminalTabPickerState")}</span>
+          <select
+            onChange={(event) =>
+              setProcessState(event.target.value as "all" | TerminalTab["status"])
+            }
+            value={processState}
+          >
+            <option value="all">{t(language, "terminalTabPickerStateAll")}</option>
+            <option value="running">{t(language, "terminalTabPickerStateRunning")}</option>
+            <option value="exited">{t(language, "terminalTabPickerStateExited")}</option>
+          </select>
+        </label>
         <p aria-live="polite" className="field-help">
           {t(language, "terminalTabPickerCount")
             .replace("{count}", String(results.length))
@@ -108,6 +124,14 @@ export function TerminalTabPicker({
               <span>
                 <strong>{tab.label}</strong>
                 <small>{tab.cwd}</small>
+                <small>
+                  {t(
+                    language,
+                    tab.status === "running"
+                      ? "terminalTabPickerStateRunning"
+                      : "terminalTabPickerStateExited",
+                  )}
+                </small>
               </span>
             </button>
           ))}
