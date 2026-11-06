@@ -106,6 +106,12 @@ export function CompletedAnswers({
       return next ? { ...current, selectedId: next.id, collapsed: false } : current
     })
   }
+  const selectLatest = () => {
+    setAnswers((current) => {
+      const latest = current?.transcript.entries.at(-1)
+      return current && latest ? { ...current, selectedId: latest.id, collapsed: false } : current
+    })
+  }
 
   if (busy || (!entry && !error)) return null
 
@@ -138,6 +144,11 @@ export function CompletedAnswers({
               >
                 <Icon name="chevron" size={14} />
               </button>
+              {entries.length > 1 && (
+                <button type="button" onClick={selectLatest}>
+                  {t(lang, "completedAnswerLatest")}
+                </button>
+              )}
             </nav>
             {!collapsed && (
               <>
