@@ -215,6 +215,35 @@ describe("SessionRow rename input", () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
+  it.each([
+    { key: "Enter", isComposing: true, keyCode: 13 },
+    { key: "Escape", isComposing: true, keyCode: 27 },
+    { key: "Enter", isComposing: false, keyCode: 229 },
+    { key: "Escape", isComposing: false, keyCode: 229 },
+  ])("keeps IME $key ($isComposing/$keyCode) in the editor and preserves blur save", (keys) => {
+    const onSave = vi.fn()
+    const onLaunch = vi.fn()
+    const onSelect = vi.fn()
+    act(() =>
+      root.render(<RenameFixture onSave={onSave} onLaunch={onLaunch} onSelect={onSelect} />),
+    )
+    const input = container.querySelector<HTMLInputElement>(".session-rename")!
+    const event = new KeyboardEvent("keydown", { ...keys, bubbles: true, cancelable: true })
+
+    act(() => input.dispatchEvent(event))
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(onSave).not.toHaveBeenCalled()
+    expect(container.querySelector(".session-rename")).toBe(input)
+    expect(document.activeElement).toBe(input)
+    const outside = container.querySelector<HTMLButtonElement>(".outside-list")!
+    act(() => outside.focus())
+    expect(onSave).toHaveBeenCalledExactlyOnceWith("Changed title")
+    expect(document.activeElement).toBe(outside)
+    expect(onLaunch).not.toHaveBeenCalled()
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
   it("saves on ordinary blur without taking focus from the chosen control", () => {
     const onSave = vi.fn()
     const onLaunch = vi.fn()

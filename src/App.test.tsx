@@ -360,6 +360,47 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
 
+  it.each(["en", "ru"] as const)(
+    "names the selected Home resume target after choosing an older session (%s)",
+    async (language) => {
+      const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
+      const older = {
+        ...latest,
+        id: "session-older",
+        title: "Older synthetic session",
+        filePath: "C:/fixture/sessions/older.jsonl",
+        updatedAt: 1,
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        sessions: [latest, older],
+      })
+      await act(async () => root.render(<App />))
+      expect(element(".hero-actions .secondary").textContent).toBe(
+        language === "en" ? "Resume last" : "Продолжить последнюю",
+      )
+      const olderRow = [...container.querySelectorAll<HTMLElement>(".session-select")].find((row) =>
+        row.textContent?.includes(older.title),
+      )
+      expect(olderRow).toBeDefined()
+      await act(async () => olderRow!.click())
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      const resume = element(".hero-actions .secondary")
+      const label = resume.textContent
+      await act(async () => resume.click())
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        older.cwd,
+        older.filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+      expect(label).toBe(language === "en" ? "Resume selected" : "Продолжить выбранную")
+    },
+  )
+
   it("opens the selected project overview without closing its running terminal", async () => {
     await mountAndResume()
     const pane = element(".terminal-pane")
@@ -402,6 +443,25 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelector(".workspace-home")).toBeNull()
     expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
+  it("blocks recent resumes during launch and restores them after a failed launch", async () => {
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => element(".recent-resume").click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    expect(element<HTMLButtonElement>(".recent-resume").disabled).toBe(true)
+    expect(element<HTMLButtonElement>(".recent-read").disabled).toBe(false)
+    await act(async () => element(".recent-resume").click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    await act(async () => pending.reject(new Error("Synthetic launch failure")))
+    expect(element<HTMLButtonElement>(".recent-resume").disabled).toBe(false)
+    expect(element<HTMLButtonElement>(".recent-read").disabled).toBe(false)
+    expect(container.querySelector(".terminal-tab")).toBeNull()
+    await act(async () => element(".recent-resume").click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+    expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
   })
 
   function requestWorkspace(name: string) {
@@ -453,6 +513,106 @@ describe("App lifecycle serialization", () => {
   function recoveryAction(action: string) {
     return element<HTMLButtonElement>(`[data-startup-action="${action}"]`)
   }
+
+  it.each(["ru", "en"] as const)(
+    "skips project navigation to the named workspace region in %s without acting on it",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+      })
+      await act(async () => root.render(<App />))
+      const skip = element<HTMLAnchorElement>(".workspace-skip-link")
+      const stage = element<HTMLElement>("#workspace-main")
+      expect(skip.textContent).toBe(
+        language === "ru" ? "Перейти к рабочей области" : "Skip to workspace",
+      )
+      expect(stage.getAttribute("aria-label")).toBe(
+        language === "ru" ? "Рабочая область" : "Workspace",
+      )
+      expect(skip.getAttribute("href")).toBe("#workspace-main")
+      expect(container.querySelector("a[href], button, input, select, textarea")).toBe(skip)
+      expect(stage.tabIndex).toBe(-1)
+      expect(container.querySelectorAll("#workspace-main")).toHaveLength(1)
+      const originalHash = window.location.hash
+      const project = element(".project-item.is-active")
+      const focus = vi.spyOn(stage, "focus")
+      vi.mocked(api.saveWorkspaceSelection).mockClear()
+      invokeMock.mockClear()
+      act(() => skip.focus())
+      const click = new MouseEvent("click", {
+        bubbles: true,
+        cancelable: true,
+      })
+      await act(async () => skip.dispatchEvent(click))
+      expect(click.defaultPrevented).toBe(true)
+      expect(document.activeElement).toBe(stage)
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true })
+      expect(window.location.hash).toBe(originalHash)
+      expect(element(".project-item.is-active")).toBe(project)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(api.saveWorkspaceSelection).not.toHaveBeenCalled()
+      expect(invokeMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["expanded", "collapsed", "autoHide"] as const)(
+    "skips to an empty workspace with a %s project rail",
+    async (railMode) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, railMode },
+        workspaces: [],
+        sessions: [],
+      })
+      await act(async () => root.render(<App />))
+      const skip = element<HTMLAnchorElement>(".workspace-skip-link")
+      await act(async () => skip.click())
+      expect(document.activeElement).toBe(element("#workspace-main"))
+      expect(container.querySelector(".empty-workspace")).not.toBeNull()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(open).not.toHaveBeenCalled()
+    },
+  )
+
+  it("skips to the live workspace without selecting, restarting, or closing a terminal", async () => {
+    await mountAndResume()
+    const activeTab = element(".terminal-tab.is-active")
+    vi.mocked(api.startTerminal).mockClear()
+    invokeMock.mockClear()
+    await act(async () => element<HTMLAnchorElement>(".workspace-skip-link").click())
+    expect(document.activeElement).toBe(element("#workspace-main"))
+    expect(container.querySelectorAll("#workspace-main")).toHaveLength(1)
+    expect(element(".terminal-tab.is-active")).toBe(activeTab)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    expect(api.switchTerminal).not.toHaveBeenCalled()
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+
+  it("does not let a background skip link move focus out of a modal", async () => {
+    await act(async () => root.render(<App />))
+    const skip = element<HTMLAnchorElement>(".workspace-skip-link")
+    await act(async () => element(".runtime-pill").click())
+    const dialog = element<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    const focused = document.activeElement
+    expect(dialog.contains(focused)).toBe(true)
+    await act(async () => skip.click())
+    expect(document.activeElement).toBe(focused)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it("does not let a background skip link bypass startup recovery", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    await act(async () => root.render(<App />))
+    const gate = element<HTMLElement>('[aria-labelledby="startup-workspace-title"]')
+    const focused = document.activeElement
+    expect(gate.contains(focused)).toBe(true)
+    await act(async () => element<HTMLAnchorElement>(".workspace-skip-link").click())
+    expect(document.activeElement).toBe(focused)
+    expect(element(".app-shell").hasAttribute("inert")).toBe(true)
+    expect(api.resolveStartupWorkspace).not.toHaveBeenCalled()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
 
   it("keeps an unavailable explicit launch gated without persisting the fallback", async () => {
     vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
@@ -1609,6 +1769,80 @@ describe("App lifecycle serialization", () => {
   }
 
   it.each([
+    ["Enter", { isComposing: true }],
+    ["Escape", { isComposing: true }],
+    ["Enter", { keyCode: 229 }],
+    ["Escape", { keyCode: 229 }],
+  ] as const)("keeps project IME %s %j inside the rename editor", async (key, composition) => {
+    await workspaceBackend(bootstrap)
+    await act(async () => root.render(<App />))
+    const input = await startProjectRename("Fixture", "にほん")
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...composition,
+    })
+    await act(async () => input.dispatchEvent(event))
+    expect(event.defaultPrevented).toBe(false)
+    expect(container.querySelector(".project-rename")).toBe(input)
+    expect(input.value).toBe("にほん")
+    expect(document.activeElement).toBe(input)
+    expect(invokeMock.mock.calls.filter(([command]) => command === "rename_workspace")).toEqual([])
+
+    act(() => {
+      input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "日本")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => pressRenameEnter(input))
+    expect(container.querySelector(".project-rename")).toBeNull()
+    expect(projectNames()).toEqual(["日本"])
+    expect(invokeMock.mock.calls.filter(([command]) => command === "rename_workspace")).toEqual([
+      ["rename_workspace", { path: bootstrap.workspaces[0].path, name: "日本" }, undefined],
+    ])
+    expect(document.activeElement).toBe(element(".project-actions button"))
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it.each(["Escape", "blur"] as const)(
+    "preserves ordinary project %s after repeated composition keys",
+    async (finish) => {
+      await workspaceBackend(bootstrap)
+      await act(async () => root.render(<App />))
+      const input = await startProjectRename("Fixture", "日本")
+      await act(async () => {
+        for (const key of ["Enter", "Escape", "Enter"]) {
+          input.dispatchEvent(
+            new KeyboardEvent("keydown", { key, bubbles: true, isComposing: true }),
+          )
+        }
+      })
+      expect(container.querySelector(".project-rename")).toBe(input)
+      expect(invokeMock.mock.calls.filter(([command]) => command === "rename_workspace")).toEqual(
+        [],
+      )
+      await act(async () => {
+        input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }))
+        if (finish === "Escape") {
+          input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+        } else {
+          element(".runtime-pill").focus()
+        }
+      })
+      expect(container.querySelector(".project-rename")).toBeNull()
+      expect(projectNames()).toEqual([finish === "Escape" ? "Fixture" : "日本"])
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "rename_workspace"),
+      ).toHaveLength(finish === "Escape" ? 0 : 1)
+      expect(document.activeElement).toBe(
+        element(finish === "Escape" ? ".project-actions button" : ".runtime-pill"),
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
     ["expanded", "Renamed"],
     ["expanded", "Fixture"],
     ["expanded", "   "],
@@ -1763,6 +1997,57 @@ describe("App lifecycle serialization", () => {
     expect(projectNames()).toEqual(["B", "C"])
     expect(element(".project-item.is-active").textContent).toContain("C")
     expect(container.textContent).toContain("C session")
+  })
+
+  it.each([
+    { key: "Enter", isComposing: true, keyCode: 13 },
+    { key: "Escape", isComposing: true, keyCode: 27 },
+    { key: "Enter", isComposing: false, keyCode: 229 },
+    { key: "Escape", isComposing: false, keyCode: 229 },
+  ])("does not finish session rename on IME $key ($isComposing/$keyCode)", async (keys) => {
+    invokeMock.mockResolvedValue({
+      ...bootstrap,
+      sessions: bootstrap.sessions.map((session) => ({
+        ...session,
+        title: "東京の計画",
+        pinnedTitle: "東京の計画",
+      })),
+    })
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      element(`[title="${t(bootstrap.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    const input = element<HTMLInputElement>(".session-rename")
+    const changeTitle = (value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    }
+    await act(async () => changeTitle("とうきょう"))
+    const composingKey = new KeyboardEvent("keydown", {
+      ...keys,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => input.dispatchEvent(composingKey))
+    expect(invokeMock).not.toHaveBeenCalled()
+    expect(composingKey.defaultPrevented).toBe(false)
+    expect(container.querySelector(".session-rename")).toBe(input)
+    expect(input.value).toBe("とうきょう")
+    expect(document.activeElement).toBe(input)
+
+    await act(async () => changeTitle("東京の計画"))
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith(
+      "set_session_title_pin",
+      { path: bootstrap.sessions[0].filePath, title: "東京の計画" },
+      undefined,
+    )
+    expect(container.querySelector(".session-rename")).toBeNull()
+    expect(container.querySelector(".session-select strong")?.textContent).toBe("東京の計画")
+    expect(document.activeElement).toBe(container.querySelector(".session-select"))
+    expect(api.startTerminal).not.toHaveBeenCalled()
   })
 
   it("retains a failed session rename for retry and submits an unchanged pending draft only once", async () => {
@@ -2384,6 +2669,58 @@ describe("App lifecycle serialization", () => {
     }
   }
 
+  it.each(["copied", "failed", "rejected"] as const)(
+    "locks individual Codex selections while the submitted batch is pending, then handles %s",
+    async (outcome) => {
+      const fixture = await openImportFeedbackFixture(2)
+      const inputs = () => [...container.querySelectorAll<HTMLInputElement>(".codex-item input")]
+      await act(async () => inputs()[1].click())
+      const pending = deferred<ImportBatchPayload>()
+      fixture.setOutcome(() => pending.promise)
+      try {
+        await act(async () => element(".codex-import-panel .primary").click())
+        expect(fixture.batches[0].map((request) => request.path)).toEqual([fixture.sources[0]])
+
+        await act(async () => {
+          inputs()[0].click()
+          inputs()[1].click()
+        })
+        expect(inputs().map((input) => input.checked)).toEqual([true, false])
+        expect(inputs().every((input) => input.disabled)).toBe(true)
+        expect(fixture.batches).toHaveLength(1)
+
+        await act(async () => {
+          if (outcome === "rejected") pending.reject(new Error("Synthetic bridge rejection"))
+          else
+            pending.resolve({
+              bootstrap,
+              items: [
+                {
+                  sourcePath: fixture.sources[0],
+                  destinationPath: outcome === "copied" ? "C:/fixture/imported.jsonl" : null,
+                  status: outcome,
+                  message: outcome === "failed" ? "Synthetic item failure" : null,
+                },
+              ],
+            })
+        })
+        expect(fixture.batches).toHaveLength(1)
+        if (outcome === "copied") {
+          expect(container.querySelector(".codex-import-panel")).toBeNull()
+        } else {
+          expect(inputs().map((input) => input.checked)).toEqual([true, false])
+          expect(inputs().every((input) => !input.disabled)).toBe(true)
+          await act(async () => inputs()[1].click())
+          expect(inputs().map((input) => input.checked)).toEqual([true, true])
+          expect(fixture.batches).toHaveLength(1)
+        }
+      } finally {
+        // Settle the synthetic request even if an assertion failed earlier.
+        await act(async () => pending.resolve({ bootstrap, items: [] }))
+      }
+    },
+  )
+
   it("keeps per-file Codex import failure feedback after toast expiry without replaying successes", async () => {
     const fixture = await openImportFeedbackFixture(5)
     vi.useFakeTimers()
@@ -2527,6 +2864,7 @@ describe("App lifecycle serialization", () => {
       })
       await act(async () => root.render(<App />))
       const read = element<HTMLButtonElement>(".recent-read")
+      expect(element<HTMLButtonElement>(".recent-resume").disabled).toBe(true)
       expect(read.textContent).toContain(t(language, "transcriptRead"))
       expect(read.getAttribute("aria-label")).toBe(
         `${t(language, "openTranscript")}: ${bootstrap.sessions[0].title}`,

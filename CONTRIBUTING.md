@@ -37,14 +37,25 @@ Before requesting review, run the checks relevant to your change. The pull-reque
 
 ```bash
 npm run typecheck
+npm run format:check
 npm run lint
 npm test
+npm run test:release-assets
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml --features updater-e2e
 ```
 
 Use `npm ci` rather than updating the lockfile unless dependency changes are part of the pull request.
+
+Dependabot keeps npm production and development minor/patch updates separate.
+When combining them, preserve unrelated locked versions and verify the resulting
+graph with `npm ci`; do not use `--force` or `--legacy-peer-deps`. ESLint major
+updates are temporarily ignored because `eslint-plugin-react@7.37.5` does not
+declare ESLint 10 compatibility (PR #190 failed installation on both CI systems).
+Reconsider the ignore rule only with a compatible React lint plugin, a reviewed
+configuration migration and passing locked installation and platform gates.
 
 For keyring concurrency regressions, use a controlled backend barrier to prove
 that newer saves finish while an old native mutation is still blocked, then
@@ -70,6 +81,12 @@ integration PR and `main` commit; a source PR closed as integrated is not reject
 and does not claim its original head was merged unchanged. Rejections distinguish
 the disproved claim or unsafe implementation from any valid finding and state the
 new evidence needed for reconsideration. Preserve proposal IDs and attribution.
+
+The [current proposal register](docs/PROPOSALS.md) is the concise index of the
+source tree and remaining research. Issue #177 retains owner decisions and
+exact delivery provenance; older proposal cards are dated evidence, not the
+current queue. Keep this index, the related README behavior and any supplied
+document export consistent when accepting or rejecting a proposal.
 
 Draft publication, owner acceptance, merge, packaging, release and installation
 are separate permissions. Do not self-approve, enable auto-merge or bypass

@@ -10,6 +10,7 @@ import type { SessionSummary } from "./types"
 import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
+import { formatRelative } from "./uiUtils"
 
 interface SessionRowProps {
   session: SessionSummary
@@ -179,6 +180,8 @@ export function SessionRow({
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   e.stopPropagation()
+                  // Enter/Escape can confirm or dismiss IME candidates, not the rename.
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return
                   if (e.key === "Enter" || e.key === "Escape") {
                     renameFinishedByKeyboardRef.current = true
                   }
@@ -215,7 +218,7 @@ export function SessionRow({
                   <i>·</i>
                 </>
               )}
-              {formatRelativeLocal(session.updatedAt, lang)}
+              {formatRelative(session.updatedAt, lang)}
               <i>·</i>
               {session.model?.split("/").at(-1) ?? t(lang, "noModel")}
               {session.source !== "omp" ? <i>· {session.source}</i> : null}
@@ -310,23 +313,4 @@ export function SessionRow({
         )}
     </>
   )
-}
-
-// Local small relative formatter to avoid cross import cycles; mirrors App's for display only.
-function formatRelativeLocal(timestamp: number, lang: Lang): string {
-  if (!timestamp) {
-    return lang === "en" ? "no runs" : "нет запусков"
-  }
-  const relativeTime = new Intl.RelativeTimeFormat(lang === "en" ? "en" : "ru", { numeric: "auto" })
-  const calendarDate = new Intl.DateTimeFormat(lang === "en" ? "en" : "ru", {
-    day: "numeric",
-    month: "short",
-  })
-  const seconds = Math.round((timestamp - Date.now()) / 1000)
-  const absolute = Math.abs(seconds)
-  if (absolute < 60) return relativeTime.format(seconds, "second")
-  if (absolute < 3_600) return relativeTime.format(Math.round(seconds / 60), "minute")
-  if (absolute < 86_400) return relativeTime.format(Math.round(seconds / 3_600), "hour")
-  if (absolute < 604_800) return relativeTime.format(Math.round(seconds / 86_400), "day")
-  return calendarDate.format(timestamp)
 }
