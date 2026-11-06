@@ -333,6 +333,8 @@ export function ProjectRail({
                         onWorkspaceNameChange(event.target.value)
                       }}
                       onKeyDown={(event) => {
+                        // IME candidate keys do not finish the project rename.
+                        if (event.nativeEvent.isComposing || event.keyCode === 229) return
                         if (
                           (event.key === "Escape" || event.key === "Enter") &&
                           document.activeElement === event.currentTarget

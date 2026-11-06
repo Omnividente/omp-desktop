@@ -1750,6 +1750,80 @@ describe("App lifecycle serialization", () => {
   }
 
   it.each([
+    ["Enter", { isComposing: true }],
+    ["Escape", { isComposing: true }],
+    ["Enter", { keyCode: 229 }],
+    ["Escape", { keyCode: 229 }],
+  ] as const)("keeps project IME %s %j inside the rename editor", async (key, composition) => {
+    await workspaceBackend(bootstrap)
+    await act(async () => root.render(<App />))
+    const input = await startProjectRename("Fixture", "にほん")
+    const event = new KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      cancelable: true,
+      ...composition,
+    })
+    await act(async () => input.dispatchEvent(event))
+    expect(event.defaultPrevented).toBe(false)
+    expect(container.querySelector(".project-rename")).toBe(input)
+    expect(input.value).toBe("にほん")
+    expect(document.activeElement).toBe(input)
+    expect(invokeMock.mock.calls.filter(([command]) => command === "rename_workspace")).toEqual([])
+
+    act(() => {
+      input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }))
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "日本")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => pressRenameEnter(input))
+    expect(container.querySelector(".project-rename")).toBeNull()
+    expect(projectNames()).toEqual(["日本"])
+    expect(invokeMock.mock.calls.filter(([command]) => command === "rename_workspace")).toEqual([
+      ["rename_workspace", { path: bootstrap.workspaces[0].path, name: "日本" }, undefined],
+    ])
+    expect(document.activeElement).toBe(element(".project-actions button"))
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it.each(["Escape", "blur"] as const)(
+    "preserves ordinary project %s after repeated composition keys",
+    async (finish) => {
+      await workspaceBackend(bootstrap)
+      await act(async () => root.render(<App />))
+      const input = await startProjectRename("Fixture", "日本")
+      await act(async () => {
+        for (const key of ["Enter", "Escape", "Enter"]) {
+          input.dispatchEvent(
+            new KeyboardEvent("keydown", { key, bubbles: true, isComposing: true }),
+          )
+        }
+      })
+      expect(container.querySelector(".project-rename")).toBe(input)
+      expect(invokeMock.mock.calls.filter(([command]) => command === "rename_workspace")).toEqual(
+        [],
+      )
+      await act(async () => {
+        input.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }))
+        if (finish === "Escape") {
+          input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+        } else {
+          element(".runtime-pill").focus()
+        }
+      })
+      expect(container.querySelector(".project-rename")).toBeNull()
+      expect(projectNames()).toEqual([finish === "Escape" ? "Fixture" : "日本"])
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "rename_workspace"),
+      ).toHaveLength(finish === "Escape" ? 0 : 1)
+      expect(document.activeElement).toBe(
+        element(finish === "Escape" ? ".project-actions button" : ".runtime-pill"),
+      )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
     ["expanded", "Renamed"],
     ["expanded", "Fixture"],
     ["expanded", "   "],
