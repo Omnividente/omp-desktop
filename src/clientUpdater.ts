@@ -8,6 +8,7 @@ export interface ClientUpdateInfo {
 }
 
 let pendingUpdate: Update | null = null
+let installedUpdate: ClientUpdateInfo | null = null
 let checking: Promise<ClientUpdateInfo | null> | null = null
 let installing: Promise<void> | null = null
 
@@ -18,6 +19,7 @@ function updateInfo(update: Update | null): ClientUpdateInfo | null {
 }
 
 export async function checkClientUpdate(): Promise<ClientUpdateInfo | null> {
+  if (installedUpdate) return installedUpdate
   if (installing) return updateInfo(pendingUpdate)
   if (checking) return checking
   checking = (async () => {
@@ -44,19 +46,23 @@ export async function installClientUpdate(): Promise<void> {
   if (installing) return installing
   installing = (async () => {
     if (checking) await checking
-    const update = pendingUpdate
-    if (!update) {
-      throw new Error("Обновление Desktop больше недоступно. Проверьте его повторно.")
-    }
-    await update.downloadAndInstall()
-    // Retain the candidate on a failed install, so the normal retry remains usable.
-    pendingUpdate = null
-    try {
-      await update.close()
-    } catch {
-      // Some platforms consume the resource during installation.
+    if (!installedUpdate) {
+      const update = pendingUpdate
+      if (!update) {
+        throw new Error("Обновление Desktop больше недоступно. Проверьте его повторно.")
+      }
+      await update.downloadAndInstall()
+      // A failed relaunch must not repeat an already completed installation.
+      installedUpdate = updateInfo(update)
+      pendingUpdate = null
+      try {
+        await update.close()
+      } catch {
+        // Some platforms consume the resource during installation.
+      }
     }
     await relaunch()
+    installedUpdate = null
   })()
   try {
     await installing
