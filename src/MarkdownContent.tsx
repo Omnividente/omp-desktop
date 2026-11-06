@@ -81,10 +81,10 @@ function codeBody(token: Tokens.Code): string {
   const opening = /^( {0,3})(`{3,}|~{3,})[^\n]*\n/.exec(token.raw)
   if (!opening) return token.text
   const body = token.raw.slice(opening[0].length)
-  const closing = new RegExp(
-    `^ {0,3}${opening[2][0]}{${opening[2].length},}[ \\t]*(?:\\n|$)`,
-    "m",
-  ).exec(body)
+  // Match the lexer's space-only closing suffix; a tab keeps the fence in the body.
+  const closing = new RegExp(`^ {0,3}${opening[2][0]}{${opening[2].length},} *(?:\\n|$)`, "m").exec(
+    body,
+  )
   const literal = closing ? body.slice(0, closing.index) : body
   const indent = opening[1].length
   // Match CommonMark's removal of the opening fence's indentation only.
