@@ -52,7 +52,9 @@ import { IncidentCenter } from "./IncidentCenter"
 import { SessionCopyModal } from "./SessionCopyModal"
 import { ImportSessionModal } from "./ImportSessionModal"
 import { Icon } from "./Icon"
-import { matchesSelector, splitSelector, thinkingOptionsForModel } from "./ModelPicker"
+import { thinkingOptionsForModel } from "./ModelPicker"
+import { catalogModelForSelector } from "./modelPassportMetadata"
+import { sessionModelSelection } from "./sessionModelSelection"
 import { t, type Lang, type UiKey } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import {
@@ -1590,9 +1592,9 @@ function App() {
         const runtimeSession = session ?? discoveredSession
         const defaultSelector =
           ompConfig?.roles.find((role) => role.role === "default")?.selector ?? ""
-        const initialSelector = splitSelector(runtimeSession?.model ?? defaultSelector)
-        const initialModel = ompConfig?.models.find((model) =>
-          matchesSelector(model, initialSelector.base),
+        const initialSelector = sessionModelSelection(
+          ompConfig?.models.filter((model) => (model.kind ?? "chat") === "chat") ?? [],
+          runtimeSession?.model ?? defaultSelector,
         )
         const initialConfiguredThinking =
           initialSelector.thinking ??
@@ -1617,9 +1619,7 @@ function App() {
           kind: "agent",
           switching: false,
           switchRecovery: null,
-          currentModel: initialModel
-            ? splitSelector(initialModel.selector).base
-            : initialSelector.base || undefined,
+          currentModel: initialSelector.base || undefined,
           currentModelRole: null,
           currentThinking: initialThinking,
           currentThinkingConfigured: initialConfiguredThinking,
@@ -1885,7 +1885,11 @@ function App() {
       ) {
         return
       }
-      const targetModel = ompConfig?.models.find((candidate) => matchesSelector(candidate, model))
+      const targetModel = catalogModelForSelector(
+        ompConfig?.models.filter((candidate) => (candidate.kind ?? "chat") === "chat") ?? [],
+        model,
+        model,
+      )
 
       setTabs((current) =>
         current.map((candidate) =>
