@@ -404,6 +404,25 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
   })
 
+  it("blocks recent resumes during launch and restores them after a failed launch", async () => {
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => element(".recent-resume").click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    expect(element<HTMLButtonElement>(".recent-resume").disabled).toBe(true)
+    expect(element<HTMLButtonElement>(".recent-read").disabled).toBe(false)
+    await act(async () => element(".recent-resume").click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    await act(async () => pending.reject(new Error("Synthetic launch failure")))
+    expect(element<HTMLButtonElement>(".recent-resume").disabled).toBe(false)
+    expect(element<HTMLButtonElement>(".recent-read").disabled).toBe(false)
+    expect(container.querySelector(".terminal-tab")).toBeNull()
+    await act(async () => element(".recent-resume").click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+    expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+  })
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
@@ -2527,6 +2546,7 @@ describe("App lifecycle serialization", () => {
       })
       await act(async () => root.render(<App />))
       const read = element<HTMLButtonElement>(".recent-read")
+      expect(element<HTMLButtonElement>(".recent-resume").disabled).toBe(true)
       expect(read.textContent).toContain(t(language, "transcriptRead"))
       expect(read.getAttribute("aria-label")).toBe(
         `${t(language, "openTranscript")}: ${bootstrap.sessions[0].title}`,

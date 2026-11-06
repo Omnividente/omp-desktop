@@ -87,3 +87,84 @@ it("keeps each recent read target separate from resume and limits both to four c
     container.remove()
   }
 })
+
+it.each(["en", "ru"] as const)(
+  "blocks recent resumes during unavailable launches without blocking history (%s)",
+  (lang) => {
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    const sessions = ["one", "two"].map(session)
+    const launch = vi.fn()
+    const read = vi.fn()
+    const props = {
+      primaryActionRef: { current: null },
+      workspace: {
+        key: "/synthetic",
+        path: "/synthetic",
+        name: "Synthetic",
+        sessionCount: 2,
+        lastActive: 1,
+        pinned: false,
+      },
+      sessions,
+      selectedSession: null,
+      runtime: {
+        platform: "linux",
+        arch: "x64",
+        language: lang,
+        ompAvailable: true,
+        ompExecutable: "omp",
+        ompVersion: null,
+        sessionRoot: "/synthetic",
+      },
+      launching: null,
+      lang,
+      onLaunch: launch,
+      onError: vi.fn(),
+      onReadTranscript: read,
+      onReveal: vi.fn(),
+      onOpenFolder: vi.fn(),
+    }
+    try {
+      for (const [launching, ompAvailable] of [
+        ["one", true],
+        ["new", true],
+        [null, false],
+        ["one", false],
+      ] as const) {
+        act(() =>
+          root.render(
+            <WorkspaceHome
+              {...props}
+              launching={launching}
+              runtime={{ ...props.runtime, ompAvailable }}
+            />,
+          ),
+        )
+        const resumes = container.querySelectorAll<HTMLButtonElement>(".recent-resume")
+        const reads = container.querySelectorAll<HTMLButtonElement>(".recent-read")
+        expect(resumes).toHaveLength(2)
+        resumes.forEach((button) => {
+          expect(button.disabled).toBe(true)
+          act(() => button.click())
+        })
+        expect(launch).not.toHaveBeenCalled()
+        reads.forEach((button, index) => {
+          expect(button.disabled).toBe(false)
+          act(() => button.click())
+          expect(read).toHaveBeenLastCalledWith(sessions[index].filePath)
+        })
+      }
+      act(() => root.render(<WorkspaceHome {...props} />))
+      const resumed = container.querySelectorAll<HTMLButtonElement>(".recent-resume")[1]
+      expect(resumed.disabled).toBe(false)
+      act(() => resumed.click())
+      expect(launch).toHaveBeenCalledExactlyOnceWith(sessions[1])
+      expect(read).toHaveBeenCalledTimes(8)
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
+  },
+)
