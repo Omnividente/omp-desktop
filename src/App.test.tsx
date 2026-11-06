@@ -2384,6 +2384,58 @@ describe("App lifecycle serialization", () => {
     }
   }
 
+  it.each(["copied", "failed", "rejected"] as const)(
+    "locks individual Codex selections while the submitted batch is pending, then handles %s",
+    async (outcome) => {
+      const fixture = await openImportFeedbackFixture(2)
+      const inputs = () => [...container.querySelectorAll<HTMLInputElement>(".codex-item input")]
+      await act(async () => inputs()[1].click())
+      const pending = deferred<ImportBatchPayload>()
+      fixture.setOutcome(() => pending.promise)
+      try {
+        await act(async () => element(".codex-import-panel .primary").click())
+        expect(fixture.batches[0].map((request) => request.path)).toEqual([fixture.sources[0]])
+
+        await act(async () => {
+          inputs()[0].click()
+          inputs()[1].click()
+        })
+        expect(inputs().map((input) => input.checked)).toEqual([true, false])
+        expect(inputs().every((input) => input.disabled)).toBe(true)
+        expect(fixture.batches).toHaveLength(1)
+
+        await act(async () => {
+          if (outcome === "rejected") pending.reject(new Error("Synthetic bridge rejection"))
+          else
+            pending.resolve({
+              bootstrap,
+              items: [
+                {
+                  sourcePath: fixture.sources[0],
+                  destinationPath: outcome === "copied" ? "C:/fixture/imported.jsonl" : null,
+                  status: outcome,
+                  message: outcome === "failed" ? "Synthetic item failure" : null,
+                },
+              ],
+            })
+        })
+        expect(fixture.batches).toHaveLength(1)
+        if (outcome === "copied") {
+          expect(container.querySelector(".codex-import-panel")).toBeNull()
+        } else {
+          expect(inputs().map((input) => input.checked)).toEqual([true, false])
+          expect(inputs().every((input) => !input.disabled)).toBe(true)
+          await act(async () => inputs()[1].click())
+          expect(inputs().map((input) => input.checked)).toEqual([true, true])
+          expect(fixture.batches).toHaveLength(1)
+        }
+      } finally {
+        // Settle the synthetic request even if an assertion failed earlier.
+        await act(async () => pending.resolve({ bootstrap, items: [] }))
+      }
+    },
+  )
+
   it("keeps per-file Codex import failure feedback after toast expiry without replaying successes", async () => {
     const fixture = await openImportFeedbackFixture(5)
     vi.useFakeTimers()
