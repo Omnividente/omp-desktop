@@ -150,7 +150,7 @@ export function CompletedAnswers({
     })
   }
 
-  if (busy || (!entry && !error)) return null
+  if (!active) return null
 
   return (
     <section

@@ -182,7 +182,8 @@ it("ignores a pending read when work resumes and after switching sessions", asyn
   await render()
   await render({ ...tab, activity: "thinking" })
   await act(async () => resolveOld(transcript(tab.sessionPath!, "# Stale answer")))
-  expect(container.querySelector(".completed-answers")).toBeNull()
+  expect(container.querySelector(".completed-answers")).not.toBeNull()
+  expect(container.querySelector("h1")).toBeNull()
 
   let resolveInactive!: (value: SessionTranscript) => void
   vi.mocked(readSessionAnswers).mockReturnValueOnce(
@@ -345,4 +346,25 @@ it("collapses an expanded answer on Escape and returns focus to the terminal", a
     false,
   )
   expect(document.activeElement).toBe(terminalInput)
+})
+
+it("keeps the collapsed panel visible before the first answer loads", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!))
+  await render()
+  const section = container.querySelector<HTMLElement>(".completed-answers")
+  expect(section).not.toBeNull()
+  expect(section?.classList.contains("is-expanded")).toBe(false)
+  expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+  expect(container.querySelector("h1")).toBeNull()
+})
+
+it("shows the last completed answer collapsed while OMP is running", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# First answer"))
+  await render()
+  await render({ ...tab, activity: "thinking" })
+  const section = container.querySelector<HTMLElement>(".completed-answers")
+  expect(section).not.toBeNull()
+  expect(section?.classList.contains("is-expanded")).toBe(false)
+  expect(container.querySelector("h1")?.textContent).toBe("First answer")
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
 })
