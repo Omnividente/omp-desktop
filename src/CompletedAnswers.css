@@ -9,6 +9,20 @@
   background: var(--panel);
 }
 
+.completed-answers.is-expanded {
+  flex: 1 1 auto;
+  max-height: none;
+}
+
+.completed-answers.is-expanded .completed-answer-body {
+  flex: 1 1 auto;
+}
+
+/* display:none keeps the terminal at its current grid instead of refitting it to zero height. */
+.completed-answers.is-expanded + .terminal-pane-console {
+  display: none;
+}
+
 .completed-answers-toolbar {
   display: flex;
   flex: none;

@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useId, useMemo, useState, type MouseEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+} from "react"
 import { errorMessage, openContentLink, readSessionAnswers } from "./api"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { CopyButton } from "./CopyButton"
@@ -58,7 +67,7 @@ export function CompletedAnswers({
               !newAnswer && transcript.entries.some((entry) => entry.id === current?.selectedId)
                 ? current?.selectedId
                 : latestId,
-            collapsed: newAnswer ? false : (current?.collapsed ?? false),
+            collapsed: newAnswer ? true : (current?.collapsed ?? true),
           }
         })
       },
@@ -76,9 +85,37 @@ export function CompletedAnswers({
   const entry = entries[index]
   const source = entry?.dialogueText ?? entry?.text ?? ""
   const content = useMemo(() => markdownContent(source), [source])
-  const collapsed = answers?.collapsed ?? false
+  const collapsed = answers?.collapsed ?? true
+  const sectionRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const manageFocusRef = useRef(false)
 
   useEffect(() => setMenu(null), [active, busy, entry?.id, collapsed])
+
+  useEffect(() => {
+    if (!manageFocusRef.current) return
+    manageFocusRef.current = false
+    if (collapsed) {
+      if (sectionRef.current?.contains(document.activeElement)) {
+        document
+          .querySelector<HTMLTextAreaElement>(".terminal-pane.is-active .xterm-helper-textarea")
+          ?.focus()
+      }
+    } else {
+      bodyRef.current?.focus()
+    }
+  }, [collapsed])
+
+  const toggle = () => {
+    manageFocusRef.current = true
+    setAnswers((current) => current && { ...current, collapsed: !current.collapsed })
+  }
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Escape" || collapsed) return
+    event.preventDefault()
+    manageFocusRef.current = true
+    setAnswers((current) => current && { ...current, collapsed: true })
+  }
 
   const openLink = useCallback(
     (uri: string, action: "open" | "reveal" = "open") => {
@@ -116,7 +153,12 @@ export function CompletedAnswers({
   if (busy || (!entry && !error)) return null
 
   return (
-    <section className="completed-answers" aria-label={t(lang, "completedAnswer")}>
+    <section
+      className={`completed-answers${collapsed ? "" : " is-expanded"}`}
+      aria-label={t(lang, "completedAnswer")}
+      onKeyDown={handleKeyDown}
+      ref={sectionRef}
+    >
       <header className="completed-answers-toolbar">
         <strong>{t(lang, "completedAnswer")}</strong>
         {entry && (
@@ -171,9 +213,7 @@ export function CompletedAnswers({
               type="button"
               aria-expanded={!collapsed}
               aria-controls={bodyId}
-              onClick={() =>
-                setAnswers((current) => current && { ...current, collapsed: !current.collapsed })
-              }
+              onClick={toggle}
             >
               {t(lang, collapsed ? "completedAnswerShow" : "completedAnswerHide")}
             </button>
@@ -193,6 +233,7 @@ export function CompletedAnswers({
         id={bodyId}
         hidden={collapsed}
         key={entry?.id}
+        ref={bodyRef}
         tabIndex={0}
       >
         {answers?.transcript.truncated && (

@@ -121,12 +121,13 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  document.querySelectorAll(".terminal-pane").forEach((node) => node.remove())
 })
 
-it("opens a new answer after batched thinking/idle without reopening the old one or stealing focus", async () => {
+it("keeps a new answer collapsed after batched thinking/idle without stealing focus", async () => {
   vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# First answer"))
   await render()
-  await act(async () => button("Collapse answer").click())
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
   await render(tab, false)
   await render()
   expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
@@ -140,7 +141,7 @@ it("opens a new answer after batched thinking/idle without reopening the old one
   const completed = [event("thinking"), event("idle")].reduce(applyRuntimeEventToTab, tab)
   await render(completed)
   expect(container.querySelector("h2")?.textContent).toBe("Second answer")
-  expect(button("Collapse answer").getAttribute("aria-expanded")).toBe("true")
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
   expect(document.activeElement).toBe(input)
   expect(input.value).toBe("Unsent draft")
   await act(async () => button("Previous answer").click())
@@ -233,8 +234,10 @@ it.each([false, true])(
       transcript(tab.sessionPath!, "# First", "# Last"),
     )
     await render()
-    if (older) await act(async () => button("Previous answer").click())
-    await act(async () => button("Collapse answer").click())
+    if (older) {
+      await act(async () => button("Previous answer").click())
+      await act(async () => button("Collapse answer").click())
+    }
     expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
     await act(async () => button("Latest loaded answer").click())
     expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(false)
@@ -293,4 +296,53 @@ it("uses retained loaded answers after a failed refresh without hiding the warni
   expect(container.querySelector("h1")?.textContent).toBe("Last")
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Synthetic read failed")
   expect(readSessionAnswers).toHaveBeenCalledTimes(2)
+})
+
+it("fills the pane while expanded and restores terminal focus when collapsed", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render()
+  const section = () => container.querySelector<HTMLElement>(".completed-answers")
+  expect(section()?.classList.contains("is-expanded")).toBe(false)
+
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  expect(section()?.classList.contains("is-expanded")).toBe(true)
+  expect(document.activeElement).toBe(container.querySelector(".completed-answer-body"))
+
+  const hide = button("Collapse answer")
+  hide.focus()
+  await act(async () => hide.click())
+  expect(section()?.classList.contains("is-expanded")).toBe(false)
+  expect(document.activeElement).toBe(terminalInput)
+})
+
+it("collapses an expanded answer on Escape and returns focus to the terminal", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render()
+  await act(async () => button("Show answer").click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+
+  await act(async () => {
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  })
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
+  expect(document.activeElement).toBe(terminalInput)
 })
