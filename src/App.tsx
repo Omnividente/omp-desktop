@@ -4,6 +4,7 @@ import type { StartupWorkspaceWarning } from "./types"
 import type { KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useDesktopTheme } from "./useDesktopTheme"
+import { useProjectFolderDrop } from "./useProjectFolderDrop"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
@@ -1503,6 +1504,39 @@ function App() {
     }
   }, [acceptStartupWorkspaceWarning, applyPayload, lang, showError])
 
+  const addDroppedProjects = useCallback(
+    async (paths: string[]) => {
+      const unique = [...new Set(paths.map((path) => path.trim()).filter(Boolean))]
+      if (unique.length === 0) return
+      const selectionRequest = ++workspaceSelectionRequestRef.current
+      let applied: BootstrapPayload | null = null
+      let appliedPath: string | null = null
+      let failure: unknown = null
+      for (const path of unique) {
+        try {
+          applied = await addWorkspace(path)
+          appliedPath = path
+        } catch (error) {
+          // A mixed selection may contain a file; keep adding the remaining folders.
+          failure = failure ?? error
+        }
+      }
+      if (applied) {
+        const selectApplied = selectionRequest === workspaceSelectionRequestRef.current
+        acceptStartupWorkspaceWarning(null)
+        applyPayload(applied, selectApplied ? (appliedPath ?? undefined) : undefined)
+        if (selectApplied) {
+          setSelectedSessionId(null)
+          setSearch("")
+        }
+      }
+      if (failure) showError(errorMessage(failure, langRef.current))
+    },
+    [acceptStartupWorkspaceWarning, applyPayload, showError],
+  )
+
+  const projectDropActive = useProjectFolderDrop(addDroppedProjects)
+
   const resolveStartup = useCallback(
     async (action: "retry" | "continue") => {
       const warning = startupWorkspaceWarningRef.current
@@ -2632,6 +2666,7 @@ function App() {
             transcriptSession !== null
           }
           autoOpen={railAutoOpen}
+          dropActive={projectDropActive}
           mode={railMode}
           modeSaving={railModeSaving}
           onAutoOpenChange={setRailAutoOpen}

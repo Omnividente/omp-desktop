@@ -16,6 +16,7 @@ import { formatShortcut, localeTag } from "./uiUtils"
 interface ProjectRailProps {
   autoHidePaused: boolean
   autoOpen: boolean
+  dropActive: boolean
   mode: RailMode
   modeSaving: boolean
   workspaces: WorkspaceSummary[]
@@ -51,6 +52,7 @@ const MODE_OPTIONS: Array<{
 export function ProjectRail({
   autoHidePaused,
   autoOpen,
+  dropActive,
   mode,
   modeSaving,
   workspaces,
@@ -229,7 +231,8 @@ export function ProjectRail({
 
   return (
     <aside
-      className={`project-rail is-${mode === "autoHide" ? "auto-hide" : mode}${revealed ? " is-revealed" : ""}${compact ? " is-compact" : ""}`}
+      className={`project-rail is-${mode === "autoHide" ? "auto-hide" : mode}${revealed ? " is-revealed" : ""}${compact ? " is-compact" : ""}${dropActive ? " is-drop-target" : ""}`}
+      data-project-drop-target=""
       onBlur={handleBlur}
       onFocusCapture={() => {
         cancelAutoClose()
@@ -243,6 +246,11 @@ export function ProjectRail({
       onMouseLeave={scheduleAutoClose}
       ref={railRef}
     >
+      {dropActive && (
+        <div className="project-drop-hint" role="status">
+          {t(lang, "dropProjectHint")}
+        </div>
+      )}
       <div className="rail-toolbar">
         <span className="rail-heading">{t(lang, "projects")}</span>
         <div className="rail-mode-controls" role="group" aria-label={shortcutHint}>
