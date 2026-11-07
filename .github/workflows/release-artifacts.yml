@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Require a verified signed release tag
         env:
@@ -58,11 +58,16 @@ jobs:
           fi
 
       - name: Require tagged commit on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          comparison="$RUNNER_TEMP/release-main-ancestry.json"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" > "$comparison"
+          if ! jq -e --arg sha "$GITHUB_SHA" \
+            '(.status == "ahead" or .status == "identical") and .merge_base_commit.sha == $sha' \
+            "$comparison" >/dev/null; then
             echo "Release tag must point to a commit reachable from main." >&2
             exit 1
           fi
