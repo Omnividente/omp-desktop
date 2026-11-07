@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       target_sha:
-        description: Exact 40-hex production v0.9.11 commit (dispatch this workflow at the same commit)
+        description: Exact immutable production v0.9.11 source commit (independent of harness_sha)
         required: true
         type: string
       target_release_id:
@@ -13,6 +13,10 @@ on:
         type: string
       target_run_id:
         description: Successful production release-artifacts.yml push run ID for that commit
+        required: true
+        type: string
+      harness_sha:
+        description: Exact signed acceptance harness commit (dispatch at that same ref)
         required: true
         type: string
 
@@ -33,30 +37,37 @@ jobs:
       matrix:
         scenario: [clean, upgrade]
     env:
+      PRODUCTION_HARNESS_SHA: ${{ inputs.harness_sha }}
       PRODUCTION_TARGET_SHA: ${{ inputs.target_sha }}
       PRODUCTION_TARGET_RELEASE_ID: ${{ inputs.target_release_id }}
       PRODUCTION_TARGET_RUN_ID: ${{ inputs.target_run_id }}
     steps:
-      - name: Require exact dispatch and workflow source identity
+      - name: Require exact independent harness and production identities
         shell: pwsh
         env:
           WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
           WORKFLOW_SOURCE_REF: ${{ github.workflow_ref }}
           SCENARIO: ${{ matrix.scenario }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = 'Stop'
           if ($env:GITHUB_REPOSITORY -cne 'Omnividente/omp-desktop' -or
               $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
               $env:PRODUCTION_TARGET_SHA -cnotmatch '^[0-9a-f]{40}$' -or
+              $env:PRODUCTION_HARNESS_SHA -cnotmatch '^[0-9a-f]{40}$' -or
               $env:PRODUCTION_TARGET_RELEASE_ID -cnotmatch '^[1-9][0-9]*$' -or
               $env:PRODUCTION_TARGET_RUN_ID -cnotmatch '^[1-9][0-9]*$' -or
-              $env:GITHUB_SHA -cne $env:PRODUCTION_TARGET_SHA -or
-              $env:WORKFLOW_SOURCE_SHA -cne $env:PRODUCTION_TARGET_SHA -or
+              $env:GITHUB_SHA -cne $env:PRODUCTION_HARNESS_SHA -or
+              $env:WORKFLOW_SOURCE_SHA -cne $env:PRODUCTION_HARNESS_SHA -or
               -not $env:WORKFLOW_SOURCE_REF.StartsWith('Omnividente/omp-desktop/.github/workflows/production-install-smoke.yml@')) {
-            throw 'Dispatch ref, workflow source and target_sha must identify the same production commit.'
+            throw 'Dispatch/workflow source must match harness_sha; production target is independently pinned.'
           }
           if ($env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows') {
             throw 'Production installers require a fresh GitHub-hosted Windows VM.'
+          }
+          $signature = gh api "repos/$env:GITHUB_REPOSITORY/commits/$env:PRODUCTION_HARNESS_SHA" --jq '.commit.verification | {verified, reason}' | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $signature.verified -ne $true -or $signature.reason -cne 'valid') {
+            throw 'Acceptance harness source must have a verified signature.'
           }
           $root = Join-Path $env:RUNNER_TEMP "production-install-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:SCENARIO"
           "PRODUCTION_WORK_DIR=$root/downloads" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -68,6 +79,15 @@ jobs:
           ref: ${{ inputs.target_sha }}
           fetch-depth: 1
           persist-credentials: false
+          path: production-target
+
+      - name: Check out exact signed acceptance harness source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.harness_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: acceptance-harness
 
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -76,10 +96,11 @@ jobs:
 
       - name: Download and verify every immutable production asset
         id: acquire
-        # Read-only API token exists only in this acquisition step, never in installers.
+        # Read-only API token is limited to identity/acquisition steps, never installers.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node .github/scripts/prepare-production-assets.mjs
+        working-directory: production-target
 
       - name: Record public workflow and source labels
         shell: pwsh
@@ -92,6 +113,8 @@ jobs:
           @{
             repository = $env:GITHUB_REPOSITORY
             checkoutSha = $env:PRODUCTION_TARGET_SHA
+            harnessCheckoutSha = $env:PRODUCTION_HARNESS_SHA
+            harnessScriptSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'acceptance-harness/.github/scripts/run-production-windows-smoke.mjs')).Hash.ToLowerInvariant()
             dispatchSha = $env:GITHUB_SHA
             workflowSha = $env:WORKFLOW_SOURCE_SHA
             workflowRef = $env:WORKFLOW_SOURCE_REF
@@ -111,12 +134,14 @@ jobs:
           PRODUCTION_SMOKE_WORK_DIR: ${{ runner.temp }}/production-install-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.scenario }}/scenario
         # The Windows helper also allowlists each native child environment. No signing,
         # provider, environment, Git checkout or GH_TOKEN credentials are supplied here.
-        run: node .github/scripts/run-production-windows-smoke.mjs
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/run-production-windows-smoke.mjs
 
       - name: Recheck immutable metadata and every asset before final acceptance
         if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
         # Public metadata only; deliberately no GH_TOKEN in this post-install step.
         run: node .github/scripts/prepare-production-assets.mjs --recheck
+        working-directory: production-target
 
       - name: Upload small production installer evidence only
         if: always()
