@@ -2,7 +2,8 @@
 // Run only on a disposable GitHub-hosted Windows runner. No product overrides.
 // Inputs: PRODUCTION_RECEIPT, PRODUCTION_SCENARIO=clean|upgrade,
 // PRODUCTION_SMOKE_WORK_DIR (new RUNNER_TEMP child), PRODUCTION_EVIDENCE_DIR,
-// PRODUCTION_TARGET_SHA, PRODUCTION_TARGET_RELEASE_ID, PRODUCTION_TARGET_RUN_ID.
+// PRODUCTION_TARGET_SHA, PRODUCTION_TARGET_RELEASE_ID, PRODUCTION_TARGET_RUN_ID,
+// PRODUCTION_HARNESS_SHA (the independently pinned signed workflow/helper source).
 // Evidence only is uploaded; never upload the working directory or native profile.
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
@@ -228,7 +229,13 @@ async function install(release, installDir, label) {
     rows.length === 1 && rows[0].name === "OMP Desktop" && rows[0].version === release.version,
     "Installed uninstall identity/version mismatch",
   )
-  requireThat(samePath(rows[0].location, installDir), "Uninstall install location mismatch")
+  // NSIS stores InstallLocation as a quoted directory, not a bare filesystem path.
+  const registeredLocation = rows[0].location
+  requireThat(
+    typeof registeredLocation === "string" &&
+      samePath(registeredLocation.replace(/^"([^"]+)"$/, "$1"), installDir),
+    "Uninstall install location mismatch",
+  )
   requireThat(
     typeof rows[0].uninstall === "string" &&
       rows[0].uninstall.toLowerCase().includes(installDir.toLowerCase()),
@@ -844,6 +851,12 @@ async function main() {
     Number(process.versions.node.split(".")[0]) >= 22 && typeof WebSocket === "function",
     "Node 22+ native WebSocket required",
   )
+  const harnessSha = envRequired("PRODUCTION_HARNESS_SHA")
+  requireThat(
+    SHA1.test(harnessSha) && process.env.GITHUB_SHA === harnessSha,
+    "Acceptance harness identity not pinned to workflow source",
+  )
+  result.harnessIdentity = { commit: harnessSha }
   const scenario = envRequired("PRODUCTION_SCENARIO")
   requireThat(["clean", "upgrade"].includes(scenario), "Expected clean or upgrade scenario")
   result.gate = `production-normal-nsis-${scenario === "clean" ? "clean-startup" : "upgrade-state"}`
