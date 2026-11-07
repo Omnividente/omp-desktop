@@ -12,7 +12,8 @@ import { classifyReleaseAsset, verifyReleaseAssets } from "./verify-release-asse
 const execFileAsync = promisify(execFile)
 const repository = "Omnividente/omp-desktop"
 const apiRoot = `https://api.github.com/repos/${repository}`
-const sourceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
+const harnessRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
+const targetRoot = resolve(process.cwd())
 const baseIdentity = {
   tag: "v0.9.10",
   version: "0.9.10",
@@ -82,11 +83,11 @@ const gitEnv = Object.fromEntries(
   ),
 )
 
-async function git(...args) {
+async function git(cwd, ...args) {
   try {
     return (
       await execFileAsync("git", ["--no-optional-locks", ...args], {
-        cwd: sourceRoot,
+        cwd,
         env: gitEnv,
         encoding: "utf8",
         maxBuffer: 4 * 1024 * 1024,
@@ -344,40 +345,62 @@ async function snapshot(target) {
 
 async function checkCheckout(targetSha) {
   requireCondition(
-    (await git("rev-parse", "HEAD")).trim() === targetSha,
-    "Checkout HEAD is not PRODUCTION_TARGET_SHA",
+    (await git(targetRoot, "rev-parse", "HEAD")).trim() === targetSha,
+    "Production checkout HEAD is not PRODUCTION_TARGET_SHA",
   )
-  // HEAD alone does not bind modified/untracked helper/config bytes to that SHA.
-  for (const path of [
-    ".github/scripts/prepare-production-assets.mjs",
-    ".github/scripts/verify-release-assets.mjs",
-    ".github/scripts/run-production-windows-smoke.mjs",
-    ".github/workflows/production-install-smoke.yml",
-    "package.json",
-    "src-tauri/tauri.conf.json",
-    "src-tauri/Cargo.toml",
-  ]) {
-    const checkedOut = (await readFile(join(sourceRoot, path), "utf8")).replaceAll("\r\n", "\n")
-    const committed = (await git("show", `HEAD:${path}`)).replaceAll("\r\n", "\n")
-    requireCondition(checkedOut === committed, `Checkout file differs from target commit: ${path}`)
-  }
+  const harnessSha = (await git(harnessRoot, "rev-parse", "HEAD")).trim()
   if (process.env.GITHUB_ACTIONS === "true") {
     requireCondition(
       process.env.GITHUB_REPOSITORY === repository &&
-        process.env.GITHUB_SHA === targetSha &&
-        process.env.GITHUB_WORKFLOW_SHA === targetSha &&
+        /^[0-9a-f]{40}$/.test(process.env.PRODUCTION_HARNESS_SHA ?? "") &&
+        process.env.PRODUCTION_HARNESS_SHA === harnessSha &&
+        process.env.GITHUB_SHA === harnessSha &&
+        process.env.GITHUB_WORKFLOW_SHA === harnessSha &&
         process.env.GITHUB_WORKFLOW_REF?.startsWith(
           `${repository}/.github/workflows/production-install-smoke.yml@`,
         ),
-      "Dispatch/workflow source SHA does not match target checkout",
+      "Dispatch/workflow source SHA does not match signed acceptance harness",
     )
   }
+  // Bind both the production inputs and every executed helper/config byte.
+  for (const [root, sha] of [
+    [targetRoot, targetSha],
+    [harnessRoot, harnessSha],
+  ]) {
+    for (const path of [
+      ".github/scripts/prepare-production-assets.mjs",
+      ".github/scripts/verify-release-assets.mjs",
+      ".github/scripts/run-production-windows-smoke.mjs",
+      ".github/workflows/production-install-smoke.yml",
+      "package.json",
+      "src-tauri/tauri.conf.json",
+      "src-tauri/Cargo.toml",
+    ]) {
+      const checkedOut = (await readFile(join(root, path), "utf8")).replaceAll("\r\n", "\n")
+      const committed = (await git(root, "show", `${sha}:${path}`)).replaceAll("\r\n", "\n")
+      requireCondition(
+        checkedOut === committed,
+        `Checkout file differs from pinned commit: ${path}`,
+      )
+    }
+  }
+  const verifier = ".github/scripts/verify-release-assets.mjs"
+  const verifierSha256 = await hashFile(join(targetRoot, verifier))
+  requireCondition(
+    verifierSha256 === (await hashFile(join(harnessRoot, verifier))),
+    "Cryptographic verifier bytes differ from immutable production source",
+  )
+  await jsonEvidence(`acquisition-source-${mode}.json`, {
+    production: { commit: targetSha, root: targetRoot },
+    harness: { commit: harnessSha, root: harnessRoot },
+    verifierSha256,
+  })
 }
 
 async function productionKey() {
-  const config = JSON.parse(await readFile(join(sourceRoot, "src-tauri/tauri.conf.json"), "utf8"))
-  const packageManifest = JSON.parse(await readFile(join(sourceRoot, "package.json"), "utf8"))
-  const cargo = await readFile(join(sourceRoot, "src-tauri/Cargo.toml"), "utf8")
+  const config = JSON.parse(await readFile(join(targetRoot, "src-tauri/tauri.conf.json"), "utf8"))
+  const packageManifest = JSON.parse(await readFile(join(targetRoot, "package.json"), "utf8"))
+  const cargo = await readFile(join(targetRoot, "src-tauri/Cargo.toml"), "utf8")
   requireCondition(
     config.version === "0.9.11" &&
       packageManifest.version === "0.9.11" &&
@@ -580,10 +603,14 @@ async function main() {
   const workDir = resolve(workInput)
   const requestedEvidence = resolve(evidenceInput)
   requireCondition(
-    !inside(workDir, sourceRoot) &&
-      !inside(sourceRoot, workDir) &&
-      !inside(requestedEvidence, sourceRoot) &&
-      !inside(sourceRoot, requestedEvidence) &&
+    !inside(workDir, harnessRoot) &&
+      !inside(harnessRoot, workDir) &&
+      !inside(requestedEvidence, harnessRoot) &&
+      !inside(harnessRoot, requestedEvidence) &&
+      !inside(workDir, targetRoot) &&
+      !inside(targetRoot, workDir) &&
+      !inside(requestedEvidence, targetRoot) &&
+      !inside(targetRoot, requestedEvidence) &&
       !inside(requestedEvidence, workDir) &&
       !inside(workDir, requestedEvidence),
     "Work/evidence/source directories must be separate and non-overlapping",

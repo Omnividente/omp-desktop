@@ -99,7 +99,7 @@ jobs:
         # Read-only API token is limited to identity/acquisition steps, never installers.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node .github/scripts/prepare-production-assets.mjs
+        run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs
         working-directory: production-target
 
       - name: Record public workflow and source labels
@@ -140,7 +140,7 @@ jobs:
       - name: Recheck immutable metadata and every asset before final acceptance
         if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
         # Public metadata only; deliberately no GH_TOKEN in this post-install step.
-        run: node .github/scripts/prepare-production-assets.mjs --recheck
+        run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs --recheck
         working-directory: production-target
 
       - name: Upload small production installer evidence only
