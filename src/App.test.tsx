@@ -3259,6 +3259,145 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
   })
 
+  it.each([
+    ["default", "qualified"],
+    ["resume", "qualified"],
+    ["default", "literal"],
+    ["resume", "literal"],
+    ["default", "ambiguous"],
+    ["resume", "ambiguous"],
+  ] as const)(
+    "preserves %s %s catalog identity during launch initialization",
+    async (source, kind) => {
+      const initial = config("Initial")
+      const target = {
+        ...initial.models[0],
+        provider: "beta",
+        id: kind === "literal" ? "shared:high" : "shared",
+        selector: kind === "literal" ? "beta/shared:high" : "beta/shared",
+        name: "Intended model",
+        thinking: ["high"],
+      }
+      const collision = {
+        ...initial.models[0],
+        provider: "alpha",
+        id: kind === "ambiguous" ? "shared" : target.selector,
+        selector: kind === "ambiguous" ? "alpha/shared" : `alpha/${target.selector}`,
+        name: "Other declaration",
+        thinking: ["low"],
+      }
+      const selector = kind === "ambiguous" ? "shared" : target.selector
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        defaultThinkingLevel: "off",
+        models: [collision, target],
+        roles: initial.roles.map((role) => ({
+          ...role,
+          selector: source === "default" ? selector : role.selector,
+        })),
+      })
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        sessions: bootstrap.sessions.map((session) => ({
+          ...session,
+          model: source === "resume" ? selector : null,
+          configuredThinkingLevel: "off",
+        })),
+      })
+      await mountAndResume()
+      expect(element<HTMLSelectElement>(".session-model-select").value).toBe(selector)
+      const thinking = element<HTMLSelectElement>(".session-thinking-select")
+      expect(thinking.disabled).toBe(kind === "ambiguous")
+      if (kind !== "ambiguous") {
+        expect(thinking.value).toBe("off")
+        expect([...thinking.options].map((option) => option.value)).toEqual(["off", "auto", "high"])
+      }
+      expect(api.switchTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["default", "resume"] as const)(
+    "retains ambiguous literal selectors through %s initialization without resolving a different stripped ID",
+    async (source) => {
+      const initial = config("Initial")
+      const make = (provider: string, id: string) => ({
+        ...initial.models[0],
+        provider,
+        id,
+        selector: `${provider}/${id}`,
+        name: `${provider} ${id}`,
+      })
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [
+          make("alpha", "shared:high"),
+          make("beta", "shared:high"),
+          make("gamma", "shared"),
+        ],
+        roles: initial.roles.map((role) => ({
+          ...role,
+          selector: source === "default" ? "shared:high" : role.selector,
+        })),
+      })
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        sessions: bootstrap.sessions.map((session) => ({
+          ...session,
+          model: source === "resume" ? "shared:high" : null,
+        })),
+      })
+      await mountAndResume()
+      expect(element<HTMLSelectElement>(".session-model-select").value).toBe("shared:high")
+      expect(element<HTMLSelectElement>(".session-thinking-select").disabled).toBe(true)
+      expect(api.switchTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([false, true])(
+    "passes exact selected catalog identity and thinking metadata to the switch boundary (%s)",
+    async (literal) => {
+      const initial = config("Initial")
+      const target = {
+        ...initial.models[0],
+        provider: "beta",
+        id: literal ? "shared:high" : "shared",
+        selector: literal ? "beta/shared:high" : "beta/shared",
+        name: "Intended model",
+        thinking: ["high"],
+      }
+      const collision = {
+        ...initial.models[0],
+        provider: "alpha",
+        id: target.selector,
+        selector: `alpha/${target.selector}`,
+        name: "Raw ID collision",
+        thinking: ["low"],
+      }
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, collision, target],
+      })
+      const pending = deferred<Awaited<ReturnType<typeof api.switchTerminal>>>()
+      vi.mocked(api.switchTerminal).mockReturnValue(pending.promise)
+      await mountAndResume()
+      await act(async () => {
+        const select = element<HTMLSelectElement>(".session-model-select")
+        select.value = target.selector
+        select.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      expect(api.switchTerminal).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(api.switchTerminal).mock.calls[0].slice(0, 4)).toEqual([
+        started.terminalId,
+        target.selector,
+        "high",
+        ["off", "auto", "high"],
+      ])
+      expect(element<HTMLSelectElement>(".session-model-select").disabled).toBe(true)
+      await act(async () => pending.reject(new Error("Synthetic switch failure")))
+      expect(element<HTMLSelectElement>(".session-model-select").disabled).toBe(false)
+    },
+  )
+
   it.each(["send", "discard"] as const)(
     "retains open tab search while pending %s recovery requests terminal focus",
     async (action) => {

@@ -1,0 +1,133 @@
+name: Verify Production Installer State
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact 40-hex production v0.9.11 commit (dispatch this workflow at the same commit)
+        required: true
+        type: string
+      target_release_id:
+        description: Exact published immutable v0.9.11 prerelease ID
+        required: true
+        type: string
+      target_run_id:
+        description: Successful production release-artifacts.yml push run ID for that commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-install-${{ inputs.target_sha }}
+  cancel-in-progress: false
+
+jobs:
+  windows-production-install:
+    name: Production normal NSIS ${{ matrix.scenario }} startup/state (Windows Server 2022)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [clean, upgrade]
+    env:
+      PRODUCTION_TARGET_SHA: ${{ inputs.target_sha }}
+      PRODUCTION_TARGET_RELEASE_ID: ${{ inputs.target_release_id }}
+      PRODUCTION_TARGET_RUN_ID: ${{ inputs.target_run_id }}
+    steps:
+      - name: Require exact dispatch and workflow source identity
+        shell: pwsh
+        env:
+          WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_SOURCE_REF: ${{ github.workflow_ref }}
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REPOSITORY -cne 'Omnividente/omp-desktop' -or
+              $env:GITHUB_EVENT_NAME -cne 'workflow_dispatch' -or
+              $env:PRODUCTION_TARGET_SHA -cnotmatch '^[0-9a-f]{40}$' -or
+              $env:PRODUCTION_TARGET_RELEASE_ID -cnotmatch '^[1-9][0-9]*$' -or
+              $env:PRODUCTION_TARGET_RUN_ID -cnotmatch '^[1-9][0-9]*$' -or
+              $env:GITHUB_SHA -cne $env:PRODUCTION_TARGET_SHA -or
+              $env:WORKFLOW_SOURCE_SHA -cne $env:PRODUCTION_TARGET_SHA -or
+              -not $env:WORKFLOW_SOURCE_REF.StartsWith('Omnividente/omp-desktop/.github/workflows/production-install-smoke.yml@')) {
+            throw 'Dispatch ref, workflow source and target_sha must identify the same production commit.'
+          }
+          if ($env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or $env:RUNNER_OS -cne 'Windows') {
+            throw 'Production installers require a fresh GitHub-hosted Windows VM.'
+          }
+          $root = Join-Path $env:RUNNER_TEMP "production-install-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:SCENARIO"
+          "PRODUCTION_WORK_DIR=$root/downloads" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PRODUCTION_EVIDENCE_DIR=$root/evidence" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Check out exact production target source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Download and verify every immutable production asset
+        id: acquire
+        # Read-only API token exists only in this acquisition step, never in installers.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node .github/scripts/prepare-production-assets.mjs
+
+      - name: Record public workflow and source labels
+        shell: pwsh
+        env:
+          WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_SOURCE_REF: ${{ github.workflow_ref }}
+          SCENARIO: ${{ matrix.scenario }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          @{
+            repository = $env:GITHUB_REPOSITORY
+            checkoutSha = $env:PRODUCTION_TARGET_SHA
+            dispatchSha = $env:GITHUB_SHA
+            workflowSha = $env:WORKFLOW_SOURCE_SHA
+            workflowRef = $env:WORKFLOW_SOURCE_REF
+            runId = $env:GITHUB_RUN_ID
+            runAttempt = $env:GITHUB_RUN_ATTEMPT
+            runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            scenario = $env:SCENARIO
+            runner = 'windows-2022 (Windows Server, not consumer Windows 11 coverage)'
+            resultKind = $(if ($env:SCENARIO -ceq 'clean') { 'production-normal-nsis-clean-startup' } else { 'production-normal-nsis-upgrade-state' })
+            builtInUpdater = 'NOT TESTED: v0.9.10 latest-only updater cannot discover non-latest prerelease'
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$env:PRODUCTION_EVIDENCE_DIR/workflow-source.json" -Encoding utf8NoBOM
+
+      - name: Exercise real production normal NSIS startup and persistence
+        env:
+          PRODUCTION_RECEIPT: ${{ runner.temp }}/production-install-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.scenario }}/evidence/verified-production-assets.json
+          PRODUCTION_SCENARIO: ${{ matrix.scenario }}
+          PRODUCTION_SMOKE_WORK_DIR: ${{ runner.temp }}/production-install-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.scenario }}/scenario
+        # The Windows helper also allowlists each native child environment. No signing,
+        # provider, environment, Git checkout or GH_TOKEN credentials are supplied here.
+        run: node .github/scripts/run-production-windows-smoke.mjs
+
+      - name: Recheck immutable metadata and every asset before final acceptance
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
+        # Public metadata only; deliberately no GH_TOKEN in this post-install step.
+        run: node .github/scripts/prepare-production-assets.mjs --recheck
+
+      - name: Upload small production installer evidence only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: production-normal-nsis-${{ matrix.scenario }}-proofs
+          path: |
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/**/*.json
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/**/*.png
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/**/*.log
+          if-no-files-found: warn
+          retention-days: 3
+          # Downloads, installed binaries, synthetic profiles/session roots and full
+          # DOM/user logs are outside this directory and must never be uploaded.

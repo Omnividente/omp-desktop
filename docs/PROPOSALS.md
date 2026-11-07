@@ -1,12 +1,12 @@
 # Текущий реестр предложений OMP Desktop
 
-Срез исходников: 6 ноября 2026 года. Это индекс **этой ревизии кода**, а не перечень возможностей установленного выпуска. Факт доставки в `main`, exact checked head и решение владельца сохраняются в [#177](https://github.com/Omnividente/omp-desktop/issues/177). Отдельная публикация Draft, успешный CI, merge, выпуск и установка не равнозначны.
+Срез исходников: 7 ноября 2026 года, candidate 0.9.11 (`main` после #230 + #229). Это индекс **этой ревизии кода**, а не перечень возможностей установленного выпуска. Факт доставки в `main`, exact checked head и решение владельца сохраняются в [#177](https://github.com/Omnividente/omp-desktop/issues/177); включение #229 в candidate-дерево само по себе не утверждает его доставку в `main`. Отдельная публикация Draft, успешный CI, merge, выпуск и установка не равнозначны.
 
 Вместо повторения старых статусов «Draft / не принято» используется один текущий индекс. Оригинальные карточки, результаты неудачных проверок и авторство остаются в исходных PR и истории #177. Проектная интеграция Jules выведена из разработки; историческое авторство Jules не переатрибутируется Dot. Статус «в коде» относится только к принятому узкому контракту.
 
 ## Текущий индекс
 
-78 номерных позиций: 66 реализованных контрактов (DOT-009 только guard), 11 исследований без PR реализации, один резерв DOT-066. Дополнения к DOT-016 и DOT-057 не создают новых ID.
+79 номерных позиций: 67 реализованных в этой ревизии контрактов (DOT-009 только guard), 11 исследований без PR реализации, один резерв DOT-066. Дополнения к DOT-016 и DOT-057 не создают новых ID. Прирост относительно индекса #230 — только DOT-079; это подсчёт кода candidate, не подтверждение нового стабильного выпуска или установки.
 
 | DOT | Предложение | Текущий статус | Источник |
 |---|---|---|---|
@@ -88,6 +88,7 @@
 | DOT-076 | IME при переименовании проекта | В коде | [#226](https://github.com/Omnividente/omp-desktop/pull/226) |
 | DOT-077 | Недоступное возобновление на Home | В коде | [#227](https://github.com/Omnividente/omp-desktop/pull/227) |
 | DOT-078 | Markdown после fence с табуляцией | В коде | [#228](https://github.com/Omnividente/omp-desktop/pull/228) |
+| DOT-079 | Каноническая идентичность выбранной модели сессии | В коде candidate; доставка Main фиксируется отдельно | [#229](https://github.com/Omnividente/omp-desktop/pull/229) |
 
 ## Исследования: следующий проверяемый результат
 
@@ -108,6 +109,16 @@
 | DOT-050 | Доказать isolated filesystem no-delta у чтения skills, bounded JSON/cwd/snapshot/unsupported; не добавлять checkbox записи. |
 
 Полный Unicode/IME/editor protocol DOT-009 остаётся за границей принятого guard. Аналогично, bounded capture не доказывает backpressure DOT-001, подпись прямого PID не закрывает process-tree identity DOT-002, переход к последнему загруженному ответу не является read ACK DOT-020.
+
+## DOT-079: отдельное включение в candidate 0.9.11
+
+Источник — Dot, [#229](https://github.com/Omnividente/omp-desktop/pull/229), original head `5ca9315c6401b0fb84d1973f09c3638d2cb95718`. Добавлен поверх доставленного через [#230](https://github.com/Omnividente/omp-desktop/pull/230) `main` `0b781416382b4584c16a7324635ce3fdd48934d6`; он не входил в зафиксированный набор 6 ноября ниже. Фактические integration PR, проверенный head и merge записывает Main в [#177](https://github.com/Omnividente/omp-desktop/issues/177), а не выводит из этого индекса.
+
+Узкий контракт: SessionControls и начальная metadata App сохраняют одну catalog identity и согласованный thinking. Qualified selector имеет приоритет над совпавшим raw ID другой записи; неоднозначный bare ID не получает угаданного провайдера. Literal colon и ID с окончаниями `:high`/`:off`/`:auto` не обрезаются как модификаторы; refresh каталога сам по себе не переключает модель. Это не доказательство реального provider routing, inference или тарификации; такие пользовательские инциденты исходным исследованием не установлены.
+
+Происхождение DOT-003/[#180](https://github.com/Omnividente/omp-desktop/pull/180) и identity-коррекций Main в [#217](https://github.com/Omnividente/omp-desktop/pull/217), DOT-054/[#202](https://github.com/Omnividente/omp-desktop/pull/202), исходных switching/off/auto-контрактов [#65](https://github.com/Omnividente/omp-desktop/pull/65)/[#71](https://github.com/Omnividente/omp-desktop/pull/71) сохранено. Паспорт и поиск не переиздаются под новым авторством. Прежние V1 failure/review и synthetic/jsdom evidence остаются в #229; они не переименовываются в native или binary proof. Native synthetic selection → Rust switch IPC/launch metadata — отдельный gate Main.
+
+DOT-080/[#234](https://github.com/Omnividente/omp-desktop/pull/234) и обновления зависимостей [#231](https://github.com/Omnividente/omp-desktop/pull/231), [#232](https://github.com/Omnividente/omp-desktop/pull/232), [#233](https://github.com/Omnividente/omp-desktop/pull/233) остаются вне frozen-состава candidate. Их отдельные пороги из #177 не отменяются; резерв DOT-066 и 11 исследований не меняются.
 
 ## Набор приёмки 6 ноября: exact provenance
 
@@ -146,4 +157,6 @@
 
 Индивидуальный зелёный CI не доказывает общую композицию. Результат общего Quality Gate/CodeQL и конкретные native smoke-сценарии публикуются в integration PR и #177. Нативный Windows/WebView2 smoke использует отдельную identity, synthetic JSONL и non-inference CLI; synthetic DOM composition events не являются физическим OS IME или AT. Реальные clipboard, system picker, provider inference и производственная установка обновления не подразумеваются.
 
-Историческая доставка 32 предложений: [#217](https://github.com/Omnividente/omp-desktop/pull/217), `main` `7a1e2a0023bac5444454f8dc982cc329882117e9`. Текущий стабильный выпуск [v0.9.10](https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.10) не заменяется этой уборкой. Релиз, bundles и установка требуют отдельного решения.
+В candidate 0.9.11 отдельно принята native identity-граница DOT-079: actual WebView2 invoke → Rust switch → PTY/JSONL acknowledgement сохраняет qualified selector при коллизии raw ID и литеральные `:high`/`:off`/`:auto`; атомарный `model_change` не разбирается как конфигурационный suffix. Fresh launch, неоднозначный bare ID и refresh проверены без provider inference. Production NSIS clean/upgrade/state и AppImage replacement/state остаются отдельными gates точных release assets; тестовый updater E2E не подменяет их. Поставленная 0.9.10 не обнаруживает отдельный non-latest prerelease через latest-only updater; этот путь не закрывается promotion или подменой trust/network.
+
+Историческая доставка 32 предложений: [#217](https://github.com/Omnividente/omp-desktop/pull/217), `main` `7a1e2a0023bac5444454f8dc982cc329882117e9`; следующий набор доставлен через [#230](https://github.com/Omnividente/omp-desktop/pull/230), `main` `0b781416382b4584c16a7324635ce3fdd48934d6`. Текущий стабильный выпуск [v0.9.10](https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.10) этим индексом не заменяется. [Notes candidate 0.9.11](../.github/release-notes/v0.9.11.md) описывают состав исходников, не подтверждают готовые bundles, stable/latest или установленную версию. Проверки исходников не доказывают подписи и поведение production-бинарников; evidence точных candidate assets и изолированного обновления Windows/Linux учитывается отдельно от source gate.

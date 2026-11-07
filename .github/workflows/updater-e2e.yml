@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Resolve source refs and versions
         id: plan
@@ -56,7 +56,7 @@ jobs:
             echo "Updater E2E base tag must be a stable semantic version: $base_tag" >&2
             exit 1
           fi
-          git fetch --no-tags origin "refs/tags/$base_tag:refs/tags/$base_tag"
+          git fetch --depth=1 --no-tags origin "refs/tags/$base_tag:refs/tags/$base_tag"
           git show "$base_tag:package.json" > "$RUNNER_TEMP/updater-base-package.json"
           BASE_TAG="$base_tag" node --input-type=module <<'EOF'
           import { compareStableVersions } from "./.github/scripts/run-updater-e2e.mjs";

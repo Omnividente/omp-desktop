@@ -1,12 +1,8 @@
 import { type ChangeEvent, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { Icon } from "./Icon"
-import {
-  matchesSelector,
-  normalizeThinkingLevel,
-  splitSelector,
-  thinkingOptionsForModel,
-} from "./ModelPicker"
+import { normalizeThinkingLevel, thinkingOptionsForModel } from "./ModelPicker"
 import { t, thinkingLevelLabel, type Lang } from "./i18n"
+import { sessionModelSelection } from "./sessionModelSelection"
 import type { RuntimeHealthStatus } from "./runtimeIncidents"
 import type { OmpConfigSnapshot, TerminalTab } from "./types"
 
@@ -85,9 +81,9 @@ export function SessionControls({
 
   const defaultSelector = ompConfig.roles.find((role) => role.role === "default")?.selector ?? ""
   const chatModels = ompConfig.models.filter((model) => (model.kind ?? "chat") === "chat")
-  const configured = splitSelector(tab.currentModel ?? defaultSelector)
-  const selectedModel = chatModels.find((model) => matchesSelector(model, configured.base))
-  const baseModel = selectedModel ? splitSelector(selectedModel.selector).base : configured.base
+  const configured = sessionModelSelection(chatModels, tab.currentModel ?? defaultSelector)
+  const selectedModel = configured.model
+  const baseModel = configured.base
   const thinkingOptions = thinkingOptionsForModel(selectedModel)
   const preferredThinking =
     tab.currentThinkingConfigured ??
@@ -132,15 +128,17 @@ export function SessionControls({
   const handleModelChange = (event: ChangeEvent<HTMLSelectElement>) => {
     const nextBase = event.target.value
     if (nextBase === baseModel) return
-    const nextModel = chatModels.find((model) => matchesSelector(model, nextBase))
-    if (!nextModel?.available) return
+    // The select supplies an exact catalog value, never a bare-ID alias.
+    const candidates = chatModels.filter((model) => model.selector === nextBase)
+    if (candidates.length !== 1 || !candidates[0].available) return
+    const nextModel = candidates[0]
     const nextOptions = thinkingOptionsForModel(nextModel)
     const nextThinking = normalizeThinkingLevel(
       currentThinking,
       nextOptions,
       ompConfig.defaultThinkingLevel,
     )
-    switchSelection(splitSelector(nextModel.selector).base, nextThinking)
+    switchSelection(nextModel.selector, nextThinking)
   }
 
   const handleThinkingChange = (event: ChangeEvent<HTMLSelectElement>) => {
@@ -244,7 +242,7 @@ export function SessionControls({
               {Object.entries(modelsByProvider).map(([provider, models]) => (
                 <optgroup label={provider} key={provider}>
                   {models.map((model) => {
-                    const selector = splitSelector(model.selector).base
+                    const selector = model.selector
                     return (
                       <option disabled={!model.available} key={model.selector} value={selector}>
                         {model.name}
