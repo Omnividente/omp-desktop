@@ -390,11 +390,11 @@ async function checkCheckout(targetSha) {
     verifierSha256 === (await hashFile(join(harnessRoot, verifier))),
     "Cryptographic verifier bytes differ from immutable production source",
   )
-  await jsonEvidence(`acquisition-source-${mode}.json`, {
+  return {
     production: { commit: targetSha, root: targetRoot },
     harness: { commit: harnessSha, root: harnessRoot },
     verifierSha256,
-  })
+  }
 }
 
 async function productionKey() {
@@ -626,7 +626,8 @@ async function main() {
   }
   evidenceDir = requestedEvidence
   stage = "checkout"
-  await checkCheckout(target.commit)
+  const acquisitionSource = await checkCheckout(target.commit)
+  await jsonEvidence(`acquisition-source-${mode}.json`, acquisitionSource)
   if (mode === "recheck") {
     stage = "final-identity"
     const frozen = JSON.parse(
@@ -695,7 +696,11 @@ async function main() {
   const after = await snapshot(target)
   await jsonEvidence("post-download-production-metadata.json", after)
   requireEqual(after, frozen, "Post-download immutable production metadata")
-  await checkCheckout(target.commit)
+  requireEqual(
+    await checkCheckout(target.commit),
+    acquisitionSource,
+    "Post-download acquisition source identity",
+  )
   stage = "receipt"
   const receipt = {
     repository,
