@@ -4048,7 +4048,7 @@ fn runtime_event_from_line(terminal_id: &str, line: &[u8]) -> Option<PtyRuntimeE
             model: value
                 .get("model")
                 .and_then(Value::as_str)
-                .map(strip_thinking_suffix),
+                .map(str::to_owned),
             model_role: value.get("role").and_then(Value::as_str).map(str::to_owned),
             thinking_level: None,
             configured_thinking_level: None,
@@ -5599,10 +5599,11 @@ mod tests {
         session_title_from_line, spawn_terminal_writer, thinking_cycle, validate_switch_request,
         validated_resume_path, write_bytes, PtyExitEvent, PtyRuntimeEventKind, PtySessionEvent,
         ResumePathPoll, RuntimeRecovery, RuntimeWatchCursor, SessionDiscovery, SessionLease,
-        SessionLeasePurpose, SwitchInputRecoveryRequest, SwitchInputRecoveryState, SwitchRequest,
-        TerminalAttachmentRequest, TerminalOutputState, TerminalProcess, TerminalState,
-        BREADCRUMB_FILE_PREFIX, MAX_REPLAY_OUTPUT, MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER,
-        OMP_THINKING_CYCLE_ESC, PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
+        SessionLeasePurpose, SessionRuntimeState, SwitchInputRecoveryRequest,
+        SwitchInputRecoveryState, SwitchRequest, TerminalAttachmentRequest, TerminalOutputState,
+        TerminalProcess, TerminalState, BREADCRUMB_FILE_PREFIX, MAX_REPLAY_OUTPUT,
+        MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
+        PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
     };
     #[cfg(windows)]
     use super::{
@@ -7220,27 +7221,6 @@ mod tests {
     }
 
     #[test]
-    fn model_change_model_strips_only_a_known_final_thinking_suffix() {
-        for (selector, expected_model) in [
-            ("openai/gpt-5.6:high", "openai/gpt-5.6"),
-            ("ollama/llama3.1:8b", "ollama/llama3.1:8b"),
-            ("ollama/llama3.1:8b:HIGH", "ollama/llama3.1:8b"),
-            ("ollama/llama3.1:8b:internal", "ollama/llama3.1:8b:internal"),
-        ] {
-            let line = serde_json::json!({
-                "type": "model_change",
-                "model": selector,
-                "role": "default",
-            })
-            .to_string();
-            let event = runtime_event_from_line("terminal-1", line.as_bytes())
-                .expect("model change should parse");
-
-            assert_eq!(event.model.as_deref(), Some(expected_model), "{selector}");
-        }
-    }
-
-    #[test]
     fn session_title_parser_accepts_only_non_empty_title_entries() {
         assert_eq!(
             session_title_from_line(
@@ -7353,6 +7333,38 @@ mod tests {
         assert_eq!(events[1].fallback_role.as_deref(), Some("default"));
         assert_eq!(events[2].thinking_level.as_deref(), Some("high"));
         assert_eq!(events[2].configured_thinking_level.as_deref(), Some("auto"));
+    }
+
+    #[test]
+    fn runtime_model_change_preserves_literal_thinking_suffixes() {
+        for selector in [
+            "provider/model:high",
+            "provider/model:off",
+            "provider/model:auto",
+        ] {
+            let line = serde_json::to_vec(&serde_json::json!({
+                "type": "model_change",
+                "model": selector,
+                "role": "default",
+            }))
+            .expect("model change should serialize");
+            let mut runtime = SessionRuntimeState::default();
+            runtime.apply(
+                runtime_event_from_line("terminal-1", &line)
+                    .expect("model change should update runtime state"),
+            );
+            runtime.apply(
+                runtime_event_from_line(
+                    "terminal-1",
+                    br#"{"type":"thinking_level_change","thinkingLevel":"low","configured":"auto"}"#,
+                )
+                .expect("thinking event should update runtime state"),
+            );
+
+            assert_eq!(runtime.model.as_deref(), Some(selector));
+            assert_eq!(runtime.thinking_level.as_deref(), Some("low"));
+            assert_eq!(runtime.configured_thinking_level.as_deref(), Some("auto"));
+        }
     }
 
     #[test]
