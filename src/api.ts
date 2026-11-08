@@ -284,7 +284,7 @@ interface BackendError {
 }
 
 export interface SessionLeaseConflictDetails {
-  metadataState: "valid" | "corrupt" | "missing"
+  metadataState: "valid" | "corrupt" | "missing" | "reclaim_pending"
   ownerPid: number | null
   ownerStartedAt: string | null
   acquiredAt: string | null
@@ -440,7 +440,7 @@ export function sessionLeaseConflictDetails(error: unknown): SessionLeaseConflic
   try {
     const details = JSON.parse(parsed.details) as Partial<SessionLeaseConflictDetails>
     if (
-      !["valid", "corrupt", "missing"].includes(details.metadataState ?? "") ||
+      !["valid", "corrupt", "missing", "reclaim_pending"].includes(details.metadataState ?? "") ||
       typeof details.sessionPath !== "string" ||
       (details.ownerPid !== null &&
         details.ownerPid !== undefined &&
