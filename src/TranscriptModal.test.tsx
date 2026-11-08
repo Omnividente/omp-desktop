@@ -976,6 +976,47 @@ it("consumes menu-item Tab in both directions but leaves outside Tab navigation 
   }
 })
 
+it("keeps the transcript open when its link menu receives IME-marked keys", async () => {
+  await searchFor("needle")
+  await click("Next match")
+  await click("Next match")
+  const link = container.querySelector<HTMLAnchorElement>('a[href="local://needle.txt"]')!
+  act(() => {
+    link.focus()
+    link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))
+  })
+  const item = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+  expect(item).not.toBeNull()
+  for (const target of [link, item]) {
+    act(() => target.focus())
+    for (const key of ["Escape", "Tab", "ArrowDown", "ArrowUp"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        keyCode: 229,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => target.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(target)
+      expect(document.querySelector('[role="menu"]')).not.toBeNull()
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    }
+  }
+  expect(openContentLink).not.toHaveBeenCalled()
+  expect(writeText).not.toHaveBeenCalled()
+  const escape = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })
+  act(() => item.dispatchEvent(escape))
+  expect(escape.defaultPrevented).toBe(true)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(document.activeElement).toBe(link)
+})
+
 it("navigates and wraps a million-match entry with bounded replacement windows through reindex and clear", async () => {
   const text = "x".repeat(1_000_000)
   const dense = {

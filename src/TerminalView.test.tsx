@@ -331,6 +331,42 @@ it("does not intercept keyup, keypress or composing events", () => {
   expect(terminalState.selection).toBe("selected")
 })
 
+it("does not let the selection menu consume IME-marked keys or move terminal focus", () => {
+  const input = container.querySelector<HTMLTextAreaElement>(".mock-terminal-input")!
+  act(() => input.focus())
+  showSelection("Synthetic selection")
+  const item = menuButton("Copy")
+  for (const target of [input, item]) {
+    act(() => target.focus())
+    for (const key of ["Escape", "Tab", "ArrowDown", "ArrowUp"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        keyCode: 229,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => target.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(target)
+      expect(document.querySelector('[role="menu"]')).not.toBeNull()
+      expect(terminalState.selection).toBe("Synthetic selection")
+    }
+  }
+  expect(writeText).not.toHaveBeenCalled()
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalState.paste).not.toHaveBeenCalled()
+  const escape = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })
+  act(() => item.dispatchEvent(escape))
+  expect(escape.defaultPrevented).toBe(true)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.activeElement).toBe(input)
+})
+
 it("gives a new visible selection precedence over an earlier Ctrl+A clear arm", () => {
   expect(terminalKey("KeyA", { ctrlKey: true }).allowed).toBe(false)
   terminalState.selection = "selection appeared after Ctrl+A"

@@ -2,7 +2,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { readSessionAnswers } from "./api"
+import { openContentLink, readSessionAnswers } from "./api"
 import { CompletedAnswers } from "./CompletedAnswers"
 import { applyRuntimeEventToTab } from "./runtimeEvents"
 import type { PtyRuntimeEvent, SessionTranscript, TerminalTab } from "./types"
@@ -293,4 +293,44 @@ it("uses retained loaded answers after a failed refresh without hiding the warni
   expect(container.querySelector("h1")?.textContent).toBe("Last")
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Synthetic read failed")
   expect(readSessionAnswers).toHaveBeenCalledTimes(2)
+})
+
+it("leaves IME-marked keys alone in an answer link menu before a normal action", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(
+    transcript(tab.sessionPath!, "[Synthetic file](local://synthetic.txt)"),
+  )
+  vi.mocked(openContentLink).mockResolvedValue(undefined)
+  await render()
+  const link = container.querySelector<HTMLAnchorElement>('a[href="local://synthetic.txt"]')!
+  window.getSelection()!.removeAllRanges()
+  act(() => {
+    link.focus()
+    link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))
+  })
+  const item = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+  expect(item).not.toBeNull()
+  for (const target of [link, item]) {
+    act(() => target.focus())
+    for (const key of ["Escape", "Tab", "ArrowDown", "ArrowUp"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        keyCode: 229,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => target.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(target)
+      expect(document.querySelector('[role="menu"]')).not.toBeNull()
+      expect(openContentLink).not.toHaveBeenCalled()
+    }
+  }
+  await act(async () => item.click())
+  expect(openContentLink).toHaveBeenCalledExactlyOnceWith(
+    "local://synthetic.txt",
+    tab.sessionPath,
+    "open",
+  )
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.activeElement).toBe(link)
 })
