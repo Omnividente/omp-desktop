@@ -75,6 +75,10 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      # Build-time xterm adaptations must compose against the locked npm bundle.
+      - name: Build frontend
+        run: npm run build
+
       - name: Test release asset gate
         run: npm run test:release-assets
 
@@ -93,3 +97,4 @@ jobs:
       - name: Check updater E2E feature
         working-directory: src-tauri
         run: cargo check --features updater-e2e
+

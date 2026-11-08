@@ -1,6 +1,18 @@
 import { defineConfig, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
 import ts from "typescript"
+import { patchXtermUtf8 } from "./src/xtermUtf8"
+
+function terminalUtf8Plugin(): Plugin {
+  return {
+    name: "omp-xterm-utf8-interim",
+    enforce: "pre",
+    transform(code, id) {
+      const patched = patchXtermUtf8(code, id)
+      return patched === null ? null : { code: patched, map: null }
+    },
+  }
+}
 
 // Keep the npm package untouched; adapt the pinned xterm 6.0.0 DOM renderer.
 // A dependency upgrade must be reviewed rather than silently losing this fix.
@@ -420,7 +432,7 @@ const host = process.env.TAURI_DEV_HOST
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), terminalDomRowsPlugin(), terminalWebglCellsPlugin()],
+  plugins: [react(), terminalUtf8Plugin(), terminalDomRowsPlugin(), terminalWebglCellsPlugin()],
   build: {
     rolldownOptions: {
       output: {
@@ -456,3 +468,4 @@ export default defineConfig(async () => ({
     },
   },
 }))
+
