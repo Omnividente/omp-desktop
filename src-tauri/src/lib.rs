@@ -1290,6 +1290,12 @@ fn configure_linux_ca_bundle() {}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     configure_linux_ca_bundle();
+    let context = tauri::generate_context!();
+    #[cfg(all(windows, feature = "updater-e2e"))]
+    if let Err(error) = updater_e2e::prepare_windows_channels_launch(&context.config().identifier) {
+        eprintln!("Updater E2E launch context failed: {error}");
+        std::process::exit(2);
+    }
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(handle_second_instance));
@@ -1356,7 +1362,7 @@ pub fn run() {
             start_with_defaults,
             terminal::close_terminal,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building OMP Desktop");
 
     app.run(|app_handle, event| {

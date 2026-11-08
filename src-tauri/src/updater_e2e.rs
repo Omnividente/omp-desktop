@@ -24,6 +24,78 @@ fn process_value(env_name: &str, argument_prefix: &str) -> Option<String> {
         })
 }
 
+#[cfg(windows)]
+pub(crate) fn prepare_windows_channels_launch(identifier: &str) -> Result<(), String> {
+    if process_value("OMP_DESKTOP_UPDATER_E2E_MODE", "--updater-e2e-mode=").as_deref()
+        != Some("channels")
+    {
+        return Ok(());
+    }
+    require(
+        identifier == "com.ompdesk.desktop.updater-e2e",
+        "Channels launch context requires the isolated E2E identity",
+    )?;
+    let marker = PathBuf::from(process_value(MARKER_ENV, MARKER_ARG).ok_or("Missing test marker")?);
+    require(marker.is_absolute(), "Channels marker must be absolute")?;
+    let root = marker
+        .parent()
+        .ok_or("Missing owned marker root")?
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if marker.exists() {
+        let file = marker.canonicalize().map_err(|error| error.to_string())?;
+        require(
+            file.starts_with(&root) && file != root,
+            "Channels marker escaped its root",
+        )?;
+    }
+    let owned = |relative: &str| -> Result<PathBuf, String> {
+        let path = root
+            .join(relative)
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        require(
+            path.starts_with(&root) && path != root,
+            "Channels directory escaped its root",
+        )?;
+        Ok(path)
+    };
+    let home = owned("home")?;
+    let temp = owned("temp")?;
+    let config = owned("config")?;
+    let local = owned("local")?;
+    owned("home/AppData/Local")?;
+    owned("home/AppData/Roaming")?;
+    let target = process_value(TARGET_ENV, TARGET_ARG).ok_or("Missing test target")?;
+    let releases = process_value(
+        "OMP_DESKTOP_UPDATER_E2E_RELEASES_URL",
+        "--updater-e2e-releases-url=",
+    )
+    .ok_or("Missing test releases URL")?;
+
+    // NSIS can relaunch through the desktop shell without the parent's environment.
+    // Run before Builder/runtime threads, restore only fixture values, and reuse its strict guard.
+    env::set_var(MARKER_ENV, &marker);
+    env::set_var(TARGET_ENV, target);
+    env::set_var("OMP_DESKTOP_UPDATER_E2E_RELEASES_URL", releases);
+    require(
+        crate::desktop_updater::e2e_fixture_enabled()?,
+        "Invalid channels launch context",
+    )?;
+    for (key, path) in [
+        ("HOME", &home),
+        ("USERPROFILE", &home),
+        ("TEMP", &temp),
+        ("TMP", &temp),
+        ("APPDATA", &config),
+        ("LOCALAPPDATA", &local),
+    ] {
+        env::set_var(key, path);
+    }
+    env::set_var("OMP_DESKTOP_UPDATER_E2E_MODE", "channels");
+    Ok(())
+}
+
 pub fn start(app: AppHandle) {
     let Some(marker) = process_value(MARKER_ENV, MARKER_ARG) else {
         return;
