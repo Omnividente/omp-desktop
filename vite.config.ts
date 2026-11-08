@@ -1,7 +1,7 @@
 import { defineConfig, type Plugin } from "vite"
 import react from "@vitejs/plugin-react"
 import ts from "typescript"
-import { patchXtermUtf8 } from "./src/xtermUtf8"
+import { patchXtermUtf8 } from "./scripts/xtermUtf8.mjs"
 
 function terminalUtf8Plugin(): Plugin {
   return {

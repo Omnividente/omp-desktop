@@ -6,7 +6,7 @@ const ORIGINAL = "for(;(f=this.interim[++m]&63)&&m<4;)p<<=6,p|=f;"
 const CORRECTED = "for(;(f=this.interim[++m])&&m<4;)p<<=6,p|=f&63;"
 
 /** Build-time only. Dependency changes must review this pinned decoder site. */
-export function patchXtermUtf8(code: string, id: string): string | null {
+export function patchXtermUtf8(code, id) {
   if (!/[/\\]@xterm[/\\]xterm[/\\]lib[/\\]xterm\.mjs(?:\?.*)?$/.test(id)) return null
   const first = code.indexOf(ORIGINAL)
   if (

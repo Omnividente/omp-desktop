@@ -6,6 +6,6 @@
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true
   },
-  "include": ["vite.config.ts", "src/xtermUtf8.ts"]
+  "include": ["vite.config.ts"]
 }
 
