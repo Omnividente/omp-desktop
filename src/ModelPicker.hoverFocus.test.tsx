@@ -56,8 +56,7 @@ const hover = (target: HTMLElement) =>
   act(() => {
     target.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, relatedTarget: null }))
   })
-const activeOption = () =>
-  document.getElementById(listbox().getAttribute("aria-activedescendant")!)
+const activeOption = () => document.getElementById(listbox().getAttribute("aria-activedescendant")!)
 
 beforeEach(() => {
   changes.mockReset()
