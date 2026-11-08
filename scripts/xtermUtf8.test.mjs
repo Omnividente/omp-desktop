@@ -4,7 +4,7 @@ import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
-import { patchXtermUtf8 } from "./xtermUtf8.mjs"
+import { patchXtermUtf8, terminalUtf8Plugin } from "./xtermUtf8.mjs"
 
 const bundlePath = join(
   dirname(createRequire(import.meta.url).resolve("@xterm/xterm")),
@@ -130,5 +130,41 @@ describe("pinned xterm UTF-8 backport", () => {
     for (const code of ["", original + original, corrected, original + corrected]) {
       assert.throws(() => patchXtermUtf8(code, bundlePath), /Unsupported xterm UTF-8 decoder/)
     }
+  })
+})
+
+describe("production UTF-8 build guard", () => {
+  const context = {
+    error: (message) => {
+      throw new Error(message)
+    },
+  }
+
+  it("rejects a build that never reached the decoder, including unrelated transforms", () => {
+    const plugin = terminalUtf8Plugin()
+    assert.equal(plugin.enforce, "pre")
+    plugin.buildStart()
+    assert.equal(plugin.transform(original, "/src/unrelated.mjs"), null)
+    assert.throws(
+      () => plugin.generateBundle.call(context),
+      /Expected xterm UTF-8 backport was not applied/,
+    )
+  })
+
+  it("accepts successful transforms and resets evidence for the next build", () => {
+    const plugin = terminalUtf8Plugin()
+    plugin.buildStart()
+    assert.equal(plugin.transform(original, bundlePath).code, corrected)
+    assert.equal(plugin.transform(original, bundlePath + "?v=second").code, corrected)
+    assert.doesNotThrow(() => plugin.generateBundle.call(context))
+    plugin.buildStart()
+    assert.throws(() => plugin.generateBundle.call(context), /backport was not applied/)
+  })
+
+  it("does not count a rejected decoder site as a successful transform", () => {
+    const plugin = terminalUtf8Plugin()
+    plugin.buildStart()
+    assert.throws(() => plugin.transform("", bundlePath), /Unsupported xterm UTF-8 decoder/)
+    assert.throws(() => plugin.generateBundle.call(context), /backport was not applied/)
   })
 })

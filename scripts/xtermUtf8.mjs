@@ -18,3 +18,24 @@ export function patchXtermUtf8(code, id) {
   }
   return code.slice(0, first) + CORRECTED + code.slice(first + ORIGINAL.length)
 }
+
+/** Require the backport to run in production, including after resolver changes. */
+export function terminalUtf8Plugin() {
+  let applied = false
+  return {
+    name: "omp-xterm-utf8-interim",
+    enforce: "pre",
+    buildStart() {
+      applied = false
+    },
+    transform(code, id) {
+      const patched = patchXtermUtf8(code, id)
+      if (patched === null) return null
+      applied = true
+      return { code: patched, map: null }
+    },
+    generateBundle() {
+      if (!applied) this.error("Expected xterm UTF-8 backport was not applied")
+    },
+  }
+}
