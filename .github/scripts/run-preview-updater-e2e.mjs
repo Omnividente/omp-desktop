@@ -303,7 +303,7 @@ async function main() {
       await copyFile(single(baseFiles, path => /\.AppImage$/.test(path), "owned base AppImage"), executable)
       await chmod(executable, 0o700)
     }
-    const args = [`--updater-e2e-marker=${marker}`, `--updater-e2e-target=${E2E_TARGET_VERSION}`, "--updater-e2e-mode=channels"]
+    const args = [`--updater-e2e-marker=${marker}`, `--updater-e2e-target=${E2E_TARGET_VERSION}`, "--updater-e2e-mode=channels", `--updater-e2e-releases-url=${origin}/releases`]
     child = spawn(executable, args, { env: environment, cwd: root, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
     const collect = chunk => { if (output.length < 128 * 1024) output += chunk.toString() }
     child.stdout.on("data", collect)
