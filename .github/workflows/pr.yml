@@ -75,6 +75,9 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      - name: Test local Collab compatibility probe
+        run: npm run test:remote-collab
+
       - name: Test release asset gate
         run: npm run test:release-assets
 
