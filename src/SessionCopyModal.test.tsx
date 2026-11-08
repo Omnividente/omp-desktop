@@ -32,6 +32,7 @@ const bootstrap = {
     proxyProviders: [],
     railMode: "expanded",
     language: "ru",
+    desktopUpdatePrereleases: false,
     appFontFamily: "Inter",
     appFontSize: 16,
     terminalFontFamily: "monospace",

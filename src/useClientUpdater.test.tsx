@@ -4,12 +4,38 @@ import { act, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { confirm } from "@tauri-apps/plugin-dialog"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
+import { installClientUpdate } from "./clientUpdater"
 import { UPDATE_REMINDER_SNOOZE_MS, readClientUpdateReminderSnoozedUntil } from "./updateReminder"
 import { useClientUpdater, type ClientUpdaterState } from "./useClientUpdater"
+import { desktopUpdateCheck, desktopUpdateStatus } from "./api"
+import { listen, type EventCallback } from "@tauri-apps/api/event"
+import type { DesktopUpdateStatus } from "./types"
+
+const ready: DesktopUpdateStatus = {
+  policyState: "ready",
+  includePrereleases: false,
+  revision: "1",
+  checking: false,
+  installState: "idle",
+  installed: null,
+  update: {
+    candidateId: "candidate-1",
+    version: "0.8.0",
+    date: null,
+    body: "Release details",
+    prerelease: false,
+    releaseId: "release-1",
+    releaseUrl: "https://github.com/Omnividente/omp-desktop/releases/tag/v0.8.0",
+  },
+}
+vi.mock("./api", async (original) => ({
+  ...(await original<typeof import("./api")>()),
+  desktopUpdateCheck: vi.fn(),
+  desktopUpdateStatus: vi.fn(),
+}))
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
 
 vi.mock("./clientUpdater", () => ({
-  checkClientUpdate: vi.fn(),
   installClientUpdate: vi.fn(),
 }))
 
@@ -56,11 +82,8 @@ describe("useClientUpdater Desktop reminder", () => {
     window.localStorage.clear()
     vi.mocked(confirm).mockResolvedValue(false)
     vi.mocked(installClientUpdate).mockResolvedValue(undefined)
-    vi.mocked(checkClientUpdate).mockResolvedValue({
-      version: "0.8.0",
-      date: null,
-      body: "Release details",
-    })
+    vi.mocked(desktopUpdateCheck).mockResolvedValue(ready)
+    vi.mocked(desktopUpdateStatus).mockResolvedValue(ready)
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
@@ -97,18 +120,21 @@ describe("useClientUpdater Desktop reminder", () => {
     await act(async () => root.render(<Harness />))
     act(() => container.querySelector<HTMLButtonElement>("button")?.click())
     expect(container.querySelector("span")?.textContent).toBe("hidden")
-    vi.mocked(checkClientUpdate).mockResolvedValue({ version: "0.9.3", date: null, body: null })
+    vi.mocked(desktopUpdateCheck).mockResolvedValue({
+      ...ready,
+      update: { ...ready.update!, candidateId: "candidate-2", version: "0.9.3" },
+    })
     await act(async () => container.querySelectorAll<HTMLButtonElement>("button")[1].click())
     expect(container.querySelector("span")?.textContent).toBe("0.9.3")
     expect(readClientUpdateReminderSnoozedUntil()).toBe(0)
   })
 
-  it("reports a failed manual check without discarding an already available update", async () => {
+  it("reports a failed manual check and discards the obsolete offer", async () => {
     await act(async () => root.render(<Harness />))
-    vi.mocked(checkClientUpdate).mockRejectedValue(new Error("offline-smoke"))
+    vi.mocked(desktopUpdateCheck).mockRejectedValue(new Error("offline-smoke"))
     await act(async () => container.querySelectorAll<HTMLButtonElement>("button")[1].click())
     expect(container.querySelector("output")?.textContent).toContain("offline-smoke")
-    expect(container.querySelector("span")?.textContent).toBe("0.8.0")
+    expect(container.querySelector("span")?.textContent).toBe("hidden")
     expect(container.querySelectorAll<HTMLButtonElement>("button")[1].disabled).toBe(false)
   })
 
@@ -221,5 +247,259 @@ describe("useClientUpdater Desktop reminder", () => {
     })
     expect(installClientUpdate).toHaveBeenCalledTimes(1)
     expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it("rejects an older event revision without rounding u64 counters to Number", async () => {
+    await act(async () => root.render(<Harness />))
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([event]) => event === "desktop-update-state",
+      )![1] as EventCallback<DesktopUpdateStatus>
+    const uncertain: DesktopUpdateStatus = {
+      ...ready,
+      revision: "9007199254740993",
+      policyState: "uncertain",
+      update: null,
+    }
+    act(() => receive({ event: "desktop-update-state", id: 1, payload: uncertain }))
+    act(() =>
+      receive({
+        event: "desktop-update-state",
+        id: 2,
+        payload: { ...ready, revision: "9007199254740992" },
+      }),
+    )
+    expect(container.querySelector("span")?.textContent).toBe("hidden")
+    act(() => updater.install())
+    expect(installClientUpdate).not.toHaveBeenCalled()
+  })
+
+  it.each(["changing", "uncertain", "notReady"] as const)(
+    "hides a displayed offer immediately on a native %s event",
+    async (policyState) => {
+      await act(async () => root.render(<Harness />))
+      expect(container.querySelector("span")?.textContent).toBe(ready.update!.version)
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(
+          ([event]) => event === "desktop-update-state",
+        )![1] as EventCallback<DesktopUpdateStatus>
+      const payload: DesktopUpdateStatus = {
+        ...ready,
+        policyState,
+        includePrereleases: null,
+        revision: "2",
+      }
+      // Even stale metadata in an invalidated snapshot cannot remain actionable.
+      act(() => receive({ event: "desktop-update-state", id: 1, payload }))
+      expect(container.querySelector("span")?.textContent).toBe("hidden")
+      act(() => updater.install())
+      expect(installClientUpdate).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["changing", "uncertain", "notReady"] as const)(
+    "invalidates an offer immediately on %s and rejects a late old-channel check",
+    async (policyState) => {
+      await act(async () => root.render(<Harness />))
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(
+          ([event]) => event === "desktop-update-state",
+        )![1] as EventCallback<DesktopUpdateStatus>
+      let complete!: (value: DesktopUpdateStatus) => void
+      vi.mocked(desktopUpdateCheck).mockReturnValueOnce(
+        new Promise((resolve) => {
+          complete = resolve
+        }),
+      )
+      act(() => updater.checkNow())
+      expect(container.querySelector("span")?.textContent).toBe("hidden")
+      const changed: DesktopUpdateStatus = {
+        ...ready,
+        policyState,
+        update: null,
+        revision: "2",
+        includePrereleases: null,
+      }
+      vi.mocked(desktopUpdateStatus).mockResolvedValue(changed)
+      act(() => receive({ event: "desktop-update-state", id: 1, payload: changed }))
+      expect(container.querySelectorAll<HTMLButtonElement>("button")[1].disabled).toBe(false)
+      act(() => updater.install())
+      expect(installClientUpdate).not.toHaveBeenCalled()
+      const fresh: DesktopUpdateStatus = {
+        ...ready,
+        revision: "4",
+        includePrereleases: true,
+        update: {
+          ...ready.update!,
+          candidateId: "fresh-preview",
+          version: "0.9.11",
+          prerelease: true,
+        },
+      }
+      act(() =>
+        receive({
+          event: "desktop-update-state",
+          id: 2,
+          payload: { ...fresh, revision: "3", update: null },
+        }),
+      )
+      vi.mocked(desktopUpdateCheck).mockResolvedValueOnce(fresh)
+      vi.mocked(desktopUpdateStatus).mockResolvedValue(fresh)
+      await act(async () => container.querySelectorAll<HTMLButtonElement>("button")[1].click())
+      expect(container.querySelector("span")?.textContent).toBe("0.9.11")
+      await act(async () => complete(ready))
+      expect(container.querySelector("span")?.textContent).toBe("0.9.11")
+      expect(container.querySelector("output")?.textContent).not.toContain("up to date")
+    },
+  )
+
+  it("keeps the superseding fresh check when an older response arrives later", async () => {
+    await act(async () => root.render(<Harness />))
+    let old!: (value: DesktopUpdateStatus) => void
+    vi.mocked(desktopUpdateCheck).mockReturnValueOnce(
+      new Promise((resolve) => {
+        old = resolve
+      }),
+    )
+    act(() => updater.checkNow())
+    vi.mocked(desktopUpdateCheck).mockResolvedValueOnce({
+      ...ready,
+      update: { ...ready.update!, candidateId: "fresh", version: "0.9.9" },
+    })
+    await act(async () => updater.checkNow())
+    await act(async () => old(ready))
+    expect(container.querySelector("span")?.textContent).toBe("0.9.9")
+  })
+
+  it("uses GitHub prerelease metadata for plain SemVer and rechecks safety after confirmation", async () => {
+    const preview = {
+      ...ready,
+      includePrereleases: true,
+      update: { ...ready.update!, version: "0.9.11", prerelease: true },
+    }
+    vi.mocked(desktopUpdateCheck).mockResolvedValue(preview)
+    vi.mocked(desktopUpdateStatus).mockResolvedValue(preview)
+    let decide!: (value: boolean) => void
+    vi.mocked(confirm).mockReturnValueOnce(
+      new Promise((resolve) => {
+        decide = resolve
+      }),
+    )
+    let launching = false
+    await act(async () =>
+      root.render(<Harness safety={() => ({ runningTerminalCount: 0, launching })} />),
+    )
+    act(() => updater.install())
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(confirm).mock.calls[0][0]).toContain("0.9.11")
+    expect(installClientUpdate).not.toHaveBeenCalled()
+    launching = true
+    await act(async () => decide(true))
+    expect(installClientUpdate).not.toHaveBeenCalled()
+    expect(updater.isInstalling()).toBe(false)
+  })
+
+  it("does not install after a policy event invalidates an async confirmation", async () => {
+    await act(async () => root.render(<Harness running={1} />))
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(
+        ([event]) => event === "desktop-update-state",
+      )![1] as EventCallback<DesktopUpdateStatus>
+    let decide!: (value: boolean) => void
+    vi.mocked(confirm).mockReturnValueOnce(
+      new Promise((resolve) => {
+        decide = resolve
+      }),
+    )
+    act(() => updater.install())
+    const next: DesktopUpdateStatus = {
+      ...ready,
+      revision: "2",
+      policyState: "changing",
+      update: null,
+    }
+    vi.mocked(desktopUpdateStatus).mockResolvedValue(next)
+    act(() => receive({ event: "desktop-update-state", id: 1, payload: next }))
+    await act(async () => decide(true))
+    expect(installClientUpdate).not.toHaveBeenCalled()
+    expect(container.querySelector("span")?.textContent).toBe("hidden")
+  })
+
+  it("unsubscribes and ignores a pending confirmation after unmount", async () => {
+    const unlisten = vi.fn()
+    vi.mocked(listen).mockResolvedValueOnce(unlisten)
+    await act(async () => root.render(<Harness running={1} />))
+    let decide!: (value: boolean) => void
+    vi.mocked(confirm).mockReturnValueOnce(
+      new Promise((resolve) => {
+        decide = resolve
+      }),
+    )
+    act(() => updater.install())
+    await act(async () => root.render(null))
+    await act(async () => decide(true))
+    expect(installClientUpdate).not.toHaveBeenCalled()
+    expect(unlisten).toHaveBeenCalledTimes(1)
+  })
+
+  it("requires preview consent before plain SemVer install and confirms newly active terminals", async () => {
+    const preview = {
+      ...ready,
+      includePrereleases: true,
+      update: { ...ready.update!, version: "0.9.11", prerelease: true },
+    }
+    vi.mocked(desktopUpdateCheck).mockResolvedValue(preview)
+    vi.mocked(desktopUpdateStatus).mockResolvedValue(preview)
+    let running = 0
+    let decidePreview!: (value: boolean) => void
+    vi.mocked(confirm)
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          decidePreview = resolve
+        }),
+      )
+      .mockResolvedValueOnce(false)
+    await act(async () =>
+      root.render(<Harness safety={() => ({ runningTerminalCount: running, launching: false })} />),
+    )
+    act(() => updater.install())
+    expect(installClientUpdate).not.toHaveBeenCalled()
+    running = 2
+    await act(async () => decidePreview(true))
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(confirm).mock.calls[1][0]).toContain("2")
+    expect(installClientUpdate).not.toHaveBeenCalled()
+    vi.mocked(confirm).mockResolvedValue(true)
+    await act(async () => updater.install())
+    expect(installClientUpdate).toHaveBeenCalledExactlyOnceWith(preview.update.candidateId)
+  })
+
+  it("does not resurrect a pending check after unmount and a different-policy remount", async () => {
+    await act(async () => root.render(<Harness />))
+    let finish!: (value: DesktopUpdateStatus) => void
+    vi.mocked(desktopUpdateCheck).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
+    act(() => updater.checkNow())
+    await act(async () => root.render(null))
+    const next: DesktopUpdateStatus = {
+      ...ready,
+      revision: "2",
+      includePrereleases: true,
+      update: null,
+    }
+    vi.mocked(desktopUpdateStatus).mockResolvedValue(next)
+    vi.mocked(desktopUpdateCheck).mockResolvedValue(next)
+    await act(async () => root.render(<Harness />))
+    await act(async () => finish(ready))
+    expect(container.querySelector("span")?.textContent).toBe("hidden")
+    act(() => updater.install())
+    expect(installClientUpdate).not.toHaveBeenCalled()
   })
 })
