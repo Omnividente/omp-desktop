@@ -22,9 +22,26 @@ vi.mock("./api", async (importOriginal) => ({
   startTerminal: vi.fn(),
   checkOmpUpdate: vi.fn(),
   sampleResourceHealth: vi.fn().mockRejectedValue(new Error("Synthetic sample unavailable")),
+  desktopUpdateStatus: vi.fn().mockResolvedValue({
+    policyState: "notReady",
+    includePrereleases: null,
+    revision: "0",
+    checking: false,
+    installState: "idle",
+    update: null,
+    installed: null,
+  }),
+  desktopUpdateCheck: vi.fn().mockResolvedValue({
+    policyState: "notReady",
+    includePrereleases: null,
+    revision: "0",
+    checking: false,
+    installState: "idle",
+    update: null,
+    installed: null,
+  }),
 }))
 vi.mock("./clientUpdater", () => ({
-  checkClientUpdate: vi.fn().mockResolvedValue(null),
   installClientUpdate: vi.fn(),
 }))
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn().mockResolvedValue("0.9.10") }))
@@ -105,6 +122,7 @@ const bootstrap: BootstrapPayload = {
     railMode: "expanded",
     language: "ru",
     desktopTheme: "dark",
+    desktopUpdatePrereleases: false,
     appFontFamily: "Inter",
     appFontSize: 16,
     terminalFontFamily: "monospace",

@@ -2,6 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 mod content_links;
+mod desktop_updater;
 mod diagnostics;
 mod models;
 mod omp_bridge;
@@ -898,6 +899,9 @@ fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     if let SettingsPatch::Set(Some(desktop_theme)) = update.desktop_theme {
         snapshot.desktop_theme = desktop_theme;
     }
+    if let SettingsPatch::Set(Some(include_prereleases)) = update.desktop_update_prereleases {
+        snapshot.desktop_update_prereleases = include_prereleases;
+    }
     if let SettingsPatch::Set(Some(rail_mode)) = update.rail_mode {
         snapshot.rail_mode = rail_mode;
     }
@@ -917,6 +921,7 @@ async fn save_settings_bundle(
             with_settings_transaction(&app, &state, |transaction| {
                 let previous = transaction.previous().clone();
                 apply_settings_update(transaction.candidate_mut(), &request.update);
+                transaction.reserve_update_policy(&app)?;
                 let provider_env = match &request.update.provider_env {
                     SettingsPatch::Set(Some(values)) => Some(values.clone()),
                     SettingsPatch::Missing | SettingsPatch::Set(None) => None,
@@ -1303,6 +1308,7 @@ pub fn run() {
                 Err(error) => eprintln!("OMP Desktop logging unavailable: {error}"),
             }
             app.manage(SettingsState::new_uninitialized());
+            app.manage(desktop_updater::DesktopUpdaterState::default());
             app.manage(omp_bridge::ModelCatalogState::default());
             app.manage(StartupWorkspace(Mutex::new(StartupWorkspaceIntent::new(
                 startup_workspace(&std::env::args().collect::<Vec<_>>()),
@@ -1332,6 +1338,10 @@ pub fn run() {
             refresh_omp_config,
             check_omp_update,
             sample_resource_health,
+            desktop_updater::desktop_update_status,
+            desktop_updater::desktop_update_check,
+            desktop_updater::desktop_update_install,
+            desktop_updater::desktop_update_reconcile_settings,
             terminal::start_terminal,
             terminal::switch_terminal,
             terminal::send_switch_input_recovery,

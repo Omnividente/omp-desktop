@@ -22,6 +22,26 @@ export type RailMode = "expanded" | "collapsed" | "autoHide"
 
 export type DesktopTheme = "dark" | "light" | "system"
 
+export interface ClientUpdateInfo {
+  candidateId: string
+  version: string
+  date: string | null
+  body: string | null
+  prerelease: boolean
+  releaseId: string
+  releaseUrl: string
+}
+
+export interface DesktopUpdateStatus {
+  policyState: "notReady" | "ready" | "changing" | "uncertain"
+  includePrereleases: boolean | null
+  revision: string
+  checking: boolean
+  installState: "idle" | "downloading" | "installing" | "installed" | "uncertain"
+  update: ClientUpdateInfo | null
+  installed: ClientUpdateInfo | null
+}
+
 export interface AppSettings {
   ompExecutable: string | null
   sessionRoot: string | null
@@ -35,6 +55,7 @@ export interface AppSettings {
   railMode: RailMode
   language: "ru" | "en"
   desktopTheme: DesktopTheme
+  desktopUpdatePrereleases: boolean
   appFontFamily: string
   appFontSize: number
   terminalFontFamily: string
@@ -213,6 +234,7 @@ export interface ImportBatchPayload {
 
 export interface SettingsUpdate {
   desktopTheme?: DesktopTheme | null
+  desktopUpdatePrereleases?: boolean | null
   ompExecutable?: string | null
   appFontFamily?: string | null
   appFontSize?: number | null

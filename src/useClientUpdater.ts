@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { listen } from "@tauri-apps/api/event"
 import { confirm } from "@tauri-apps/plugin-dialog"
-import { checkClientUpdate, installClientUpdate, type ClientUpdateInfo } from "./clientUpdater"
+import { installClientUpdate } from "./clientUpdater"
+import { desktopUpdateCheck, desktopUpdateStatus, errorMessage } from "./api"
+import type { ClientUpdateInfo, DesktopUpdateStatus } from "./types"
 import { t, type Lang } from "./i18n"
-import { errorMessage } from "./api"
 import {
   persistClientUpdateReminderSnooze,
   readClientUpdateReminderSnoozedUntil,
@@ -12,11 +14,19 @@ import {
 export interface ClientUpdaterState {
   update: ClientUpdateInfo | null
   installing: boolean
+  installed: boolean
   isInstalling: () => boolean
   checking: boolean
   checkNow: () => void
   remindLater: () => void
   install: () => void
+}
+
+function offered(status: DesktopUpdateStatus | null): ClientUpdateInfo | null {
+  if (status?.installState === "installed") return status.installed
+  return status?.policyState === "ready" && status.installState === "idle" && !status.checking
+    ? status.update
+    : null
 }
 
 export function useClientUpdater(
@@ -25,54 +35,125 @@ export function useClientUpdater(
   showNotice: (message: string) => void,
   safety: () => { runningTerminalCount: number; launching: boolean },
 ): ClientUpdaterState {
-  const checkingRef = useRef(false)
-  const manualCheckRef = useRef(false)
+  const callbacks = useRef({ language, showError, showNotice, safety })
+  callbacks.current = { language, showError, showNotice, safety }
+  const statusRef = useRef<DesktopUpdateStatus | null>(null)
+  const revisionRef = useRef<bigint | null>(null)
+  const epochRef = useRef(0)
+  const mountedRef = useRef(false)
   const installingRef = useRef(false)
+  const checkRef = useRef(0)
+  const [status, setStatus] = useState<DesktopUpdateStatus | null>(null)
   const [checking, setChecking] = useState(false)
-  const [availableUpdate, setAvailableUpdate] = useState<ClientUpdateInfo | null>(null)
-  const [snoozedUntil, setSnoozedUntil] = useState(readClientUpdateReminderSnoozedUntil)
   const [installing, setInstalling] = useState(false)
-  const isInstalling = useCallback(() => installingRef.current, [])
+  const [snoozedUntil, setSnoozedUntil] = useState(readClientUpdateReminderSnoozedUntil)
+  const isInstalling = useCallback(
+    () =>
+      installingRef.current ||
+      statusRef.current?.installState === "downloading" ||
+      statusRef.current?.installState === "installing",
+    [],
+  )
+  const accept = useCallback((next: DesktopUpdateStatus) => {
+    if (!mountedRef.current) return false
+    const revision = BigInt(next.revision)
+    if (revisionRef.current !== null && revision < revisionRef.current) return false
+    const previous = statusRef.current
+    if (
+      next.policyState !== "ready" ||
+      (previous !== null &&
+        (previous.policyState !== next.policyState ||
+          previous.includePrereleases !== next.includePrereleases))
+    ) {
+      checkRef.current += 1
+      setChecking(false)
+    }
+    revisionRef.current = revision
+    statusRef.current = next
+    setStatus(next)
+    return true
+  }, [])
 
   const checkForUpdate = useCallback(
     async (manual = false) => {
-      if (installingRef.current) return
-      if (manual) manualCheckRef.current = true
-      if (checkingRef.current) return
-      checkingRef.current = true
+      if (!mountedRef.current || isInstalling()) return
+      const request = ++checkRef.current
+      const epoch = epochRef.current
+      const current = () => mountedRef.current && request === checkRef.current
+      // A fresh check cannot leave the previous candidate clickable, including on failure.
+      statusRef.current = statusRef.current ? { ...statusRef.current, update: null } : null
+      setStatus(statusRef.current)
       setChecking(true)
       try {
-        const update = await checkClientUpdate()
-        setAvailableUpdate(update)
-        if (manualCheckRef.current) {
+        const next = await desktopUpdateCheck()
+        if (!current()) return
+        if (epoch === epochRef.current) accept(next)
+        else {
+          const observedEpoch = epochRef.current
+          const actual = await desktopUpdateStatus()
+          if (current() && observedEpoch === epochRef.current) accept(actual)
+        }
+        if (manual && current()) {
           persistClientUpdateReminderSnooze(0)
           setSnoozedUntil(0)
-          if (!update) showNotice(t(language, "desktopUpdateCurrent"))
+          const { language, showNotice } = callbacks.current
+          if (statusRef.current?.policyState === "ready" && !offered(statusRef.current)) {
+            showNotice(t(language, "desktopUpdateCurrent"))
+          }
         }
       } catch (error) {
-        // Background checks stay quiet offline; a requested check must report failure.
-        if (manualCheckRef.current) showError(errorMessage(error, language))
+        if (current() && manual) {
+          const { language, showError } = callbacks.current
+          showError(errorMessage(error, language))
+        }
       } finally {
-        checkingRef.current = false
-        manualCheckRef.current = false
-        setChecking(false)
+        if (current()) setChecking(false)
       }
     },
-    [language, showError, showNotice],
+    [accept, isInstalling],
   )
 
   useEffect(() => {
-    void checkForUpdate()
+    const epochCounter = epochRef
+    const checkCounter = checkRef
+    mountedRef.current = true
+    let disposed = false
+    const subscription = listen<DesktopUpdateStatus>("desktop-update-state", ({ payload }) => {
+      if (
+        disposed ||
+        (revisionRef.current !== null && BigInt(payload.revision) <= revisionRef.current)
+      )
+        return
+      if (accept(payload)) ++epochRef.current
+    })
+    void (async () => {
+      try {
+        await subscription
+        if (disposed) return
+        const epoch = epochRef.current
+        const initial = await desktopUpdateStatus()
+        if (disposed) return
+        if (epoch === epochRef.current) accept(initial)
+        await checkForUpdate()
+      } catch {
+        // No native authority means no offer. Background/offline discovery stays quiet.
+      }
+    })()
     const interval = window.setInterval(() => void checkForUpdate(), 15 * 60 * 1_000)
-    const handleVisibility = () => {
+    const visibility = () => {
       if (document.visibilityState === "visible") void checkForUpdate()
     }
-    document.addEventListener("visibilitychange", handleVisibility)
+    document.addEventListener("visibilitychange", visibility)
     return () => {
+      disposed = true
+      mountedRef.current = false
+      epochCounter.current += 1
+      checkCounter.current += 1
+      void subscription.then((unlisten) => unlisten()).catch(() => undefined)
       window.clearInterval(interval)
-      document.removeEventListener("visibilitychange", handleVisibility)
+      document.removeEventListener("visibilitychange", visibility)
     }
-  }, [checkForUpdate])
+  }, [accept, checkForUpdate])
 
   useEffect(() => {
     if (snoozedUntil === 0) return
@@ -93,40 +174,91 @@ export function useClientUpdater(
   }, [])
 
   const install = useCallback(async () => {
-    if (installingRef.current || checkingRef.current) return
-    const currentSafety = safety()
-    if (currentSafety.launching) {
+    if (!mountedRef.current || isInstalling() || checking) return
+    const candidate = offered(statusRef.current)
+    if (!candidate) return
+    const { language, showNotice, showError, safety } = callbacks.current
+    if (safety().launching) {
       showNotice(t(language, "desktopUpdateWaitForLaunch"))
       return
     }
     installingRef.current = true
     setInstalling(true)
     try {
-      if (currentSafety.runningTerminalCount > 0) {
-        const accepted = await confirm(
-          t(language, "desktopUpdateRunningConfirm").replace(
-            "{count}",
-            String(currentSafety.runningTerminalCount),
-          ),
-          { title: t(language, "desktopUpdateInstall"), kind: "warning" },
+      const epoch = epochRef.current
+      const revision = statusRef.current?.revision
+      let confirmedRunning = 0
+      if (candidate.prerelease && statusRef.current?.installState !== "installed") {
+        if (
+          !(await confirm(
+            t(language, "desktopUpdatePrereleaseConfirm").replace("{version}", candidate.version),
+            { title: t(language, "desktopUpdateInstall"), kind: "warning" },
+          ))
         )
-        if (!accepted) return
+          return
       }
-      await installClientUpdate()
+      // Confirmation is asynchronous: terminals, policy and the candidate can change meanwhile.
+      while (mountedRef.current) {
+        const currentSafety = callbacks.current.safety()
+        if (currentSafety.launching) {
+          showNotice(t(language, "desktopUpdateWaitForLaunch"))
+          return
+        }
+        if (currentSafety.runningTerminalCount <= confirmedRunning) break
+        confirmedRunning = currentSafety.runningTerminalCount
+        if (
+          !(await confirm(
+            t(language, "desktopUpdateRunningConfirm").replace("{count}", String(confirmedRunning)),
+            { title: t(language, "desktopUpdateInstall"), kind: "warning" },
+          ))
+        )
+          return
+      }
+      if (
+        !mountedRef.current ||
+        epoch !== epochRef.current ||
+        statusRef.current?.revision !== revision ||
+        offered(statusRef.current)?.candidateId !== candidate.candidateId
+      )
+        return
+      const actual = await desktopUpdateStatus()
+      if (!mountedRef.current || epoch !== epochRef.current) return
+      if (!accept(actual)) return
+      if (offered(actual)?.candidateId !== candidate.candidateId) return
+      const latestSafety = callbacks.current.safety()
+      if (latestSafety.launching || latestSafety.runningTerminalCount > confirmedRunning) {
+        showNotice(t(language, "desktopUpdateWaitForLaunch"))
+        return
+      }
+      await installClientUpdate(candidate.candidateId)
     } catch (error) {
-      showError(errorMessage(error, language))
+      if (mountedRef.current) showError(errorMessage(error, language))
     } finally {
+      if (mountedRef.current) {
+        const epoch = epochRef.current
+        try {
+          const actual = await desktopUpdateStatus()
+          if (mountedRef.current && epoch === epochRef.current) accept(actual)
+        } catch {
+          if (mountedRef.current && epoch === epochRef.current) {
+            statusRef.current = null
+            setStatus(null)
+          }
+        }
+        if (mountedRef.current) setInstalling(false)
+      }
       installingRef.current = false
-      setInstalling(false)
     }
-  }, [language, safety, showError, showNotice])
+  }, [accept, checking, isInstalling])
 
   return {
-    update: snoozedUntil === 0 ? availableUpdate : null,
-    checking,
-    checkNow: () => void checkForUpdate(true),
-    installing,
+    update: snoozedUntil === 0 && !checking ? offered(status) : null,
+    checking: checking || status?.checking === true,
+    installing:
+      installing || status?.installState === "downloading" || status?.installState === "installing",
+    installed: status?.installState === "installed" && status.installed !== null,
     isInstalling,
+    checkNow: () => void checkForUpdate(true),
     remindLater,
     install: () => void install(),
   }
