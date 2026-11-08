@@ -197,6 +197,8 @@ pub struct AppSettings {
     pub rail_mode: RailMode,
     #[serde(default, deserialize_with = "deserialize_stored_desktop_theme")]
     pub desktop_theme: DesktopTheme,
+    #[serde(default)]
+    pub desktop_update_prereleases: bool,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_app_font_family")]
@@ -232,6 +234,7 @@ impl Default for AppSettings {
             proxy_providers: BTreeSet::new(),
             rail_mode: RailMode::default(),
             desktop_theme: DesktopTheme::default(),
+            desktop_update_prereleases: false,
             language: default_language(),
             app_font_family: default_app_font_family(),
             app_font_size: default_app_font_size(),
@@ -263,6 +266,10 @@ impl fmt::Debug for AppSettings {
             .field("proxy_provider_count", &self.proxy_providers.len())
             .field("rail_mode", &self.rail_mode)
             .field("desktop_theme", &self.desktop_theme)
+            .field(
+                "desktop_update_prereleases",
+                &self.desktop_update_prereleases,
+            )
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
             .field("app_font_size", &self.app_font_size)
@@ -345,6 +352,9 @@ pub struct SettingsUpdate {
     /// Missing and null leave the preference unchanged, like rail_mode.
     #[serde(default)]
     pub desktop_theme: SettingsPatch<DesktopTheme>,
+    /// Missing and null leave the committed update channel unchanged.
+    #[serde(default)]
+    pub desktop_update_prereleases: SettingsPatch<bool>,
     #[serde(default)]
     pub provider_env: SettingsPatch<HashMap<String, String>>,
 }
@@ -1083,6 +1093,39 @@ mod tests {
         assert!(matches!(absent.desktop_theme, SettingsPatch::Missing));
         let null: SettingsUpdate = serde_json::from_str(r#"{"desktopTheme":null}"#).unwrap();
         assert!(matches!(null.desktop_theme, SettingsPatch::Set(None)));
+    }
+
+    #[test]
+    fn desktop_update_channel_is_boolean_and_null_patch_is_unchanged() {
+        let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert!(!settings.desktop_update_prereleases);
+        for input in [
+            serde_json::json!({}),
+            serde_json::json!({"desktopUpdatePrereleases": null}),
+        ] {
+            settings.desktop_update_prereleases = true;
+            let update: SettingsUpdate = serde_json::from_value(input).unwrap();
+            crate::apply_settings_update(&mut settings, &update);
+            assert!(settings.desktop_update_prereleases);
+        }
+        for expected in [false, true, false] {
+            let update: SettingsUpdate =
+                serde_json::from_value(serde_json::json!({"desktopUpdatePrereleases": expected}))
+                    .unwrap();
+            crate::apply_settings_update(&mut settings, &update);
+            settings = serde_json::from_value(serde_json::to_value(&settings).unwrap()).unwrap();
+            assert_eq!(settings.desktop_update_prereleases, expected);
+        }
+        for invalid in [
+            serde_json::json!("true"),
+            serde_json::json!(1),
+            serde_json::json!([]),
+        ] {
+            assert!(serde_json::from_value::<SettingsUpdate>(
+                serde_json::json!({"desktopUpdatePrereleases": invalid})
+            )
+            .is_err());
+        }
     }
 
     #[test]

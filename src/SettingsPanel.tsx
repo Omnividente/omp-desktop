@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
 import {
+  bootstrap,
+  desktopUpdateReconcileSettings,
   errorMessage,
   loadOmpConfig,
   OMP_CONFIG_STALE_MS,
@@ -23,6 +25,7 @@ import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
 import type {
   AppSettings,
+  BootstrapPayload,
   DesktopTheme,
   SettingsSavePayload,
   OmpConfigSnapshot,
@@ -145,7 +148,9 @@ interface SettingsPanelProps {
   runtime: RuntimeInfo
   initialOmpConfig: OmpConfigSnapshot | null
   onClose: () => void
-  onSaved: (payload: SettingsSavePayload) => void
+  onSaveStarted?: () => number
+  onSaved: (payload: SettingsSavePayload, generation?: number) => void
+  onReconciled?: (payload: BootstrapPayload, generation?: number) => void
   onConfigLoaded?: (snapshot: OmpConfigSnapshot) => void
   onError: (message: string) => void
   onNotice?: (message: string) => void
@@ -380,6 +385,8 @@ export function SettingsPanel({
   runtime,
   initialOmpConfig,
   onClose,
+  onSaveStarted,
+  onReconciled,
   onSaved,
   onConfigLoaded,
   onError,
@@ -395,6 +402,15 @@ export function SettingsPanel({
   const [sessionRoot, setSessionRoot] = useState(settings.sessionRoot ?? "")
   const [language, setLanguage] = useState<Lang>(lang)
   const [desktopTheme, setDesktopTheme] = useState<DesktopTheme>(settings.desktopTheme ?? "dark")
+  const [desktopUpdatePrereleases, setDesktopUpdatePrereleases] = useState(
+    settings.desktopUpdatePrereleases,
+  )
+  const settingsBaselineRef = useRef(settings)
+  const generalDraftRevisionsRef = useRef(new Map<string, number>())
+  const markGeneralDraft = (field: string) => {
+    const revisions = generalDraftRevisionsRef.current
+    revisions.set(field, (revisions.get(field) ?? 0) + 1)
+  }
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSucceeded, setSaveSucceeded] = useState(false)
@@ -645,6 +661,38 @@ export function SettingsPanel({
   }, [settings.providerEnvKeys])
 
   useEffect(() => {
+    // A late commit advances untouched controls, never a reopened panel's explicit draft.
+    // Track edits rather than comparing values: a new draft may equal the old baseline.
+    const previous = settingsBaselineRef.current
+    settingsBaselineRef.current = settings
+    const dirty = generalDraftRevisionsRef.current
+    if (!dirty.has("omp-executable") && previous.ompExecutable !== settings.ompExecutable)
+      setExecutable(settings.ompExecutable ?? "")
+    if (!dirty.has("session-root") && previous.sessionRoot !== settings.sessionRoot)
+      setSessionRoot(settings.sessionRoot ?? "")
+    if (!dirty.has("language-select") && previous.language !== settings.language)
+      setLanguage(settings.language)
+    if (!dirty.has("desktop-theme-select") && previous.desktopTheme !== settings.desktopTheme)
+      setDesktopTheme(settings.desktopTheme)
+    if (
+      !dirty.has("desktop-update-prereleases") &&
+      previous.desktopUpdatePrereleases !== settings.desktopUpdatePrereleases
+    )
+      setDesktopUpdatePrereleases(settings.desktopUpdatePrereleases)
+    if (!dirty.has("app-font-family") && previous.appFontFamily !== settings.appFontFamily)
+      setAppFontFamily(settings.appFontFamily)
+    if (!dirty.has("app-font-size") && previous.appFontSize !== settings.appFontSize)
+      setAppFontSize(settings.appFontSize)
+    if (
+      !dirty.has("terminal-font-family") &&
+      previous.terminalFontFamily !== settings.terminalFontFamily
+    )
+      setTerminalFontFamily(settings.terminalFontFamily)
+    if (!dirty.has("terminal-font-size") && previous.terminalFontSize !== settings.terminalFontSize)
+      setTerminalFontSize(String(settings.terminalFontSize))
+  }, [settings])
+
+  useEffect(() => {
     if (!loadingConfig) {
       setLoadingSlow(false)
       return
@@ -796,6 +844,7 @@ export function SettingsPanel({
         title: t(language, "executableLabel"),
       })
       if (typeof selected === "string") {
+        markGeneralDraft("omp-executable")
         setExecutable(selected)
       }
     } catch (error) {
@@ -811,6 +860,7 @@ export function SettingsPanel({
         title: t(language, "sessionRootLabel"),
       })
       if (typeof selected === "string") {
+        markGeneralDraft("session-root")
         setSessionRoot(selected)
       }
     } catch (error) {
@@ -878,6 +928,7 @@ export function SettingsPanel({
       (sessionRoot.trim() || null) !== settings.sessionRoot ||
       language !== settings.language ||
       desktopTheme !== (settings.desktopTheme ?? "dark") ||
+      desktopUpdatePrereleases !== settings.desktopUpdatePrereleases ||
       appFontFamily !== settings.appFontFamily ||
       appFontSize !== settings.appFontSize ||
       terminalFontFamily !== settings.terminalFontFamily ||
@@ -936,6 +987,7 @@ export function SettingsPanel({
     customProviderStarted,
     disabledProviders,
     desktopTheme,
+    desktopUpdatePrereleases,
     appFontFamily,
     appFontSize,
     autoResume,
@@ -986,6 +1038,9 @@ export function SettingsPanel({
 
   const save = async () => {
     const proxyDisableRevisions = proxyDisableRevisionsRef.current
+    const submittedDraftRevisions = new Map(generalDraftRevisionsRef.current)
+    let saveGeneration: number | undefined
+    let submitted = false
     const reloadConfigOnFailure = loadingConfig && ompConfig === null
     const generation = invalidateConfig()
     setLoadingConfig(false)
@@ -1026,12 +1081,15 @@ export function SettingsPanel({
                 : draft.value,
         }
       }
+      saveGeneration = onSaveStarted?.()
+      submitted = true
       const result = await saveSettingsBundle({
         update: {
           ompExecutable: executable.trim() || null,
           sessionRoot: sessionRoot.trim() || null,
           language,
           desktopTheme,
+          desktopUpdatePrereleases,
           appFontFamily,
           appFontSize,
           terminalFontFamily,
@@ -1099,7 +1157,13 @@ export function SettingsPanel({
         runtime.ompExecutable === nextRuntime.ompExecutable &&
         runtime.ompVersion === nextRuntime.ompVersion
       configRuntimeRef.current = nextRuntime
-      onSaved(result)
+      if (!disposedRef.current) {
+        for (const [field, revision] of submittedDraftRevisions) {
+          if (generalDraftRevisionsRef.current.get(field) === revision)
+            generalDraftRevisionsRef.current.delete(field)
+        }
+      }
+      onSaved(result, saveGeneration)
       if (disposedRef.current) {
         // This result belongs to the submitted snapshot, not a reopened panel's draft.
         const savedLanguage = result.bootstrap.settings.language === "en" ? "en" : "ru"
@@ -1150,8 +1214,18 @@ export function SettingsPanel({
     } catch (error) {
       const message = errorMessage(error, language, { includeDetails: true })
       if (!settingsUnavailableDetails(error)) onError(message)
+      if (!disposedRef.current) setSaveError(message)
+      if (submitted) {
+        // A failed IPC response does not prove a failed disk commit. Never resubmit Save.
+        await desktopUpdateReconcileSettings().catch(() => undefined)
+        try {
+          const actual = await bootstrap()
+          onReconciled?.(actual, saveGeneration)
+        } catch {
+          // The original save error remains visible; updater policy stays fail-closed.
+        }
+      }
       if (disposedRef.current) return
-      setSaveError(message)
       if (reloadConfigOnFailure && generation === configGenerationRef.current) {
         void refreshConfig(false, configRuntimeRef.current ?? runtime)
       }
@@ -1363,6 +1437,14 @@ export function SettingsPanel({
             aria-labelledby={`settings-tab-${activeSection}`}
             className="settings-scroll"
             id={`settings-panel-${activeSection}`}
+            onChangeCapture={(event) => {
+              const target = event.target
+              if (
+                (target instanceof HTMLInputElement || target instanceof HTMLSelectElement) &&
+                target.id
+              )
+                markGeneralDraft(target.id)
+            }}
             role="tabpanel"
             tabIndex={0}
           >
@@ -1499,6 +1581,22 @@ export function SettingsPanel({
                     <p className="field-help" id="desktop-theme-help">
                       {t(language, "desktopThemeHelp")}
                     </p>
+
+                    <label className="toggle-row" htmlFor="desktop-update-prereleases">
+                      <input
+                        id="desktop-update-prereleases"
+                        type="checkbox"
+                        checked={desktopUpdatePrereleases}
+                        onChange={(event) => setDesktopUpdatePrereleases(event.target.checked)}
+                        aria-describedby="desktop-update-prereleases-help"
+                      />
+                      <span>
+                        <strong>{t(language, "desktopUpdatePrereleases")}</strong>
+                        <small id="desktop-update-prereleases-help">
+                          {t(language, "desktopUpdatePrereleasesHelp")}
+                        </small>
+                      </span>
+                    </label>
 
                     <label className="field-label" htmlFor="app-font-family">
                       {t(language, "appFontFamily")}

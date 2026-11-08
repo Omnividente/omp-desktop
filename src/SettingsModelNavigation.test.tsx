@@ -42,6 +42,7 @@ const settings: AppSettings = {
   railMode: "expanded",
   language: "ru",
   desktopTheme: "dark",
+  desktopUpdatePrereleases: false,
   appFontFamily: "Inter",
   appFontSize: 16,
   terminalFontFamily: "Cascadia Mono",

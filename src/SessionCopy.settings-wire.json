@@ -2,6 +2,7 @@
   {
     "appFontFamily": "Inter, \"Segoe UI Variable\", \"Segoe UI\", system-ui, -apple-system, sans-serif",
     "appFontSize": 16,
+    "desktopUpdatePrereleases": false,
     "hiddenWorkspaces": [],
     "language": "en",
     "lastWorkspace": null,
@@ -20,6 +21,7 @@
   {
     "appFontFamily": "Inter, \"Segoe UI Variable\", \"Segoe UI\", system-ui, -apple-system, sans-serif",
     "appFontSize": 16,
+    "desktopUpdatePrereleases": false,
     "hiddenWorkspaces": [],
     "language": "en",
     "lastWorkspace": null,
@@ -43,6 +45,7 @@
   {
     "appFontFamily": "Inter, \"Segoe UI Variable\", \"Segoe UI\", system-ui, -apple-system, sans-serif",
     "appFontSize": 16,
+    "desktopUpdatePrereleases": false,
     "hiddenWorkspaces": [],
     "language": "en",
     "lastWorkspace": null,
@@ -62,6 +65,7 @@
   {
     "appFontFamily": "Inter, \"Segoe UI Variable\", \"Segoe UI\", system-ui, -apple-system, sans-serif",
     "appFontSize": 16,
+    "desktopUpdatePrereleases": false,
     "hiddenWorkspaces": [],
     "language": "en",
     "lastWorkspace": null,
