@@ -2,18 +2,19 @@ import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
-import { describe, expect, it } from "vitest"
-import { patchXtermUtf8 } from "../scripts/xtermUtf8.mjs"
+import assert from "node:assert/strict"
+import { describe, it } from "node:test"
+import { patchXtermUtf8 } from "./xtermUtf8.mjs"
 
 const bundlePath = join(
   dirname(createRequire(import.meta.url).resolve("@xterm/xterm")),
   "xterm.mjs",
 )
 const original = readFileSync(bundlePath, "utf8")
-const corrected = patchXtermUtf8(original, bundlePath)!
+const corrected = patchXtermUtf8(original, bundlePath)
 
 // Run the actual npm browser bundle's parser/buffer, without opening a DOM or PTY.
-// A child avoids Vitest externalization replacing the supplied transformed bytes.
+// A child imports the supplied transformed bytes, not the installed unpatched module.
 const probe = `
 import { readFileSync } from "node:fs";
 const { code, cases } = JSON.parse(readFileSync(0, "utf8"));
@@ -40,16 +41,14 @@ for (const chunks of cases) {
 process.stdout.write(JSON.stringify(results));
 `
 
-type Result = { text: string; cursor: number[]; replies: string[] }
-
-function run(code: string, cases: number[][][]): Result[] {
+function run(code, cases) {
   return JSON.parse(
     execFileSync(process.execPath, ["--input-type=module", "--eval", probe], {
       input: JSON.stringify({ code, cases }),
       encoding: "utf8",
       timeout: 15_000,
     }),
-  ) as Result[]
+  )
 }
 
 describe("pinned xterm UTF-8 backport", () => {
@@ -58,9 +57,10 @@ describe("pinned xterm UTF-8 backport", () => {
       [0x41, 0xe2, 0x80],
       [0x94, 0x42],
     ]
-    expect(run(original, [chunks])[0].text).toBe("AB")
-    expect(run(corrected, [chunks])[0].text).toBe("A—B")
-    expect(corrected).toBe(
+    assert.equal(run(original, [chunks])[0].text, "AB")
+    assert.equal(run(corrected, [chunks])[0].text, "A—B")
+    assert.equal(
+      corrected,
       original.replace(
         "for(;(f=this.interim[++m]&63)&&m<4;)p<<=6,p|=f;",
         "for(;(f=this.interim[++m])&&m<4;)p<<=6,p|=f&63;",
@@ -70,7 +70,7 @@ describe("pinned xterm UTF-8 backport", () => {
 
   it("keeps legal UTF-8 text, cursor and parser replies independent of write boundaries", () => {
     const values = ["A—B", "A’B", "A\u4000B", "A\u{10000}B", "A👩‍🚀B"]
-    const cases: number[][][] = []
+    const cases = []
     for (const value of values) {
       const bytes = Array.from(new TextEncoder().encode(value + "\x1b[6n"))
       cases.push([bytes])
@@ -84,14 +84,14 @@ describe("pinned xterm UTF-8 backport", () => {
     for (const value of values) {
       const bytes = new TextEncoder().encode(value + "\x1b[6n")
       const expected = results[index]
-      expect(expected.text).toBe(value)
-      expect(expected.replies).toHaveLength(1)
-      expect(expected.replies[0]).toMatch(/^\x1b\[1;\d+R$/)
+      assert.equal(expected.text, value)
+      assert.equal(expected.replies.length, 1)
+      assert.match(expected.replies[0], /^\x1b\[1;\d+R$/)
       for (let count = 0; count <= bytes.length; count++) {
-        expect(results[index++]).toEqual(expected)
+        assert.deepEqual(results[index++], expected)
       }
     }
-  }, 20_000)
+  })
 
   it("retains xterm's malformed-sequence and BOM behavior", () => {
     const cases = [
@@ -102,7 +102,7 @@ describe("pinned xterm UTF-8 backport", () => {
       [[0x41, 0xe2], [0x42]],
       [[0xef], [0xbb], [0xbf, 0x41]],
     ]
-    expect(run(corrected, cases)).toEqual(run(original, cases))
+    assert.deepEqual(run(corrected, cases), run(original, cases))
   })
 
   it("accepts the pinned ESM path on both platforms and with Vite query suffixes", () => {
@@ -111,7 +111,7 @@ describe("pinned xterm UTF-8 backport", () => {
       "C:\\synthetic\\node_modules\\@xterm\\xterm\\lib\\xterm.mjs",
       "/node_modules/@xterm/xterm/lib/xterm.mjs?v=synthetic",
     ]) {
-      expect(patchXtermUtf8(original, id)).toBe(corrected)
+      assert.equal(patchXtermUtf8(original, id), corrected)
     }
   })
 
@@ -122,13 +122,13 @@ describe("pinned xterm UTF-8 backport", () => {
       "/src/xterm.mjs",
       "/node_modules/@xterm/xterm/lib/xterm.mjs.map",
     ]) {
-      expect(patchXtermUtf8(original, id)).toBeNull()
+      assert.equal(patchXtermUtf8(original, id), null)
     }
   })
 
   it("fails closed on missing, repeated, or already-corrected decoder sites", () => {
     for (const code of ["", original + original, corrected, original + corrected]) {
-      expect(() => patchXtermUtf8(code, bundlePath)).toThrow(/Unsupported xterm UTF-8 decoder/)
+      assert.throws(() => patchXtermUtf8(code, bundlePath), /Unsupported xterm UTF-8 decoder/)
     }
   })
 })

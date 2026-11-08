@@ -389,4 +389,3 @@ npm run tauri build
 ## License
 
 OMP Desktop is open-source software licensed under the [MIT License](LICENSE).
-
