@@ -331,10 +331,17 @@ def main(q):
             wait_for(lambda: not n.getState().contains(pyatspi.STATE_FOCUSED))
 
         def value(n):
+            global phase
             if n.getRoleName() in {"entry", "text"}:
                 text = n.queryText()
                 return text.getText(0, text.characterCount)
-            selection = n.querySelection()
+            # WebKit's MenuListPopup, not the combo, owns the Selection interface.
+            phase = "linux-value-menu"
+            menus = [child for child in n if child.getRoleName() == "menu"]
+            counts["selectionMenus"] = len(menus)
+            require(len(menus) == 1)
+            phase = "linux-value-selection"
+            selection = menus[0].querySelection()
             require(selection.nSelectedChildren == 1)
             return selection.getSelectedChild(0).name
 

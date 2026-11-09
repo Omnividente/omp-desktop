@@ -49,6 +49,7 @@ let stage = "admission",
   env,
   executable,
   activePid,
+  sdkObserver,
   psExe
 async function hash(path) {
   const h = createHash("sha256")
@@ -245,26 +246,108 @@ async function install(release, directory, label) {
   return file
 }
 async function observeSdkInstaller(expectedSha256) {
-  return wait(
-    "actual SDK NSIS installer process and signed bytes",
-    async () => {
-      const rows = await ps(
-        `$rows=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:SDK_TEMP,[StringComparison]::OrdinalIgnoreCase) -and $_.ExecutablePath -match '-0\\.9\\.12-updater-' } | ForEach-Object { [pscustomobject]@{pid=$_.ProcessId;parentPid=$_.ParentProcessId;path=$_.ExecutablePath} }); ConvertTo-Json -InputObject $rows -Compress`,
-        { SDK_TEMP: env.TEMP },
+  const temp = env.TEMP
+  // Arm the kernel-backed start subscription before PROBE can launch NSIS.
+  // Repeated PowerShell/CIM snapshots can miss the short-lived installer.
+  const script = String.raw`
+$ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
+$subscription = Register-CimIndicationEvent -Namespace root/cimv2 -ClassName Win32_ProcessStartTrace -SourceIdentifier OmpProductionSdk
+try {
+  [Console]::WriteLine('READY')
+  $end = [DateTime]::UtcNow.AddSeconds(180)
+  $found = $null
+  $root = $env:SDK_TEMP.TrimEnd('\') + '\'
+  while ([DateTime]::UtcNow -lt $end) {
+    $notice = Wait-Event -SourceIdentifier OmpProductionSdk -Timeout 1 | Select-Object -First 1
+    if ($null -eq $notice) { continue }
+    $started = $notice.SourceEventArgs.NewEvent
+    Remove-Event -EventIdentifier $notice.EventIdentifier
+    $image = (Get-CimInstance Win32_Process -Filter "ProcessId = $($started.ProcessID)" -ErrorAction SilentlyContinue).ExecutablePath
+    if (-not $image -or -not $image.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -or $image -notmatch '-0\.9\.12-updater-') { continue }
+    try { $digest = (Get-FileHash -LiteralPath $image -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { continue }
+    if ($digest -ne $env:SDK_SHA256) { continue }
+    $found = [pscustomobject]@{pid=[int]$started.ProcessID;parentPid=[int]$started.ParentProcessID;path=$image;sha256=$digest;observedAt=[DateTime]::UtcNow.ToString('o')}
+    break
+  }
+  ConvertTo-Json -InputObject $found -Compress
+} finally {
+  Unregister-Event -SourceIdentifier OmpProductionSdk
+}`
+  let markReady, finish
+  const ready = new Promise((done) => {
+    markReady = done
+  })
+  const observed = new Promise((done) => {
+    finish = done
+  })
+  const child = spawn(psExe, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+    env: { ...env, SDK_TEMP: temp, SDK_SHA256: expectedSha256 },
+    stdio: ["ignore", "pipe", "ignore"],
+    windowsHide: true,
+  })
+  child.unref()
+  const stop = () => {
+    child.kill()
+  }
+  const startup = setTimeout(() => {
+    markReady(false)
+    stop()
+  }, 15_000)
+  const deadline = setTimeout(stop, 190_000)
+  let text = "",
+    armed = false,
+    tooLarge = false
+  child.stdout.on("data", (bytes) => {
+    if (text.length + bytes.length > 16 * 1024) {
+      tooLarge = true
+      stop()
+      return
+    }
+    text += bytes.toString("utf8")
+    const signal = !armed && /^READY\r?\n/.exec(text)
+    if (signal) {
+      text = text.slice(signal[0].length)
+      armed = true
+      clearTimeout(startup)
+      markReady(true)
+    }
+  })
+  child.once("error", () => {
+    markReady(false)
+    finish(null)
+  })
+  child.once("close", (code) => {
+    markReady(false)
+    try {
+      const row = code === 0 && armed && !tooLarge ? JSON.parse(text) : null
+      finish(
+        row &&
+          Number.isSafeInteger(row.pid) &&
+          row.pid > 0 &&
+          Number.isSafeInteger(row.parentPid) &&
+          inside(temp, resolve(row.path)) &&
+          row.sha256 === expectedSha256
+          ? {
+              pid: row.pid,
+              parentPid: row.parentPid,
+              path: row.path,
+              sha256: row.sha256,
+              observedAt: row.observedAt,
+              method: "Win32_ProcessStartTrace",
+            }
+          : null,
       )
-      for (const row of rows) {
-        if (!inside(resolve(env.TEMP), resolve(row.path))) continue
-        try {
-          if ((await hash(row.path)) === expectedSha256)
-            return { ...row, sha256: expectedSha256, observedAt: new Date().toISOString() }
-        } catch {
-          /* A different short-lived temp process exited. */
-        }
-      }
-      return null
-    },
-    180_000,
-  ).catch(() => null)
+    } catch {
+      finish(null)
+    }
+  })
+  const observation = observed.finally(() => {
+    clearTimeout(startup)
+    clearTimeout(deadline)
+  })
+  assert(await ready, "Actual SDK process-start observer unavailable before PROBE")
+  return { result: observation, stop }
 }
 async function native(request, retry = false) {
   const q = { root: work, evidence, executable, ...request }
@@ -302,6 +385,7 @@ async function native(request, retry = false) {
               "requestedTexts",
               "visibleNodes",
               "matchedTexts",
+              "selectionMenus",
             ]
               .filter((key) => Number.isSafeInteger(value.counts?.[key]))
               .map((key) => [key, value.counts[key]]),
@@ -309,6 +393,7 @@ async function native(request, retry = false) {
         }
         return null
       }
+      delete result.lastNativeFailure
       return value
     } catch {
       result.lastNativeFailure = {
@@ -760,6 +845,11 @@ async function main() {
     }
     // After spawn there are NO controller writes to the installation. First
     // target launch must be NSIS/SDK or app.restart(), never a controller launch.
+    if (windows) {
+      stage = "sdk-installer-observer"
+      sdkObserver = await observeSdkInstaller(assets.target.windowsInstaller.sha256)
+    }
+    stage = "production-sdk-update"
     const child = spawn(
       executable,
       ["--updater-e2e-mode=production", `--updater-e2e-marker=${marker}`],
@@ -776,7 +866,6 @@ async function main() {
     )
     child.on("error", () => {})
     child.unref()
-    const sdkInstaller = windows ? observeSdkInstaller(assets.target.windowsInstaller.sha256) : null
     const events = async () => {
       if (await absent(marker)) return []
       const text = await readFile(marker, "utf8")
@@ -835,11 +924,6 @@ async function main() {
       assert.equal(registrationsAfter[0].version, "0.9.12")
       result.targetRegistrations = registrationsAfter
     }
-    if (windows) {
-      result.sdkInstaller = await sdkInstaller
-      assert(result.sdkInstaller, "Actual production SDK installer PID/hash was not observed")
-      await proof("production-sdk-installer.json", result.sdkInstaller)
-    }
     result.launches.push({
       label: "FIRST-SDK-RELAUNCH",
       ...first,
@@ -847,6 +931,12 @@ async function main() {
       imageSha256: await hash(executable),
       controllerLaunch: false,
     })
+    if (windows) {
+      stage = "sdk-installer-identity"
+      result.sdkInstaller = await sdkObserver.result
+      assert(result.sdkInstaller, "Actual production SDK installer PID/hash was not observed")
+      await proof("production-sdk-installer.json", result.sdkInstaller)
+    }
     // Only diagnostic events are copied after a strict allowlist; TARGET has no marker.
     const allowed = new Set([
       "production-started",
@@ -916,6 +1006,7 @@ try {
     else delete result.lastNativeFailure
   }
 } finally {
+  sdkObserver?.stop()
   // No broad kill or profile cleanup. The exclusively owned fresh VM is disposed.
   result.stage = stage
   if (evidence)
