@@ -3830,7 +3830,7 @@ describe("App lifecycle serialization", () => {
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "")
         search.dispatchEvent(new Event("input", { bubbles: true }))
       })
-      act(() => element(".terminal-tab .terminal-tab-label").click())
+      await act(async () => element(".terminal-tab .terminal-tab-label").click())
       expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
         "Background continuation",
       )
