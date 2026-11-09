@@ -465,28 +465,43 @@ async function hashFile(path) {
 }
 
 async function download(asset, directory) {
-  let url = asset.browser_download_url
+  const apiAssetUrl = `${apiRoot}/releases/assets/${asset.id}`
+  let url = apiAssetUrl
   const signal = AbortSignal.timeout(300_000)
-  let failureKind = "redirect-policy"
+  let failureKind = "api-policy"
   try {
+    requireCondition(
+      asset.url === apiAssetUrl && process.env.GH_TOKEN,
+      "Missing frozen API identity or acquisition token",
+    )
     for (let redirects = 0; redirects <= 5; redirects += 1) {
       failureKind = "redirect-policy"
       const parsed = new URL(url)
+      const apiHop = redirects === 0 && url === apiAssetUrl
       requireCondition(
         parsed.protocol === "https:" &&
           !parsed.username &&
           !parsed.password &&
-          [
-            "github.com",
-            "release-assets.githubusercontent.com",
-            "objects.githubusercontent.com",
-            "github-releases.githubusercontent.com",
-          ].includes(parsed.hostname),
+          (apiHop ||
+            [
+              "github.com",
+              "release-assets.githubusercontent.com",
+              "objects.githubusercontent.com",
+              "github-releases.githubusercontent.com",
+            ].includes(parsed.hostname)),
         "Unsafe download redirect",
       )
-      // Public release bytes never receive GH_TOKEN, even on the initial request.
+      // Authenticate only the exact frozen GitHub API asset endpoint. Redirects
+      // receive neither Authorization nor API headers, including an API redirect.
+      const headers = apiHop
+        ? {
+            Accept: "application/octet-stream",
+            "X-GitHub-Api-Version": "2022-11-28",
+            Authorization: `Bearer ${process.env.GH_TOKEN}`,
+          }
+        : undefined
       failureKind = "transport"
-      const response = await fetch(url, { redirect: "manual", signal })
+      const response = await fetch(url, { headers, redirect: "manual", signal })
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         failureKind = "redirect-location"
         const location = response.headers.get("location")
