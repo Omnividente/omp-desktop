@@ -247,14 +247,22 @@ async function install(release, directory, label) {
 }
 async function observeSdkInstaller(expectedSha256) {
   const temp = env.TEMP
+  const diagnostic = (result.sdkInstallerObserver = {
+    method: "Win32_ProcessStartTrace",
+    status: "starting",
+    ready: false,
+  })
   // Arm the kernel-backed start subscription before PROBE can launch NSIS.
   // Repeated PowerShell/CIM snapshots can miss the short-lived installer.
   const script = String.raw`
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
-$subscription = Register-CimIndicationEvent -Namespace root/cimv2 -ClassName Win32_ProcessStartTrace -SourceIdentifier OmpProductionSdk
+$subscription = $null
+$workerPhase = 'register'
 try {
+  $subscription = Register-CimIndicationEvent -Namespace root/cimv2 -ClassName Win32_ProcessStartTrace -SourceIdentifier OmpProductionSdk
   [Console]::WriteLine('READY')
+  $workerPhase = 'wait'
   $end = [DateTime]::UtcNow.AddSeconds(180)
   $found = $null
   $root = $env:SDK_TEMP.TrimEnd('\') + '\'
@@ -265,14 +273,18 @@ try {
     Remove-Event -EventIdentifier $notice.EventIdentifier
     $image = (Get-CimInstance Win32_Process -Filter "ProcessId = $($started.ProcessID)" -ErrorAction SilentlyContinue).ExecutablePath
     if (-not $image -or -not $image.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -or $image -notmatch '-0\.9\.12-updater-') { continue }
-    try { $digest = (Get-FileHash -LiteralPath $image -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { continue }
-    if ($digest -ne $env:SDK_SHA256) { continue }
+    $workerPhase = 'hash'
+    try { $digest = (Get-FileHash -LiteralPath $image -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { $workerPhase = 'wait'; continue }
+    if ($digest -ne $env:SDK_SHA256) { $workerPhase = 'wait'; continue }
     $found = [pscustomobject]@{pid=[int]$started.ProcessID;parentPid=[int]$started.ParentProcessID;path=$image;sha256=$digest;observedAt=[DateTime]::UtcNow.ToString('o')}
     break
   }
   ConvertTo-Json -InputObject $found -Compress
+} catch {
+  [pscustomobject]@{error=$true;phase=$workerPhase;exception=$_.Exception.GetType().Name;category=$_.CategoryInfo.Category.ToString()} | ConvertTo-Json -Compress
+  exit 1
 } finally {
-  Unregister-Event -SourceIdentifier OmpProductionSdk
+  if ($null -ne $subscription) { Unregister-Event -SourceIdentifier OmpProductionSdk }
 }`
   let markReady, finish
   const ready = new Promise((done) => {
@@ -291,43 +303,74 @@ try {
     child.kill()
   }
   const startup = setTimeout(() => {
+    diagnostic.status = "readiness-timeout"
     markReady(false)
     stop()
   }, 15_000)
-  const deadline = setTimeout(stop, 190_000)
+  const deadline = setTimeout(() => {
+    diagnostic.status = "observation-timeout"
+    stop()
+  }, 190_000)
   let text = "",
     armed = false,
     tooLarge = false
-  child.stdout.on("data", (bytes) => {
-    if (text.length + bytes.length > 16 * 1024) {
+  child.stdout.setEncoding("utf8")
+  child.stdout.on("data", (chunk) => {
+    if (text.length + chunk.length > 16 * 1024) {
       tooLarge = true
+      diagnostic.status = "output-overflow"
       stop()
       return
     }
-    text += bytes.toString("utf8")
+    text = (text + chunk).replace(/^\uFEFF/, "")
     const signal = !armed && /^READY\r?\n/.exec(text)
     if (signal) {
       text = text.slice(signal[0].length)
       armed = true
+      diagnostic.ready = true
+      diagnostic.status = "armed"
       clearTimeout(startup)
       markReady(true)
     }
   })
   child.once("error", () => {
+    diagnostic.status = "spawn-failed"
     markReady(false)
     finish(null)
   })
   child.once("close", (code) => {
+    diagnostic.exitCode = Number.isSafeInteger(code) ? code : null
+    diagnostic.stdoutChars = text.length
     markReady(false)
     try {
-      const row = code === 0 && armed && !tooLarge ? JSON.parse(text) : null
-      finish(
+      const row = !tooLarge ? JSON.parse(text.replace(/^\uFEFF/, "")) : null
+      if (row?.error === true) {
+        diagnostic.status = "worker-failed"
+        diagnostic.workerPhase = ["register", "wait", "hash"].includes(row.phase)
+          ? row.phase
+          : "unknown"
+        diagnostic.exception = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(row.exception ?? "")
+          ? row.exception
+          : "OtherError"
+        diagnostic.category = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(row.category ?? "")
+          ? row.category
+          : "OtherCategory"
+      }
+      const matched =
+        code === 0 &&
+        armed &&
+        !tooLarge &&
         row &&
-          Number.isSafeInteger(row.pid) &&
-          row.pid > 0 &&
-          Number.isSafeInteger(row.parentPid) &&
-          inside(temp, resolve(row.path)) &&
-          row.sha256 === expectedSha256
+        Number.isSafeInteger(row.pid) &&
+        row.pid > 0 &&
+        Number.isSafeInteger(row.parentPid) &&
+        inside(temp, resolve(row.path)) &&
+        row.sha256 === expectedSha256
+      if (matched) diagnostic.status = "observed"
+      else if (["starting", "armed"].includes(diagnostic.status))
+        diagnostic.status = armed ? "not-observed" : "unarmed-exit"
+      finish(
+        matched
           ? {
               pid: row.pid,
               parentPid: row.parentPid,
@@ -339,6 +382,16 @@ try {
           : null,
       )
     } catch {
+      if (
+        ![
+          "readiness-timeout",
+          "observation-timeout",
+          "output-overflow",
+          "spawn-failed",
+          "worker-failed",
+        ].includes(diagnostic.status)
+      )
+        diagnostic.status = "invalid-output"
       finish(null)
     }
   })
@@ -386,6 +439,11 @@ async function native(request, retry = false) {
               "visibleNodes",
               "matchedTexts",
               "selectionMenus",
+              "controlNameMatches",
+              "controlRoleMatches",
+              "controlWasVisible",
+              "actualValueChars",
+              "expectedValueChars",
             ]
               .filter((key) => Number.isSafeInteger(value.counts?.[key]))
               .map((key) => [key, value.counts[key]]),

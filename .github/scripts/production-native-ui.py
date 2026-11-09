@@ -291,17 +291,28 @@ def main(q):
             return n.getState().contains(pyatspi.STATE_SHOWING)
 
         def control(label, kind, require_enabled=True):
+            global phase
+            previous_phase = phase
+            phase = "linux-control-name"
             roles = {"button": {"push button"}, "tab": {"page tab"},
-                     "combo": {"combo box"}, "edit": {"entry", "text"}}
-            found = [n for n in nodes() if name(n) == label
-                     and n.getRoleName() in roles[kind]]
+                     "combo": {"combo box"}, "edit": {"entry"}}
+            named = [n for n in nodes() if name(n) == label]
+            counts["controlNameMatches"] = len(named)
+            phase = "linux-control-role"
+            found = [n for n in named if n.getRoleName() in roles[kind]]
+            counts["controlRoleMatches"] = len(found)
             require(len(found) == 1)
-            if require_enabled:
-                require(found[0].getState().contains(pyatspi.STATE_ENABLED))
             node = found[0]
+            if require_enabled:
+                phase = "linux-control-enabled"
+                require(node.getState().contains(pyatspi.STATE_ENABLED))
+            counts["controlWasVisible"] = int(visible(node))
             if kind in {"combo", "edit"} or not visible(node):
+                phase = "linux-control-scroll"
                 require(node.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE))
+            phase = "linux-control-visible"
             wait_for(lambda: visible(node))
+            phase = previous_phase
             return node
 
         def click(n):
@@ -332,7 +343,8 @@ def main(q):
 
         def value(n):
             global phase
-            if n.getRoleName() in {"entry", "text"}:
+            if n.getRoleName() == "entry":
+                phase = "linux-value-text"
                 text = n.queryText()
                 return text.getText(0, text.characterCount)
             # WebKit's MenuListPopup, not the combo, owns the Selection interface.
@@ -436,6 +448,9 @@ def main(q):
     elif operation == "value":
         phase = "value-observation"
         actual = value(control(q["name"], q.get("kind", "combo")))
+        phase = "value-compare"
+        counts["actualValueChars"] = len(actual)
+        counts["expectedValueChars"] = len(q["expected"])
         require(actual == q["expected"])
         identity["value"] = actual
     elif operation == "capture":
