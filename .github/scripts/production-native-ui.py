@@ -356,18 +356,14 @@ def main(q):
             phase = "linux-control-name"
             roles = {"button": {"push button"}, "tab": {"page tab"},
                      "combo": {"combo box"}, "edit": {"entry"}}
-            named = [n for n in nodes() if name(n) == label]
-            counts["controlNameMatches"] = len(named)
-            candidates = named
             if kind == "edit":
-                phase = "linux-control-label"
-                candidates = []
-                for label_node in named:
-                    for relation in label_node.getRelationSet():
-                        if relation.getRelationType() == pyatspi.RELATION_LABEL_FOR:
-                            candidates.extend(relation.getTarget(index)
-                                              for index in range(relation.getNTargets()))
-                counts["controlLabelTargets"] = len(candidates)
+                phase = "linux-control-id"
+                native_id = q["nativeId"]
+                candidates = [n for n in nodes() if n.get_attributes().get("id") == native_id]
+                counts["controlIdMatches"] = len(candidates)
+            else:
+                candidates = [n for n in nodes() if name(n) == label]
+                counts["controlNameMatches"] = len(candidates)
             phase = "linux-control-role"
             found = [n for n in candidates if n.getRoleName() in roles[kind]]
             counts["controlRoleMatches"] = len(found)
