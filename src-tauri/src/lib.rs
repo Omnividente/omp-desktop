@@ -1291,6 +1291,11 @@ fn configure_linux_ca_bundle() {}
 pub fn run() {
     configure_linux_ca_bundle();
     let context = tauri::generate_context!();
+    #[cfg(feature = "updater-e2e")]
+    if let Err(error) = updater_e2e::prepare_production_launch(context.config()) {
+        eprintln!("Production updater probe launch refused: {error}");
+        std::process::exit(2);
+    }
     #[cfg(all(windows, feature = "updater-e2e"))]
     if let Err(error) = updater_e2e::prepare_windows_channels_launch(&context.config().identifier) {
         eprintln!("Updater E2E launch context failed: {error}");

@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       target_sha:
-        description: Exact immutable production v0.9.11 source commit (independent of harness_sha)
+        description: Exact immutable production v0.9.12 source commit (independent of harness_sha)
         required: true
         type: string
       target_release_id:
-        description: Exact published immutable v0.9.11 prerelease ID
+        description: Exact published immutable v0.9.12 prerelease ID
         required: true
         type: string
       target_run_id:
@@ -151,8 +151,91 @@ jobs:
           path: |
             ${{ env.PRODUCTION_EVIDENCE_DIR }}/**/*.json
             ${{ env.PRODUCTION_EVIDENCE_DIR }}/**/*.png
-            ${{ env.PRODUCTION_EVIDENCE_DIR }}/**/*.log
           if-no-files-found: warn
           retention-days: 3
           # Downloads, installed binaries, synthetic profiles/session roots and full
           # DOM/user logs are outside this directory and must never be uploaded.
+
+  linux-production-install:
+    name: Production normal AppImage replacement native UI and state (Ubuntu 22.04)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      PRODUCTION_HARNESS_SHA: ${{ inputs.harness_sha }}
+      PRODUCTION_TARGET_SHA: ${{ inputs.target_sha }}
+      PRODUCTION_TARGET_RELEASE_ID: ${{ inputs.target_release_id }}
+      PRODUCTION_TARGET_RUN_ID: ${{ inputs.target_run_id }}
+      PRODUCTION_NATIVE_MODE: normal
+      PRODUCTION_NATIVE_PYTHON: /usr/bin/python3
+    steps:
+      - name: Admit exact independent signed harness on fresh hosted Linux VM
+        shell: bash
+        env:
+          WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_SOURCE_REF: ${{ github.workflow_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == Omnividente/omp-desktop && "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$RUNNER_ENVIRONMENT" == github-hosted && "$RUNNER_OS" == Linux ]]
+          [[ "$PRODUCTION_TARGET_SHA" =~ ^[0-9a-f]{40}$ && "$PRODUCTION_HARNESS_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCTION_TARGET_RELEASE_ID" =~ ^[1-9][0-9]*$ && "$PRODUCTION_TARGET_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$GITHUB_SHA" == "$PRODUCTION_HARNESS_SHA" && "$WORKFLOW_SOURCE_SHA" == "$PRODUCTION_HARNESS_SHA" ]]
+          [[ "$WORKFLOW_SOURCE_REF" == Omnividente/omp-desktop/.github/workflows/production-install-smoke.yml@* ]]
+          signature=$(gh api "repos/$GITHUB_REPOSITORY/commits/$PRODUCTION_HARNESS_SHA" --jq '.commit.verification | .verified == true and .reason == "valid"')
+          [[ "$signature" == true ]]
+          root="$RUNNER_TEMP/production-appimage-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "PRODUCTION_WORK_DIR=$root/downloads" >> "$GITHUB_ENV"
+          echo "PRODUCTION_EVIDENCE_DIR=$root/evidence" >> "$GITHUB_ENV"
+          echo "PRODUCTION_SMOKE_WORK_DIR=$root/scenario" >> "$GITHUB_ENV"
+      - name: Check out exact immutable production target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: production-target
+      - name: Check out exact signed acceptance harness
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.harness_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: acceptance-harness
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Acquire all immutable production assets with unchanged cryptographic verifier
+        id: acquire
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs
+      - name: Install actual native runtime and accessibility dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick
+      - name: Exercise real baseline UI Save AppImage replacement and target native persistence
+        working-directory: production-target
+        env:
+          PRODUCTION_RECEIPT: ${{ env.PRODUCTION_EVIDENCE_DIR }}/verified-production-assets.json
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' dbus-run-session -- bash -euc '
+            openbox >/dev/null 2>&1 &
+            node ../acceptance-harness/.github/scripts/run-production-native-smoke.mjs
+          '
+      - name: Recheck frozen metadata and every immutable asset after native scenario
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs --recheck
+      - name: Upload bounded synthetic native Linux proofs only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: production-normal-appimage-proof
+          path: |
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/*.json
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/*.png
+          if-no-files-found: warn
+          retention-days: 3

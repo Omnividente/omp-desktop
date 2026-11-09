@@ -96,6 +96,194 @@ pub(crate) fn prepare_windows_channels_launch(identifier: &str) -> Result<(), St
     Ok(())
 }
 
+// Private diagnostic client only. No production endpoint/key/SDK override is
+// installed here. The ordinary TARGET is never built with this feature.
+pub(crate) fn prepare_production_launch(config: &tauri::Config) -> Result<(), String> {
+    let mode = process_value("OMP_DESKTOP_UPDATER_E2E_MODE", "--updater-e2e-mode=");
+    if option_env!("OMP_PRODUCTION_TARGET_SHA").is_some() {
+        require(
+            mode.as_deref() == Some("production"),
+            "Production diagnostic binary refuses ordinary desktop startup",
+        )?;
+    }
+    if mode.as_deref() != Some("production") {
+        return Ok(());
+    }
+    production_guard(config).map(|_| ())
+}
+
+fn production_guard(config: &tauri::Config) -> Result<PathBuf, String> {
+    require(
+        env::var("GITHUB_ACTIONS").as_deref() == Ok("true")
+            && env::var("RUNNER_ENVIRONMENT").as_deref() == Ok("github-hosted"),
+        "Production probe requires a fresh hosted VM",
+    )?;
+    require(
+        env::var_os("GH_TOKEN").is_none()
+            && env::var_os("GITHUB_TOKEN").is_none()
+            && env::var_os("OMP_DESKTOP_UPDATER_E2E_RELEASES_URL").is_none()
+            && !env::args().any(|arg| arg.starts_with("--updater-e2e-releases-url=")),
+        "Production probe refuses credentials and custom metadata sources",
+    )?;
+    let marker =
+        PathBuf::from(process_value(MARKER_ENV, MARKER_ARG).ok_or("Missing production marker")?);
+    require(
+        marker.is_absolute() && !marker.exists(),
+        "Production marker must be fresh",
+    )?;
+    let root = marker
+        .parent()
+        .ok_or("Missing probe root")?
+        .canonicalize()
+        .map_err(|_| "Missing canonical probe root")?;
+    let temp = PathBuf::from(env::var_os("RUNNER_TEMP").ok_or("Missing hosted temp")?)
+        .canonicalize()
+        .map_err(|_| "Missing canonical hosted temp")?;
+    require(
+        root.starts_with(&temp) && root != temp,
+        "Probe root must be owned hosted temp",
+    )?;
+    let guard: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("production-probe-guard.json"))
+            .map_err(|_| "Missing production guard")?,
+    )
+    .map_err(|_| "Invalid production guard")?;
+    let target =
+        option_env!("OMP_PRODUCTION_TARGET_SHA").ok_or("Not a production diagnostic build")?;
+    let harness = option_env!("OMP_PRODUCTION_HARNESS_SHA").ok_or("Missing diagnostic source")?;
+    let release = option_env!("OMP_PRODUCTION_RELEASE_ID").ok_or("Missing immutable release ID")?;
+    require(
+        [target, harness]
+            .iter()
+            .all(|sha| sha.len() == 40 && sha.bytes().all(|b| b.is_ascii_hexdigit()))
+            && guard["targetSha"].as_str() == Some(target)
+            && guard["harnessSha"].as_str() == Some(harness)
+            && guard["releaseId"].as_str() == Some(release)
+            && guard["targetVersion"].as_str() == Some("0.9.12")
+            && guard["probeVersion"].as_str() == Some("0.9.11"),
+        "Production probe build/guard identities differ",
+    )?;
+    require(
+        config.identifier == "com.ompdesk.desktop" && config.version.as_deref() == Some("0.9.11"),
+        "Production probe requires unchanged production identity and diagnostic floor",
+    )?;
+    let installed = if cfg!(target_os = "linux") {
+        PathBuf::from(env::var_os("APPIMAGE").ok_or("Production probe requires a real AppImage")?)
+    } else {
+        env::current_exe().map_err(|_| "Missing probe executable")?
+    }
+    .canonicalize()
+    .map_err(|_| "Missing installed probe")?;
+    require(
+        installed.starts_with(&root) && installed != root,
+        "Probe executable escaped owned root",
+    )?;
+    Ok(marker)
+}
+
+async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result<(), String> {
+    use crate::desktop_updater::{self, InstallState, PolicyState};
+    // The early startup guard has already run before Tauri initializes paths.
+    require(
+        version == "0.9.11",
+        "Only the diagnostic floor may run production probe",
+    )?;
+    let root = marker.parent().ok_or("Missing production root")?;
+    let guard: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("production-probe-guard.json")).map_err(|_| "Missing guard")?,
+    )
+    .map_err(|_| "Invalid guard")?;
+    let settings_path = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "Missing native config")?
+        .join("settings.json");
+    require(
+        settings_path
+            == PathBuf::from(
+                guard["settingsFile"]
+                    .as_str()
+                    .ok_or("Missing settings file")?,
+            ),
+        "Probe is not using the fresh native production profile",
+    )?;
+    let snapshot =
+        crate::settings::settings_snapshot(app, &app.state::<crate::settings::SettingsState>())?;
+    require(
+        !snapshot.desktop_update_prereleases,
+        "Probe requires explicit fresh opt-in",
+    )?;
+    record_channel(
+        marker,
+        "production-started",
+        version,
+        serde_json::json!({
+            "targetSource":option_env!("OMP_PRODUCTION_TARGET_SHA"),
+            "probeSource":option_env!("OMP_PRODUCTION_HARNESS_SHA"),
+            "settingsFile":settings_path,
+            "metadataSource":"https://api.github.com/repos/Omnividente/omp-desktop/releases",
+            "trust":"production",
+        }),
+    )?;
+    let stable = desktop_updater::check(app).await?;
+    require(
+        stable.policy_state == PolicyState::Ready
+            && stable.include_prereleases == Some(false)
+            && stable.update.is_none(),
+        "Stable-only diagnostic floor unexpectedly offered an update",
+    )?;
+    let request = serde_json::from_value(serde_json::json!({
+        "update":{"desktopUpdatePrereleases":true},"ompConfig":null,
+    }))
+    .map_err(|_| "Invalid production opt-in")?;
+    crate::save_settings_bundle(request, app.clone())
+        .await
+        .map_err(|_| "Production opt-in save failed")?;
+    let candidate = desktop_updater::check(app)
+        .await?
+        .update
+        .ok_or("Production candidate not discovered")?;
+    require(
+        candidate.version == "0.9.12"
+            && candidate.prerelease
+            && Some(candidate.release_id.as_str()) == option_env!("OMP_PRODUCTION_RELEASE_ID")
+            && candidate.release_url
+                == "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.12",
+        "Native production discovery returned a different immutable target",
+    )?;
+    record_channel(
+        marker,
+        "production-candidate",
+        version,
+        serde_json::json!({
+            "candidateId":candidate.candidate_id,"version":candidate.version,
+            "releaseId":candidate.release_id,"releaseUrl":candidate.release_url,"prerelease":candidate.prerelease,
+        }),
+    )?;
+    // Controller attests no writes to the owned executable after this event.
+    // SDK verifies the actual production signature and installs real release bytes.
+    record_channel(
+        marker,
+        "production-install-requested",
+        version,
+        serde_json::json!({"target":"0.9.12"}),
+    )?;
+    let installed = desktop_updater::install(app, &candidate.candidate_id).await?;
+    require(
+        installed.install_state == InstallState::Installed,
+        "Native production install unconfirmed",
+    )?;
+    record_channel(
+        marker,
+        "production-installed",
+        version,
+        serde_json::json!({"target":"0.9.12"}),
+    )?;
+    // Windows SDK exits into NSIS and relaunches independently. Linux returns
+    // here and Tauri restarts the replaced AppImage. TARGET emits no test marker.
+    app.restart()
+}
+
 pub fn start(app: AppHandle) {
     let Some(marker) = process_value(MARKER_ENV, MARKER_ARG) else {
         return;
@@ -113,6 +301,11 @@ pub fn start(app: AppHandle) {
 }
 
 async fn run(app: &AppHandle, marker: &Path, version: &str) -> Result<(), String> {
+    if process_value("OMP_DESKTOP_UPDATER_E2E_MODE", "--updater-e2e-mode=").as_deref()
+        == Some("production")
+    {
+        return run_production(app, marker, version).await;
+    }
     if process_value("OMP_DESKTOP_UPDATER_E2E_MODE", "--updater-e2e-mode=").as_deref()
         == Some("channels")
     {

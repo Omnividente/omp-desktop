@@ -356,8 +356,10 @@ async function checkCheckout(targetSha) {
         process.env.PRODUCTION_HARNESS_SHA === harnessSha &&
         process.env.GITHUB_SHA === harnessSha &&
         process.env.GITHUB_WORKFLOW_SHA === harnessSha &&
-        process.env.GITHUB_WORKFLOW_REF?.startsWith(
-          `${repository}/.github/workflows/production-install-smoke.yml@`,
+        ["production-install-smoke.yml", "production-updater-smoke.yml"].some((workflow) =>
+          process.env.GITHUB_WORKFLOW_REF?.startsWith(
+            `${repository}/.github/workflows/${workflow}@`,
+          ),
         ),
       "Dispatch/workflow source SHA does not match signed acceptance harness",
     )
@@ -367,15 +369,25 @@ async function checkCheckout(targetSha) {
     [targetRoot, targetSha],
     [harnessRoot, harnessSha],
   ]) {
-    for (const path of [
-      ".github/scripts/prepare-production-assets.mjs",
-      ".github/scripts/verify-release-assets.mjs",
-      ".github/scripts/run-production-windows-smoke.mjs",
-      ".github/workflows/production-install-smoke.yml",
-      "package.json",
-      "src-tauri/tauri.conf.json",
-      "src-tauri/Cargo.toml",
-    ]) {
+    // Bind the complete executed acquisition/harness surface, including native
+    // adapters added independently after an immutable target was published.
+    const paths = (
+      await git(
+        root,
+        "ls-files",
+        ".github/scripts",
+        ".github/workflows",
+        "src-tauri/src/updater_e2e.rs",
+        "src-tauri/src/lib.rs",
+        "package.json",
+        "src-tauri/tauri.conf.json",
+        "src-tauri/Cargo.toml",
+      )
+    )
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+    for (const path of paths) {
       const checkedOut = (await readFile(join(root, path), "utf8")).replaceAll("\r\n", "\n")
       const committed = (await git(root, "show", `${sha}:${path}`)).replaceAll("\r\n", "\n")
       requireCondition(
@@ -390,9 +402,17 @@ async function checkCheckout(targetSha) {
     verifierSha256 === (await hashFile(join(harnessRoot, verifier))),
     "Cryptographic verifier bytes differ from immutable production source",
   )
+  const helperDigests = {}
+  for (const path of (await git(harnessRoot, "ls-files", ".github/scripts", ".github/workflows"))
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean))
+    helperDigests[path] = await hashFile(join(harnessRoot, path))
   return {
     production: { commit: targetSha, root: targetRoot },
     harness: { commit: harnessSha, root: harnessRoot },
+    workflowRef: process.env.GITHUB_WORKFLOW_REF,
+    helperDigests,
     verifierSha256,
   }
 }
@@ -402,9 +422,9 @@ async function productionKey() {
   const packageManifest = JSON.parse(await readFile(join(targetRoot, "package.json"), "utf8"))
   const cargo = await readFile(join(targetRoot, "src-tauri/Cargo.toml"), "utf8")
   requireCondition(
-    config.version === "0.9.11" &&
-      packageManifest.version === "0.9.11" &&
-      cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === "0.9.11",
+    config.version === "0.9.12" &&
+      packageManifest.version === "0.9.12" &&
+      cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === "0.9.12",
     "Target source version mismatch",
   )
   const source = await api(`/contents/src-tauri/tauri.conf.json?ref=${baseIdentity.commit}`)
@@ -580,8 +600,8 @@ async function main() {
   )
   mode = process.argv[2] === "--recheck" ? "recheck" : "prepare"
   const target = {
-    tag: "v0.9.11",
-    version: "0.9.11",
+    tag: "v0.9.12",
+    version: "0.9.12",
     commit: process.env.PRODUCTION_TARGET_SHA ?? "",
     releaseId: inputId("PRODUCTION_TARGET_RELEASE_ID"),
     releaseRunId: inputId("PRODUCTION_TARGET_RUN_ID"),

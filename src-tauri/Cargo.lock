@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "omp-desktop"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "base64 0.23.1",
  "fs2",
