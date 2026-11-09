@@ -76,7 +76,6 @@ def rendered_version(image_path, ocr_path, expected, directory):
     data = tool.parent / "tessdata"
     if (data / "eng.traineddata").is_file():
         args.extend(["--tessdata-dir", str(data)])
-    args.extend(["-c", "tessedit_char_whitelist=0123456789.v"])
     response = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               timeout=15, check=False)
     require(response.returncode == 0 and len(response.stdout) <= 256)
