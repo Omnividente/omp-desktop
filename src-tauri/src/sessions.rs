@@ -953,7 +953,7 @@ fn import_session_inactive(
     active_paths: &HashSet<String>,
 ) -> Result<ImportItemResult, String> {
     let source = validated_external_import_source(&request.path)?;
-    let target = canonical_project_path(request.target_cwd.trim())?;
+    let target = canonical_project_path(&request.target_cwd)?;
     let target_cwd = target.to_string_lossy().into_owned();
     let bytes = read_bounded_import_source(&source)?;
     let _import_guard = IMPORT_TRANSACTION_LOCK
@@ -5714,6 +5714,167 @@ mod tests {
                     .iter()
                     .any(|entry| entry.text == expected));
             }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_preserves_literal_target_folder_and_neighbor_history() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-literal-target-{}-{nonce}",
+            std::process::id()
+        ));
+        let neighbor = root.join("project");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&neighbor).unwrap();
+        let original = concat!(
+            r#"{"type":"session","id":"literal-target","cwd":"/synthetic/source"}"#,
+            "\n"
+        );
+        let updated = format!(
+            "{original}{}\n",
+            r#"{"type":"message","id":"new-message","message":{"role":"user","content":"new source"}}"#
+        );
+        for (suffix_index, suffix) in ["\u{00a0}", "\u{2003}"].iter().enumerate() {
+            let target = root.join(format!("project{suffix}"));
+            fs::create_dir_all(&target).unwrap();
+            let target_cwd = super::canonical_project_path(target.to_str().unwrap())
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert_ne!(
+                target.canonicalize().unwrap(),
+                neighbor.canonicalize().unwrap()
+            );
+            for (mode_index, mode) in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy]
+                .into_iter()
+                .enumerate()
+            {
+                let session_root = root.join(format!("sessions-{suffix_index}-{mode_index}"));
+                fs::write(&source, original).unwrap();
+                let neighbor_import = import_session(
+                    &ImportSessionRequest {
+                        path: source.to_string_lossy().into_owned(),
+                        target_cwd: neighbor.to_string_lossy().into_owned(),
+                        mode: ImportMode::Skip,
+                    },
+                    &session_root,
+                )
+                .unwrap();
+                let neighbor_path = neighbor_import.destination_path.unwrap();
+                let neighbor_bytes = fs::read(&neighbor_path).unwrap();
+                fs::write(&source, &updated).unwrap();
+                let result = import_session(
+                    &ImportSessionRequest {
+                        path: source.to_string_lossy().into_owned(),
+                        target_cwd: target.to_string_lossy().into_owned(),
+                        mode,
+                    },
+                    &session_root,
+                )
+                .unwrap();
+                let destination = result.destination_path.unwrap();
+                assert_eq!(
+                    Path::new(&destination).parent().unwrap(),
+                    session_root.join(encode_session_dir_name(&target_cwd))
+                );
+                let body = fs::read_to_string(&destination).unwrap();
+                let header = body
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .find(|value| value["type"] == "session")
+                    .unwrap();
+                assert_eq!(header["cwd"].as_str(), Some(target_cwd.as_str()));
+                assert!(body.contains("new source"));
+                assert_eq!(fs::read(&neighbor_path).unwrap(), neighbor_bytes);
+                assert_eq!(
+                    fs::read_dir(Path::new(&neighbor_path).parent().unwrap())
+                        .unwrap()
+                        .count(),
+                    1
+                );
+                assert_eq!(fs::read_to_string(&source).unwrap(), updated);
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_accepts_literal_target_without_a_trimmed_neighbor() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-literal-only-{}-{nonce}",
+            std::process::id()
+        ));
+        let target = root.join("project\u{00a0}");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(
+            &source,
+            r#"{"type":"session","id":"literal-only","cwd":"/synthetic/source"}"#,
+        )
+        .unwrap();
+        assert!(!root.join("project").exists());
+        for (index, mode) in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy]
+            .into_iter()
+            .enumerate()
+        {
+            let result = import_session(
+                &ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: target.to_string_lossy().into_owned(),
+                    mode,
+                },
+                &root.join(format!("sessions-{index}")),
+            );
+            assert!(result.is_ok());
+        }
+        assert!(!root.join("project").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_rejects_missing_literal_target_without_using_a_neighbor() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-missing-literal-{}-{nonce}",
+            std::process::id()
+        ));
+        let neighbor = root.join("project");
+        let target = root.join("project\u{00a0}");
+        let source = root.join("source.jsonl");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&neighbor).unwrap();
+        let bytes = r#"{"type":"session","id":"missing-literal","cwd":"/synthetic/source"}"#;
+        fs::write(&source, bytes).unwrap();
+        assert!(!target.exists());
+        for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+            let result = import_sessions(
+                &[ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: target.to_string_lossy().into_owned(),
+                    mode,
+                }],
+                &session_root,
+                &HashSet::new(),
+            );
+            assert_eq!(result[0].status, ImportItemStatus::Failed);
+            assert_eq!(result[0].destination_path, None);
+            assert!(!session_root.exists());
+            assert_eq!(fs::read_to_string(&source).unwrap(), bytes);
         }
         fs::remove_dir_all(root).unwrap();
     }
