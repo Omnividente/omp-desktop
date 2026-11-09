@@ -1,13 +1,15 @@
-"""One bounded OS-accessibility operation on an owned production window.
+"""One bounded native-window operation using accessibility and version-pixel OCR.
 No WebDriver, injected JavaScript, CDP, target features, or success markers.
 stdin/stdout: one JSON request/result. Failure exposes only phase/class/counts, never raw errors or a tree.
 """
 import json
 import hashlib
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 phase = "request-admission"
 counts = {}
@@ -35,6 +37,46 @@ def file_hash(path):
 
 def within(root, path):
     return path != root and root in path.parents
+
+
+def evidence_root(q):
+    directory = Path(q["evidence"]).resolve(strict=True)
+    require(within(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True), directory))
+    return directory
+
+
+def rendered_version(image_path, ocr_path, expected, directory):
+    """Recognize pixels independently; expected is used only for the final comparison."""
+    from PIL import Image, ImageOps
+    require(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", expected))
+    require(Path(ocr_path).is_absolute())
+    tool = Path(ocr_path).resolve(strict=True)
+    require(tool.is_file() and tool.name.lower() in {"tesseract", "tesseract.exe"})
+    prepared = Path(directory) / "version-ocr.png"
+    with Image.open(image_path) as image:
+        # Remove widget-border strokes and normalize the observed background
+        # to white; the expected version never affects pixel processing.
+        pixels = ImageOps.grayscale(image.crop((2, 2, image.width - 2, image.height - 2)))
+        histogram = pixels.histogram()
+        pixels = ImageOps.autocontrast(pixels)
+        if histogram.index(max(histogram)) < 128:
+            pixels = ImageOps.invert(pixels)
+        pixels = pixels.resize((pixels.width * 6, pixels.height * 6))
+        ImageOps.expand(pixels, border=10, fill=255).save(prepared, dpi=(300, 300))
+    args = [str(tool), str(prepared), "stdout", "-l", "eng", "--psm", "13"]
+    data = tool.parent / "tessdata"
+    if (data / "eng.traineddata").is_file():
+        args.extend(["--tessdata-dir", str(data)])
+    args.extend(["-c", "tessedit_char_whitelist=0123456789.v"])
+    response = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=15, check=False)
+    require(response.returncode == 0 and len(response.stdout) <= 256)
+    text = "".join(response.stdout.decode("utf-8").split())
+    versions = re.findall(r"(?<![0-9.])v?([0-9]+\.[0-9]+\.[0-9]+)(?![0-9.])", text)
+    require(len(versions) == 1)
+    observed = versions[0]
+    require(observed == expected)
+    return observed
 
 
 def main(q):
@@ -112,11 +154,13 @@ def main(q):
         def visible(n):
             return n.is_visible()
 
-        def control(label, kind):
+        def control(label, kind, require_enabled=True):
             types = {"button": "Button", "tab": "TabItem", "combo": "ComboBox", "edit": "Edit"}
             found = [n for n in nodes() if name(n) == label
                      and n.element_info.control_type == types[kind]]
-            require(len(found) == 1 and found[0].is_enabled())
+            require(len(found) == 1)
+            if require_enabled:
+                require(found[0].is_enabled())
             node = found[0]
             if not visible(node):
                 node.iface_scroll_item.ScrollIntoView()
@@ -136,6 +180,10 @@ def main(q):
             selection = n.iface_selection.GetCurrentSelection()
             require(selection.Length == 1)
             return selection.GetElement(0).CurrentName
+
+        def rectangle(n):
+            r = n.rectangle()
+            return (r.left, r.top, r.right, r.bottom)
 
         def capture(path):
             require(native_pid(native_window.handle) == pid and owner_process.is_running())
@@ -233,12 +281,14 @@ def main(q):
         def visible(n):
             return n.getState().contains(pyatspi.STATE_SHOWING)
 
-        def control(label, kind):
+        def control(label, kind, require_enabled=True):
             roles = {"button": {"push button"}, "tab": {"page tab"},
                      "combo": {"combo box"}, "edit": {"entry", "text"}}
             found = [n for n in nodes() if name(n) == label
                      and n.getRoleName() in roles[kind]]
-            require(len(found) == 1 and found[0].getState().contains(pyatspi.STATE_ENABLED))
+            require(len(found) == 1)
+            if require_enabled:
+                require(found[0].getState().contains(pyatspi.STATE_ENABLED))
             node = found[0]
             if not visible(node):
                 require(node.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE))
@@ -262,6 +312,10 @@ def main(q):
             selection = n.querySelection()
             require(selection.nSelectedChildren == 1)
             return selection.getSelectedChild(0).name
+
+        def rectangle(n):
+            r = n.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            return (r.x, r.y, r.x + r.width, r.y + r.height)
 
         def capture(path):
             require(process_start_ticks() == started_at)
@@ -307,6 +361,42 @@ def main(q):
         counts["matchedTexts"] = sum(any(needle in text for text in texts) for needle in q["texts"])
         require(counts["matchedTexts"] == len(q["texts"]))
         identity["observedTexts"] = q["texts"]
+        if q.get("version"):
+            phase = "version-capture"
+            from PIL import Image
+            node = control(q["versionControlName"], "button", require_enabled=False)
+            box = rectangle(node)
+            frame = identity["bounds"]
+            require(frame[0] <= box[0] < box[2] <= frame[2]
+                    and frame[1] <= box[1] < box[3] <= frame[3])
+            require(16 <= box[2] - box[0] <= 400 and 8 <= box[3] - box[1] <= 100)
+            evidence = evidence_root(q)
+            with tempfile.TemporaryDirectory(prefix="native-version-", dir=evidence) as owned:
+                directory = Path(owned)
+                window_image = directory / "window.png"
+                version_image = directory / "version.png"
+                capture(window_image)
+                with Image.open(window_image) as image:
+                    require(image.size == (frame[2] - frame[0], frame[3] - frame[1]))
+                    image.crop((box[0] - frame[0], box[1] - frame[1],
+                                box[2] - frame[0], box[3] - frame[1])).save(version_image)
+                phase = "version-ocr"
+                try:
+                    observed = rendered_version(version_image, q["ocrExecutable"],
+                                                q["version"], directory)
+                except Exception:
+                    # A first bounded version crop aids diagnosis; it is never success evidence.
+                    failure_image = evidence / "native-version-failure.png"
+                    try:
+                        with failure_image.open("xb") as output, Image.open(version_image) as image:
+                            image.save(output, format="PNG")
+                    except OSError:
+                        pass
+                    raise
+                identity["observedVersion"] = observed
+                identity["versionMethod"] = "native-pixel-ocr"
+                identity["versionCropBounds"] = list(box)
+                identity["versionCropSha256"] = file_hash(version_image)
     elif operation == "click":
         click(control(q["name"], q["kind"]))
     elif operation == "select":
@@ -330,8 +420,7 @@ def main(q):
     if q.get("screenshot"):
         phase = "screenshot"
         path = Path(q["screenshot"])
-        evidence = Path(q["evidence"]).resolve(strict=True)
-        require(within(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True), evidence))
+        evidence = evidence_root(q)
         require(path.parent.resolve() == evidence and not path.exists() and path.suffix == ".png")
         capture(path)
     return identity

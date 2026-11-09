@@ -213,9 +213,14 @@ jobs:
         working-directory: production-target
         run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs
       - name: Install actual native runtime and accessibility dependencies
+        # Ubuntu-managed Jammy OCR/English packages; apt revisions are not frozen.
+        # https://packages.ubuntu.com/jammy/tesseract-ocr
+        # https://packages.ubuntu.com/jammy/tesseract-ocr-eng
+        # Observer-only on this disposable Linux VM; normal Windows retains CDP without OCR.
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil x11-utils xdotool wmctrl openbox imagemagick
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil x11-utils xdotool wmctrl openbox imagemagick tesseract-ocr tesseract-ocr-eng
+          echo 'PRODUCTION_NATIVE_TESSERACT=/usr/bin/tesseract' >> "$GITHUB_ENV"
       - name: Exercise real baseline UI Save AppImage replacement and target native persistence
         working-directory: production-target
         env:

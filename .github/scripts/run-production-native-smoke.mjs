@@ -1,6 +1,6 @@
 // Production Linux normal AppImage replacement OR separate Windows/Linux
 // production-trust broker/SDK update. Every target is an unmodified release asset.
-// Native UI is observed via OS accessibility, including FIRST SDK relaunch.
+// Native UI uses OS accessibility and native-pixel version OCR, including FIRST SDK relaunch.
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -324,19 +324,31 @@ async function native(request, retry = false) {
   return value
 }
 const click = (name, kind = "button") => native({ operation: "click", pid: activePid, name, kind })
-async function observe(texts, label, excludePids = []) {
-  const data = await native(
-    { operation: "observe", pid: activePid ?? undefined, texts, excludePids },
-    true,
-  )
+async function observe(texts, label, { version, excludePids = [] } = {}) {
+  const request = { operation: "observe", pid: activePid ?? undefined, texts, excludePids }
+  if (version !== undefined) {
+    request.version = version
+    // English version-button aria-label verified in both v0.9.10 and TARGET sources.
+    request.versionControlName = "Check for OMP Desktop updates"
+    request.ocrExecutable = required("PRODUCTION_NATIVE_TESSERACT")
+    assert(isAbsolute(request.ocrExecutable), "Native OCR executable must be an absolute path")
+  }
+  const data = await native(request, true)
+  if (version !== undefined) {
+    assert.equal(data.observedVersion, version)
+    assert.equal(data.versionMethod, "native-pixel-ocr")
+  }
   activePid = data.pid
   // Capture only after successful assertions; screenshot failure is not a retry of a mutation.
-  await native({
-    operation: "observe",
+  const captured = await native({
+    ...request,
     pid: activePid,
-    texts,
     screenshot: join(evidence, `${label}.png`),
   })
+  if (version !== undefined) {
+    assert.equal(captured.observedVersion, version)
+    assert.equal(captured.versionMethod, "native-pixel-ocr")
+  }
   return data
 }
 async function start(label, version, excludePids = []) {
@@ -349,13 +361,13 @@ async function start(label, version, excludePids = []) {
   })
   child.on("error", () => {})
   child.unref()
-  const data = await observe([version], label, excludePids)
+  const data = await observe([], label, { version, excludePids })
   result.launches.push({
     label,
     ...data,
     launchedPid: child.pid,
     imageSha256: await hash(executable),
-    version,
+    expectedVersion: version,
   })
   return data.pid
 }
@@ -461,7 +473,11 @@ async function preferences(fixture, mutate) {
   await click("Cancel")
 }
 async function state(fixture, version, label) {
-  await observe([version, basename(fixture.project), fixture.title], `${label}-workspace`)
+  const workspace = await observe(
+    [basename(fixture.project), fixture.title],
+    `${label}-workspace`,
+    { version },
+  )
   await click("Open transcript")
   await observe([fixture.title, ...fixture.messages.map(({ text }) => text)], `${label}-transcript`)
   await native({ operation: "escape", pid: activePid })
@@ -482,7 +498,9 @@ async function state(fixture, version, label) {
     )
   await proof(`${label}-state.json`, {
     pid: activePid,
-    version,
+    expectedVersion: version,
+    observedVersion: workspace.observedVersion,
+    versionMethod: workspace.versionMethod,
     settings: selected,
     desktopUpdatePrereleases: settings.desktopUpdatePrereleases ?? false,
     settingsFile: fixture.settingsFile,
@@ -796,11 +814,10 @@ async function main() {
     result.probe.pid = started.pid
     result.probe.launcherPid = child.pid
     stage = "first-sdk-target-native-ui"
-    const first = await observe(
-      ["0.9.12", basename(f.project), f.title],
-      "sdk-first-target-native",
-      [baselinePid, started.pid],
-    )
+    const first = await observe([basename(f.project), f.title], "sdk-first-target-native", {
+      version: "0.9.12",
+      excludePids: [baselinePid, started.pid],
+    })
     assert(
       !(await processes()).some((row) => row.pid === started.pid),
       "Probe process survived target relaunch",
@@ -825,7 +842,7 @@ async function main() {
     result.launches.push({
       label: "FIRST-SDK-RELAUNCH",
       ...first,
-      version: "0.9.12",
+      expectedVersion: "0.9.12",
       imageSha256: await hash(executable),
       controllerLaunch: false,
     })
