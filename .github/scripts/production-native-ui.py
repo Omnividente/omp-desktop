@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 phase = "request-admission"
 counts = {}
@@ -22,6 +23,14 @@ def require(value):
 
 def run(*args):
     return subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=15).decode().strip()
+
+
+def wait_for(predicate):
+    """Observe native state completion without repeating a mutable action."""
+    deadline = time.monotonic() + 5
+    while not predicate():
+        require(time.monotonic() < deadline)
+        time.sleep(0.05)
 
 
 def file_hash(path):
@@ -131,6 +140,10 @@ def main(q):
         require(pid not in q.get("excludePids", []))
         if q.get("pid"):
             require(pid == q["pid"])
+        # Fit the exclusively owned UI in the runner work area, above its taskbar.
+        if not native_window.is_maximized():
+            native_window.maximize()
+            wait_for(native_window.is_maximized)
         native_window.set_focus()
         require(native_window.is_visible() and not is_iconic(native_window.handle))
         require(foreground() == native_window.handle)
@@ -302,8 +315,17 @@ def main(q):
             require(len(options) == 1 and action.doAction(options[0]))
 
         def select(n, index):
+            global phase
+            phase = "linux-select-focus"
             require(n.queryComponent().grabFocus())
+            wait_for(lambda: n.getState().contains(pyatspi.STATE_FOCUSED))
+            phase = "linux-select-open"
+            require(not n.getState().contains(pyatspi.STATE_EXPANDED))
+            click(n)
+            wait_for(lambda: n.getState().contains(pyatspi.STATE_EXPANDED))
+            phase = "linux-select-commit"
             run("xdotool", "key", "--clearmodifiers", "Home", *( ["Down"] * index), "Return")
+            wait_for(lambda: not n.getState().contains(pyatspi.STATE_EXPANDED))
 
         def value(n):
             if n.getRoleName() in {"entry", "text"}:

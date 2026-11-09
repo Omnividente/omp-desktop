@@ -425,8 +425,8 @@ async function preferences(fixture, mutate) {
   if (mutate) {
     await native({ operation: "select", pid: activePid, name: "Interface text scale", index: 6 }) // 22px => 138%
     await click("Behavior", "tab")
-    await native({ operation: "observe", pid: activePid, texts: ["Terminal font size"] }, true)
     await native({ operation: "select", pid: activePid, name: "Terminal font size", index: 6 }) // Immutable 0.9.10 options: 16px, not the newer 8..32 list.
+    await native({ operation: "observe", pid: activePid, texts: ["Terminal font size"] }, true)
     await click("Save") // Exactly once. Unknown save outcome is failure, never repeated.
     await wait("durable native UI Save", async () => {
       const settings = JSON.parse(await readFile(fixture.settingsFile, "utf8"))
