@@ -3742,6 +3742,130 @@ describe("App lifecycle serialization", () => {
     expect(api.addWorkspace).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ["terminal", "resolve"],
+    ["terminal", "reject"],
+    ["home", "resolve"],
+    ["home", "reject"],
+  ] as const)(
+    "keeps %s navigation when a background session discovery bootstrap %ss",
+    async (view, settlement) => {
+      const secondSession = {
+        ...bootstrap.sessions[0],
+        id: "second-session",
+        title: "Second session",
+        filePath: "C:/fixture/sessions/second.jsonl",
+        updatedAt: 0,
+      }
+      const projects = { ...bootstrap, sessions: [...bootstrap.sessions, secondSession] }
+      const secondTerminal = { ...started, terminalId: "terminal-2", processId: 102 }
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce(started)
+        .mockResolvedValueOnce(secondTerminal)
+      await mountAndResume()
+      await act(async () => element(".new-tab-button").click())
+      const receive = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")![
+        1
+      ] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: secondTerminal.terminalId, session: secondSession },
+        }),
+      )
+      if (view === "home") act(() => element(".workspace-overview-button").click())
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          "Second",
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      const pending = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValueOnce(pending.promise)
+      const discovered = {
+        ...bootstrap.sessions[0],
+        id: "background-continuation",
+        title: "Background continuation",
+        filePath: "C:/fixture/sessions/background-continuation.jsonl",
+      }
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 2,
+          payload: { terminalId: started.terminalId, session: discovered },
+        }),
+      )
+      const expectNavigation = () => {
+        expect(search.value).toBe("Second")
+        expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+          "Second session",
+        )
+        expect(element(".workspace-overview-button").getAttribute("aria-pressed")).toBe(
+          view === "home" ? "true" : "false",
+        )
+        expect(
+          container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent ?? "",
+        ).toBe(view === "home" ? "" : "Second session")
+      }
+      expectNavigation()
+      expect(container.querySelector(".terminal-tab")?.textContent).toContain(
+        "Background continuation",
+      )
+      await act(async () => {
+        if (settlement === "resolve") pending.resolve(projects)
+        else pending.reject(new Error("Background discovery refresh failed"))
+      })
+      expectNavigation()
+      if (settlement === "reject") {
+        expect(container.querySelector(".error-toast")?.textContent).toContain(
+          "Background discovery refresh failed",
+        )
+      }
+      expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "")
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      act(() => element(".terminal-tab .terminal-tab-label").click())
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        "Background continuation",
+      )
+    },
+  )
+
+  it("keeps session discovery before a new terminal is published", async () => {
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    act(() => element(".new-session-button").click())
+    const receive = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")![
+      1
+    ] as EventCallback<PtySessionEvent>
+    const discovered = {
+      ...bootstrap.sessions[0],
+      id: "early-session",
+      title: "Early discovered session",
+      filePath: "C:/fixture/sessions/early.jsonl",
+    }
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: started.terminalId, session: discovered },
+      }),
+    )
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      discovered.title,
+    )
+    await act(async () => pending.resolve(started))
+    expect(element(".terminal-tab.is-active").textContent).toContain(discovered.title)
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
   it.each(["newer", "unchanged"] as const)(
     "reconciles a late pty-session bootstrap with %s user selection",
     async (choice) => {
