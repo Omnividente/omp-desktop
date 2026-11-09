@@ -188,11 +188,7 @@ def main(q):
             n.type_keys("{HOME}" + "{DOWN}" * index + "{ENTER}", set_foreground=True)
 
         def value(n):
-            if n.element_info.control_type == "Edit":
-                return n.iface_value.CurrentValue
-            selection = n.iface_selection.GetCurrentSelection()
-            require(selection.Length == 1)
-            return selection.GetElement(0).CurrentName
+            return n.iface_value.CurrentValue
 
         def rectangle(n):
             r = n.rectangle()
@@ -309,10 +305,19 @@ def main(q):
             return node
 
         def click(n):
-            action = n.queryAction()
-            options = [i for i in range(action.nActions)
-                       if action.getName(i).lower() in {"click", "press", "activate"}]
-            require(len(options) == 1 and action.doAction(options[0]))
+            global phase
+            phase = "linux-click-identity"
+            require(process_start_ticks() == started_at)
+            require(int(run("xdotool", "getwindowpid", xid)) == pid)
+            require(window_info().get("Map State") == "IsViewable")
+            require(int(run("xdotool", "getactivewindow")) == int(xid, 16))
+            phase = "linux-click-position"
+            box = rectangle(n)
+            require(left <= box[0] < box[2] <= left + width
+                    and top <= box[1] < box[3] <= top + height)
+            phase = "linux-click-input"
+            run("xdotool", "mousemove", "--sync", str((box[0] + box[2]) // 2),
+                str((box[1] + box[3]) // 2), "click", "--clearmodifiers", "1")
 
         def select(n, index):
             global phase
