@@ -713,10 +713,10 @@ export function SettingsPanel({
   const auxiliaryRoles = orderedRoles.filter((role) => !PRIMARY_MODEL_ROLES.includes(role.role))
   const agents = ompConfig?.agents ?? []
   const agentChanges = useMemo(() => {
-    const changes: Record<string, OmpAgentChange> = {}
+    const changes: Record<string, OmpAgentChange> = Object.create(null)
     if (!ompConfig?.agentSettingsSupported) return changes
     for (const agent of ompConfig.agents ?? []) {
-      const draft = agentDrafts[agent.name]
+      const draft = Object.hasOwn(agentDrafts, agent.name) ? agentDrafts[agent.name] : undefined
       if (!draft) continue
       const change: OmpAgentChange = {}
       if (draft.enabled !== agent.enabled) {
@@ -735,10 +735,9 @@ export function SettingsPanel({
     setAgentDrafts((current) => ({
       ...current,
       [agent.name]: {
-        ...(current[agent.name] ?? {
-          enabled: agent.enabled,
-          modelOverride: agent.modelOverride,
-        }),
+        ...(Object.hasOwn(current, agent.name)
+          ? current[agent.name]
+          : { enabled: agent.enabled, modelOverride: agent.modelOverride }),
         ...change,
       },
     }))
@@ -2168,7 +2167,9 @@ export function SettingsPanel({
                           <p className="field-help">{t(language, "taskAgentsEmpty")}</p>
                         )}
                         {agents.map((agent) => {
-                          const draft = agentDrafts[agent.name] ?? agent
+                          const draft = Object.hasOwn(agentDrafts, agent.name)
+                            ? agentDrafts[agent.name]
+                            : agent
                           return (
                             <article
                               className="role-row agent-row"

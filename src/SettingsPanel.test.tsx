@@ -1129,6 +1129,68 @@ describe("SettingsPanel configuration generations", () => {
     })
   })
 
+  it.each(
+    ["constructor", "__proto__", "toString", "hasOwnProperty"].flatMap((name) =>
+      [null, [], ["catalog/slow", "catalog/fast"]].map((modelOverride) => ({
+        name,
+        modelOverride,
+      })),
+    ),
+  )(
+    "keeps agent $name with override $modelOverride independent of object properties",
+    async ({ name, modelOverride }) => {
+      const agent = {
+        name,
+        description: "Synthetic agent",
+        source: "project",
+        enabled: true,
+        modelOverride,
+        defaultModelSelectors: [],
+      }
+      const other = { ...agent, name: "ordinary-reviewer", modelOverride: null }
+      const snapshot = { ...ompConfig, agents: [agent, other], agentSettingsSupported: true }
+      const saved = { ...snapshot, agents: [{ ...agent, enabled: false }, other] }
+      saveSettingsBundleMock
+        .mockRejectedValueOnce(new Error("Synthetic Save failure"))
+        .mockResolvedValue(saveResult(saved))
+      await renderPanel(runtime, settings, true, snapshot)
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>(`[data-agent="${name}"]`)!
+      const enabled = row.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      const mode = row.querySelector<HTMLSelectElement>(".agent-model-mode select")!
+      expect(enabled.checked).toBe(true)
+      expect(mode.value).toBe(modelOverride === null ? "inherit" : "override")
+      expect(row.querySelectorAll(".model-picker-trigger")).toHaveLength(modelOverride?.length ?? 0)
+      act(() => enabled.click())
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(onSaved).not.toHaveBeenCalled()
+      expect(enabled.checked).toBe(false)
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(2)
+      for (const [request] of saveSettingsBundleMock.mock.calls) {
+        const changes = request.ompConfig.agentChanges
+        expect(Object.keys(changes)).toEqual([name])
+        expect(JSON.parse(JSON.stringify(changes))).toEqual({
+          [name]: { enabled: false, expectedEnabled: true },
+        })
+      }
+      expect(onSaved).toHaveBeenCalledOnce()
+      expect(save.disabled).toBe(true)
+      expect(enabled.checked).toBe(false)
+      expect(mode.value).toBe(modelOverride === null ? "inherit" : "override")
+      expect(row.querySelectorAll(".model-picker-trigger")).toHaveLength(modelOverride?.length ?? 0)
+      expect(
+        container.querySelector<HTMLInputElement>(
+          '[data-agent="ordinary-reviewer"] input[type="checkbox"]',
+        )!.checked,
+      ).toBe(true)
+    },
+  )
+
   it("configures agent models through the picker and clears overrides to inherit", async () => {
     const agent = {
       name: "security-reviewer",
