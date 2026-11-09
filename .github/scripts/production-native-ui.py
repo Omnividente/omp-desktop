@@ -175,9 +175,9 @@ def main(q):
             if require_enabled:
                 require(found[0].is_enabled())
             node = found[0]
-            if not visible(node):
+            if kind in {"combo", "edit"} or not visible(node):
                 node.iface_scroll_item.ScrollIntoView()
-            require(visible(node))
+            wait_for(lambda: visible(node))
             return node
 
         def click(n):
@@ -303,9 +303,9 @@ def main(q):
             if require_enabled:
                 require(found[0].getState().contains(pyatspi.STATE_ENABLED))
             node = found[0]
-            if not visible(node):
+            if kind in {"combo", "edit"} or not visible(node):
                 require(node.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE))
-            require(visible(node))
+            wait_for(lambda: visible(node))
             return node
 
         def click(n):
@@ -319,13 +319,11 @@ def main(q):
             phase = "linux-select-focus"
             require(n.queryComponent().grabFocus())
             wait_for(lambda: n.getState().contains(pyatspi.STATE_FOCUSED))
-            phase = "linux-select-open"
-            require(not n.getState().contains(pyatspi.STATE_EXPANDED))
-            click(n)
-            wait_for(lambda: n.getState().contains(pyatspi.STATE_EXPANDED))
+            # Commit and leave the native field without another press/open action.
             phase = "linux-select-commit"
-            run("xdotool", "key", "--clearmodifiers", "Home", *( ["Down"] * index), "Return")
-            wait_for(lambda: not n.getState().contains(pyatspi.STATE_EXPANDED))
+            run("xdotool", "key", "--clearmodifiers", "Home", *( ["Down"] * index), "Tab")
+            phase = "linux-select-blur"
+            wait_for(lambda: not n.getState().contains(pyatspi.STATE_FOCUSED))
 
         def value(n):
             if n.getRoleName() in {"entry", "text"}:

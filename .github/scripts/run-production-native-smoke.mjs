@@ -418,10 +418,7 @@ function preferencesView(settings) {
 }
 async function preferences(fixture, mutate) {
   await click("Settings")
-  await native(
-    { operation: "observe", pid: activePid, texts: ["Interface text scale", "General"] },
-    true,
-  )
+  await native({ operation: "observe", pid: activePid, texts: ["General"] }, true)
   if (mutate) {
     await native({ operation: "select", pid: activePid, name: "Interface text scale", index: 6 }) // 22px => 138%
     await click("Behavior", "tab")
@@ -436,6 +433,10 @@ async function preferences(fixture, mutate) {
   }
   await native(
     { operation: "value", pid: activePid, name: "Interface text scale", expected: "138%" },
+    true,
+  )
+  await native(
+    { operation: "observe", pid: activePid, texts: ["Interface text scale", "General"] },
     true,
   )
   await native(
