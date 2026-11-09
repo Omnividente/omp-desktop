@@ -186,8 +186,8 @@ function agentOverridesEqual(left: string[] | null, right: string[] | null): boo
   if (left === null || right === null) return false
   return left.length === right.length && left.every((selector, index) => selector === right[index])
 }
-function providerEnvDraft(keys: string[], current: Record<string, string> = {}) {
-  return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
+function providerEnvDraft(keys: string[]) {
+  return Object.fromEntries(keys.map((key) => [key, ""]))
 }
 
 type SubmittedConfigDraft = Pick<
@@ -649,12 +649,12 @@ export function SettingsPanel({
     const nextKeys = settings.providerEnvKeys
     providerEnvKeysRef.current = nextKeys
     setProviderEnv((current) => {
-      const next = { ...current }
+      let next = { ...current }
       for (const key of previousKeys) {
         if (!nextKeys.includes(key) && next[key] === "") delete next[key]
       }
       for (const key of nextKeys) {
-        if (!previousKeys.includes(key) && !(key in next)) next[key] = ""
+        if (!previousKeys.includes(key) && !Object.hasOwn(next, key)) next = { ...next, [key]: "" }
       }
       return next
     })
@@ -1200,12 +1200,12 @@ export function SettingsPanel({
       }
       if (providerEnvChanged) {
         setProviderEnv((current) => {
-          const next = providerEnvDraft(result.bootstrap.settings.providerEnvKeys)
+          let next = providerEnvDraft(result.bootstrap.settings.providerEnvKeys)
           for (const [key, value] of Object.entries(current)) {
-            if (providerEnv[key] !== value) next[key] = value
+            if (providerEnv[key] !== value) next = { ...next, [key]: value }
           }
           for (const key of Object.keys(providerEnv)) {
-            if (!(key in current)) delete next[key]
+            if (!Object.hasOwn(current, key)) delete next[key]
           }
           return next
         })

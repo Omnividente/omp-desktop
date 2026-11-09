@@ -1995,6 +1995,113 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "keeps saved credential name %s as a blank placeholder through failure and retry",
+    async (key) => {
+      const configured = { ...settings, providerEnvKeys: [key, "KEEP_API_KEY"] }
+      const savedSettings = { ...configured, appFontSize: 20 }
+      saveSettingsBundleMock
+        .mockRejectedValueOnce(new Error("Synthetic secret write failure"))
+        .mockResolvedValueOnce(saveResult(ompConfig, runtime, configured))
+        .mockResolvedValueOnce(saveResult(null, runtime, savedSettings))
+      await renderPanel(runtime, configured, false, ompConfig)
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      expect(
+        [...container.querySelectorAll(".provider-key-row code")].map((node) => node.textContent),
+      ).toContain(key)
+      addKey(key, "synthetic-replacement")
+      const expected = { [key]: "synthetic-replacement", KEEP_API_KEY: "" }
+      await act(async () => save.click())
+      expect(container.querySelector(".settings-save-error")).not.toBeNull()
+      expect(save.disabled).toBe(false)
+      expect(
+        JSON.parse(JSON.stringify(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv)),
+      ).toEqual(expected)
+      await act(async () => save.click())
+      expect(save.disabled).toBe(true)
+      expect(container.querySelector(".settings-save-error")).toBeNull()
+      expect(container.textContent).not.toContain("synthetic-replacement")
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+      changeField("#app-font-size", "20")
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toBeNull()
+    },
+  )
+
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "keeps newly acknowledged credential name %s in an open panel's later save",
+    async (key) => {
+      const configured = { ...settings, providerEnvKeys: ["KEEP_API_KEY"] }
+      const committed = { ...configured, providerEnvKeys: [...configured.providerEnvKeys, key] }
+      await renderPanel(runtime, configured, false, ompConfig)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      addKey("NEW_API_KEY", "synthetic-newer")
+      await renderPanel(runtime, committed, false, ompConfig)
+      expect(
+        [...container.querySelectorAll(".provider-key-row code")].map((node) => node.textContent),
+      ).toContain(key)
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(ompConfig, runtime, {
+          ...committed,
+          providerEnvKeys: [...committed.providerEnvKeys, "NEW_API_KEY"],
+        }),
+      )
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+      )
+      expect(
+        JSON.parse(JSON.stringify(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv)),
+      ).toEqual({ KEEP_API_KEY: "", [key]: "", NEW_API_KEY: "synthetic-newer" })
+      expect(container.textContent).not.toContain("synthetic-newer")
+    },
+  )
+
+  it.each(
+    ["constructor", "__proto__", "toString", "hasOwnProperty"].flatMap((key) =>
+      (["add", "replace", "remove"] as const).map((mutation) => ({ key, mutation })),
+    ),
+  )(
+    "keeps a newer credential $mutation for $key after an older save",
+    async ({ key, mutation }) => {
+      const pending = deferred<SettingsSavePayload>()
+      const configured = {
+        ...settings,
+        providerEnvKeys: mutation === "add" ? ["KEEP_API_KEY"] : ["KEEP_API_KEY", key],
+      }
+      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+      await renderPanel(runtime, configured, false, ompConfig)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      addKey("KEEP_API_KEY", "synthetic-submitted")
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      act(() => save.click())
+      expect(save.disabled).toBe(true)
+      if (mutation === "remove") {
+        const row = [...container.querySelectorAll(".provider-key-row")].find(
+          (node) => node.querySelector("code")?.textContent === key,
+        )!
+        act(() => row.querySelector<HTMLButtonElement>("button")!.click())
+      } else addKey(key, "synthetic-newer")
+      await act(async () => pending.resolve(saveResult(ompConfig, runtime, configured)))
+      expect(save.disabled).toBe(false)
+      const expected =
+        mutation === "remove"
+          ? { KEEP_API_KEY: "" }
+          : { KEEP_API_KEY: "", [key]: "synthetic-newer" }
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(ompConfig, runtime, { ...configured, providerEnvKeys: Object.keys(expected) }),
+      )
+      await act(async () => save.click())
+      expect(
+        JSON.parse(JSON.stringify(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv)),
+      ).toEqual(expected)
+      expect(container.textContent).not.toContain("synthetic-newer")
+      expect(container.textContent).not.toContain("synthetic-submitted")
+    },
+  )
+
   it("keeps newer config drafts after a verified credential-only save", async () => {
     const pending = deferred<SettingsSavePayload>()
     const savedSettings = { ...settings, providerEnvKeys: ["NEW_API_KEY"] }
