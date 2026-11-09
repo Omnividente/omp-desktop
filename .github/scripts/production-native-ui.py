@@ -428,8 +428,10 @@ def main(q):
             return selection.getSelectedChild(0).name
 
         def rectangle(n):
-            r = n.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
-            return (r.x, r.y, r.x + r.width, r.y + r.height)
+            # Captures are client-window pixels; map native window-relative bounds
+            # through that same X11 client origin for both crops and XTEST input.
+            r = n.queryComponent().getExtents(pyatspi.XY_WINDOW)
+            return (left + r.x, top + r.y, left + r.x + r.width, top + r.y + r.height)
 
         def capture(path):
             require(process_start_ticks() == started_at)
