@@ -177,3 +177,20 @@ it.each([
   mouse("mousemove", 355)
   expect(terminal.getSelection()).toBe(selected)
 })
+
+it.each(["https://example.test/report", "local://report.md"])(
+  "opens %s without surrounding asterisk delimiters",
+  async (uri) => {
+    await act(
+      async () =>
+        new Promise<void>((resolve) => terminal.write(`**${uri}** trailing text\r\n`, resolve)),
+    )
+    mouse("mousemove", 45)
+    await vi.waitFor(() =>
+      expect(container.querySelector(".terminal-link-preview")?.textContent).toBe(uri),
+    )
+    mouse("mousedown", 45, 1)
+    mouse("mouseup", 45)
+    expect(openContentLink).toHaveBeenCalledExactlyOnceWith(uri, tab.sessionPath)
+  },
+)

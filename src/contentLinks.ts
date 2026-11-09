@@ -36,7 +36,7 @@ export function isFileContentLink(uri: string): boolean {
 // xterm's addon handles wrapped lines and Unicode cell positions. Use the same
 // conservative URL boundary for hierarchical links in the transcript.
 export const CONTENT_URL_PATTERN =
-  /(?:https?|file|local|artifact):\/\/[^\s"'!*(){}|\\^<>`]*[^\s"':;,.!?{}|\\^~\[\]`()<>]/gi
+  /(?:https?|file|local|artifact):\/\/[^\s"'!*(){}|\\^<>`]*[^\s"':;,.!?*{}|\\^~\[\]`()<>]/gi
 const MARKDOWN_LINK =
   /\[((?:\\.|[^\[\]\n\\])+)]\((<[^>\n]+>|(?:\\.|[^()\s\\]|\([^()\s]*\))+)(?:\s+"[^"\n]*")?\)/g
 const MAIL_LINK = /mailto:[^\s<>"'`]+/gi

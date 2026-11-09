@@ -76,3 +76,22 @@ it("preserves escaped literal brackets in a label", () => {
   const links = contentLinks(String.raw`[a\[b](local://path)`)
   expect(links.map(({ label, uri }) => [label, uri])).toEqual([[String.raw`a\[b`, "local://path"]])
 })
+
+it.each([
+  "http://example.test/report",
+  "https://example.test/report",
+  "file:///tmp/report.md",
+  "local://report.md",
+  "artifact://12",
+])("keeps asterisk delimiters out of bare destination %s", (uri) => {
+  for (const suffix of ["*", "**", "*note", "*. trailing text"]) {
+    expect(contentLinks(`**${uri}${suffix}`)).toEqual([
+      { start: 2, end: 2 + uri.length, label: uri, uri },
+    ])
+  }
+})
+
+it("preserves literal asterisks in explicitly labelled destinations", () => {
+  const uri = "local://report*.md"
+  expect(contentLinks(`[Report](${uri})`).map(({ uri }) => uri)).toEqual([uri])
+})
