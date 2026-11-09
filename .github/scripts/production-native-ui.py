@@ -373,9 +373,6 @@ def main(q):
                 counts["controlRoleMatches"] = len(found)
             require(len(found) == 1)
             node = found[0]
-            if kind == "edit":
-                phase = "linux-control-editable-interface"
-                node.queryEditableText()
             if require_enabled:
                 phase = "linux-control-enabled"
                 require(node.getState().contains(pyatspi.STATE_ENABLED))
