@@ -2836,9 +2836,7 @@ describe("App lifecycle serialization", () => {
       expect(element(".codex-list").textContent).not.toContain("Discovery old")
       expect(selectedInput().checked).toBe(true)
       expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(false)
-      expect(
-        invokeMock.mock.calls.filter(([command]) => command === "import_sessions"),
-      ).toEqual([])
+      expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([])
     })
 
     it("keeps the current scan loading after an obsolete scan finishes", async () => {
