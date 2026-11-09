@@ -177,3 +177,20 @@ it.each([
   mouse("mousemove", 355)
   expect(terminal.getSelection()).toBe(selected)
 })
+
+it.each(["http://[::1]", "https://[2001:db8::1]"])(
+  "opens the complete bare IPv6 authority %s before sentence punctuation",
+  async (uri) => {
+    await act(
+      async () =>
+        new Promise<void>((resolve) => terminal.write(`${uri}. trailing text\r\n`, resolve)),
+    )
+    mouse("mousemove", 25)
+    await vi.waitFor(() =>
+      expect(container.querySelector(".terminal-link-preview")?.textContent).toBe(uri),
+    )
+    mouse("mousedown", 25, 1)
+    mouse("mouseup", 25)
+    expect(openContentLink).toHaveBeenCalledExactlyOnceWith(uri, tab.sessionPath)
+  },
+)
