@@ -847,6 +847,83 @@ it("preserves a tall visible row through width invalidation, clamps shrinking co
   expect(container.querySelector('article[data-virtual-index="179"]')).not.toBeNull()
 })
 
+it.each([
+  { key: "Enter", shiftKey: false, isComposing: true, keyCode: 13, nextCount: "2 / 3" },
+  { key: "Enter", shiftKey: true, isComposing: true, keyCode: 13, nextCount: "3 / 3" },
+  { key: "Escape", shiftKey: false, isComposing: true, keyCode: 27, nextCount: "0 / 0" },
+  { key: "Enter", shiftKey: false, isComposing: false, keyCode: 229, nextCount: "2 / 3" },
+  { key: "Enter", shiftKey: true, isComposing: false, keyCode: 229, nextCount: "3 / 3" },
+  { key: "Escape", shiftKey: false, isComposing: false, keyCode: 229, nextCount: "0 / 0" },
+])(
+  "leaves marked search $key (shift=$shiftKey, composing=$isComposing, code=$keyCode) untouched",
+  async ({ key, shiftKey, isComposing, keyCode, nextCount }) => {
+    await searchFor("needle")
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    const scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+    const previousTop = scroll.scrollTop
+    const reads = vi.mocked(readSessionTranscript).mock.calls.length
+    act(() => input.focus())
+    const marked = new KeyboardEvent("keydown", {
+      key,
+      shiftKey,
+      isComposing,
+      keyCode,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => input.dispatchEvent(marked))
+    await flushFrames()
+    expect(marked.defaultPrevented).toBe(false)
+    expect(input.value).toBe("needle")
+    expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 3")
+    expect(currentOccurrence()?.dataset.matchIndex).toBe("0")
+    expect(scroll.scrollTop).toBe(previousTop)
+    expect(document.activeElement).toBe(input)
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(readSessionTranscript).toHaveBeenCalledTimes(reads)
+
+    const ordinary = new KeyboardEvent("keydown", {
+      key,
+      shiftKey,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => input.dispatchEvent(ordinary))
+    await flushFrames()
+    expect(ordinary.defaultPrevented).toBe(true)
+    expect(input.value).toBe(key === "Escape" ? "" : "needle")
+    expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe(nextCount)
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(readSessionTranscript).toHaveBeenCalledTimes(reads)
+  },
+)
+
+it("does not close an empty transcript search for a keyCode 229 Escape", async () => {
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  act(() => input.focus())
+  const marked = new KeyboardEvent("keydown", {
+    key: "Escape",
+    keyCode: 229,
+    bubbles: true,
+    cancelable: true,
+  })
+  await act(async () => input.dispatchEvent(marked))
+  expect(marked.defaultPrevented).toBe(false)
+  expect(input.value).toBe("")
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(document.activeElement).toBe(input)
+
+  const ordinary = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })
+  await act(async () => input.dispatchEvent(ordinary))
+  expect(ordinary.defaultPrevented).toBe(true)
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+})
+
 it("clears a focused transcript query on Escape before Escape closes the reader", async () => {
   await searchFor("needle")
   const input = container.querySelector<HTMLInputElement>('input[type="search"]')!

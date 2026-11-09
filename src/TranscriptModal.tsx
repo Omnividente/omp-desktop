@@ -576,6 +576,7 @@ export function TranscriptModal({
                 aria-label={t(lang, "transcriptSearch")}
                 ref={searchRef}
                 onKeyDown={(event) => {
+                  if (event.keyCode === 229) return
                   if (
                     event.key === "Escape" &&
                     transcriptSearch &&
