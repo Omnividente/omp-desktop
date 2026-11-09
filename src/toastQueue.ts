@@ -107,8 +107,7 @@ export function clampToastMessage(message: string): { message: string; truncated
   if (text.length > MAX_TOAST_CHARS) {
     // Do not leave half a supplementary character at the UTF-16 limit.
     const boundary = text.codePointAt(MAX_TOAST_CHARS - 1)
-    const end =
-      boundary !== undefined && boundary > 0xffff ? MAX_TOAST_CHARS - 1 : MAX_TOAST_CHARS
+    const end = boundary !== undefined && boundary > 0xffff ? MAX_TOAST_CHARS - 1 : MAX_TOAST_CHARS
     text = `${text.slice(0, end).trimEnd()}…`
     truncated = true
   }
