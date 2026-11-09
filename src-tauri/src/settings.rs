@@ -31,6 +31,8 @@ struct CommittedSettings {
 pub struct SettingsState {
     committed: Mutex<CommittedSettings>,
     settings_mutation: Mutex<()>,
+    #[cfg(feature = "updater-e2e")]
+    e2e_write_fault: std::sync::atomic::AtomicU8,
 }
 
 pub struct SettingsTransaction<'a> {
@@ -38,6 +40,7 @@ pub struct SettingsTransaction<'a> {
     _mutation_guard: MutexGuard<'a, ()>,
     previous: AppSettings,
     candidate: AppSettings,
+    update_policy_reserved: bool,
 }
 
 impl SettingsState {
@@ -48,6 +51,8 @@ impl SettingsState {
                 initialized: false,
             }),
             settings_mutation: Mutex::new(()),
+            #[cfg(feature = "updater-e2e")]
+            e2e_write_fault: std::sync::atomic::AtomicU8::new(0),
         }
     }
 
@@ -86,6 +91,7 @@ impl SettingsState {
             _mutation_guard: mutation_guard,
             candidate: previous.clone(),
             previous,
+            update_policy_reserved: false,
         })
     }
 }
@@ -101,6 +107,18 @@ impl SettingsTransaction<'_> {
 
     pub fn candidate_mut(&mut self) -> &mut AppSettings {
         &mut self.candidate
+    }
+
+    /// Reserve before bundled OMP work too: it can persist Desktop settings early.
+    pub fn reserve_update_policy(&mut self, app: &AppHandle) -> Result<(), String> {
+        if !self.update_policy_reserved {
+            self.update_policy_reserved = crate::desktop_updater::reserve_policy(
+                app,
+                self.candidate.desktop_update_prereleases,
+                false,
+            )?;
+        }
+        Ok(())
     }
 
     fn commit(self) {
@@ -126,7 +144,18 @@ where
 }
 
 pub fn ensure_initialized(app: &AppHandle, state: &SettingsState) -> Result<(), String> {
-    ensure_initialized_with(state, || load_settings(app))
+    ensure_initialized_with(state, || {
+        crate::desktop_updater::reserve_policy(app, false, true)?;
+        let result = load_settings(app);
+        crate::desktop_updater::publish_policy(
+            app,
+            result
+                .as_ref()
+                .ok()
+                .map(|settings| settings.desktop_update_prereleases),
+        );
+        result
+    })
 }
 
 pub fn settings_snapshot(app: &AppHandle, state: &SettingsState) -> Result<AppSettings, String> {
@@ -151,9 +180,67 @@ where
     let mut transaction = state.begin_transaction().ok_or_else(|| {
         settings_state_unavailable(app, "transaction", "Настройки не инициализированы")
     })?;
-    let value = operation(&mut transaction)?;
-    transaction.commit();
-    Ok(value)
+    let result = operation(&mut transaction);
+    match result {
+        Ok(value) => {
+            if transaction.update_policy_reserved {
+                crate::desktop_updater::publish_policy(
+                    app,
+                    Some(transaction.candidate.desktop_update_prereleases),
+                );
+            }
+            transaction.commit();
+            Ok(value)
+        }
+        Err(error) => {
+            if transaction.update_policy_reserved {
+                // An error may follow an atomic rename or a failed rollback. Never infer unchanged.
+                crate::desktop_updater::publish_policy(app, None);
+            }
+            Err(error)
+        }
+    }
+}
+
+/// Read-only reconciliation: no recovery, migrations, secret loading, retry-save or reset.
+pub(crate) fn reconcile_desktop_update_policy(
+    app: &AppHandle,
+) -> Result<crate::desktop_updater::DesktopUpdateStatus, String> {
+    let state = app.state::<SettingsState>();
+    let _mutation_guard = state.lock_mutation();
+    let result = (|| {
+        let path = app
+            .path()
+            .app_config_dir()
+            .map_err(|_| "Не удалось определить папку сохранённых настроек".to_owned())?
+            .join("settings.json");
+        read_persisted_update_channel(&path)
+    })();
+    match result {
+        Ok(channel) => {
+            // Only this field is reconciled; unsaved/stale provider values are never republished.
+            let mut committed = state.lock_committed();
+            if committed.initialized {
+                committed.settings.desktop_update_prereleases = channel;
+            }
+            drop(committed);
+            crate::desktop_updater::publish_policy(app, Some(channel));
+            Ok(crate::desktop_updater::status(app))
+        }
+        Err(error) => {
+            crate::desktop_updater::publish_policy(app, None);
+            Err(error)
+        }
+    }
+}
+
+pub(crate) fn read_persisted_update_channel(path: &Path) -> Result<bool, String> {
+    let bytes =
+        fs::read(path).map_err(|_| "Не удалось прочитать сохранённые настройки".to_owned())?;
+    let persisted: AppSettings = serde_json::from_slice(&bytes).map_err(|_| {
+        "Сохранённый канал Desktop не подтверждён: settings.json повреждён".to_owned()
+    })?;
+    Ok(persisted.desktop_update_prereleases)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -407,8 +494,59 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
 }
 
 pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    crate::desktop_updater::authorize_settings_write(app, settings.desktop_update_prereleases)?;
     let path = settings_path(app)?;
-    save_settings_to_path(&path, settings)
+    #[cfg(feature = "updater-e2e")]
+    let fault = app
+        .state::<SettingsState>()
+        .e2e_write_fault
+        .fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |value| value.checked_sub(1),
+        )
+        .unwrap_or(0);
+    #[cfg(feature = "updater-e2e")]
+    if fault == 1 {
+        return Err("Isolated E2E: rollback write refused before persistence".to_owned());
+    }
+    save_settings_to_path(&path, settings)?;
+    #[cfg(feature = "updater-e2e")]
+    if fault == 2 {
+        return Err("Isolated E2E: settings write committed before injected error".to_owned());
+    }
+    Ok(())
+}
+
+/// Only the explicitly isolated test app may arm this one-shot, per-app two-write fault.
+#[cfg(feature = "updater-e2e")]
+pub(crate) fn e2e_fail_next_channel_save(app: &AppHandle) -> Result<(), String> {
+    if !crate::desktop_updater::e2e_fixture_enabled()? {
+        return Err("Updater E2E fixture is not enabled".to_owned());
+    }
+    let marker = std::env::var_os("OMP_DESKTOP_UPDATER_E2E_MARKER")
+        .map(PathBuf::from)
+        .ok_or("Missing isolated E2E marker")?;
+    let root = marker
+        .parent()
+        .ok_or("Missing isolated E2E root")?
+        .canonicalize()
+        .map_err(|_| "Cannot resolve isolated E2E root".to_owned())?;
+    let config = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "Missing E2E settings directory")?
+        .canonicalize()
+        .map_err(|_| "E2E settings must be initialized before arming fault".to_owned())?;
+    if !config.starts_with(&root) || config == root {
+        return Err(
+            "E2E fault requires a synthetic settings directory below marker parent".to_owned(),
+        );
+    }
+    app.state::<SettingsState>()
+        .e2e_write_fault
+        .store(2, std::sync::atomic::Ordering::SeqCst);
+    Ok(())
 }
 
 fn persisted_settings_bytes(settings: &AppSettings) -> Result<Vec<u8>, String> {
@@ -600,15 +738,22 @@ where
     F: FnOnce(&AppSettings) -> Result<T, String>,
 {
     let _mutation_guard = state.lock_mutation();
-    let path = settings_path(app).map_err(|error| {
-        settings_unavailable_error(Path::new("settings.json"), None, "path", &error)
-    })?;
-    let mut write = atomic_write_private_file;
-    let defaults = prepare_defaults_at_with(&path, &mut write)?;
-    let prepared = prepare(&defaults)?;
-    persist_defaults_at_with(&path, &defaults, &mut write)?;
-    state.publish(defaults.clone());
-    Ok((defaults, prepared))
+    // Reset can write defaults even when bootstrap preparation subsequently fails.
+    // Reserve before backups/preparation, and publish the outcome before releasing this lock.
+    crate::desktop_updater::reserve_policy(app, false, true)?;
+    let result = (|| {
+        let path = settings_path(app).map_err(|error| {
+            settings_unavailable_error(Path::new("settings.json"), None, "path", &error)
+        })?;
+        let mut write = atomic_write_private_file;
+        let defaults = prepare_defaults_at_with(&path, &mut write)?;
+        let prepared = prepare(&defaults)?;
+        persist_defaults_at_with(&path, &defaults, &mut write)?;
+        state.publish(defaults.clone());
+        Ok((defaults, prepared))
+    })();
+    crate::desktop_updater::publish_policy(app, result.as_ref().ok().map(|_| false));
+    result
 }
 
 fn prepare_defaults_at_with<F>(path: &Path, mut write: F) -> Result<AppSettings, String>

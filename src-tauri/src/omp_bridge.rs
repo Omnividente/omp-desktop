@@ -686,6 +686,7 @@ pub fn save_config(
     transaction: &mut SettingsTransaction<'_>,
     request: OmpConfigSaveRequest,
 ) -> Result<OmpConfigSaveResult, String> {
+    transaction.reserve_update_policy(app)?;
     let previous_settings = transaction.previous().clone();
     let mut app_settings = transaction.candidate().clone();
     let omp = resolve_omp(app, &app_settings);

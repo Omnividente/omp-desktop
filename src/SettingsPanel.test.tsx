@@ -21,6 +21,10 @@ vi.mock("./api", async (importOriginal) => ({
   loadOmpConfig: loadOmpConfigMock,
   refreshOmpConfig: refreshOmpConfigMock,
   saveSettingsBundle: saveSettingsBundleMock,
+  bootstrap: vi.fn().mockRejectedValue(new Error("Synthetic snapshot unavailable")),
+  desktopUpdateReconcileSettings: vi
+    .fn()
+    .mockRejectedValue(new Error("Synthetic policy unavailable")),
 }))
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmMock, open: vi.fn() }))
@@ -42,6 +46,7 @@ const settings: AppSettings = {
   railMode: "expanded",
   language: "ru",
   desktopTheme: "dark",
+  desktopUpdatePrereleases: false,
   appFontFamily: "Inter",
   appFontSize: 16,
   terminalFontFamily: "Cascadia Mono",
@@ -1668,7 +1673,7 @@ describe("SettingsPanel configuration generations", () => {
       expect(saveSettingsBundleMock).toHaveBeenCalledWith(
         expect.objectContaining({ ompConfig: null }),
       )
-      expect(onSaved).toHaveBeenCalledWith(result)
+      expect(onSaved).toHaveBeenCalledWith(result, undefined)
       await renderPanel(nextRuntime, nextSettings)
       await act(async () => fresh.resolve({ ...ompConfig, advisorEnabled: true }))
       expectAdvisorDraft(true)
@@ -1745,7 +1750,7 @@ describe("SettingsPanel configuration generations", () => {
       await act(async () =>
         container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
       )
-      expect(onSaved).toHaveBeenCalledWith(result)
+      expect(onSaved).toHaveBeenCalledWith(result, undefined)
       expectAdvisorDraft(true)
       expect(
         container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,

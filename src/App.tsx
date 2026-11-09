@@ -294,6 +294,7 @@ function App() {
   const launchingRef = useRef(false)
   const [settingsOpenedAt, setSettingsOpenedAt] = useState<number | null>(null)
   const settingsOpen = settingsOpenedAt !== null
+  const settingsSaveGenerationRef = useRef(0)
   const [startupError, setStartupError] = useState<string | null>(null)
   const [startupWorkspaceWarning, setStartupWorkspaceWarning] =
     useState<StartupWorkspaceWarning | null>(null)
@@ -626,6 +627,7 @@ function App() {
   const {
     update: clientUpdate,
     installing: installingClientUpdate,
+    installed: clientUpdateInstalled,
     isInstalling: isInstallingClientUpdate,
     checking: checkingClientUpdate,
     checkNow: checkClientUpdateNow,
@@ -731,7 +733,8 @@ function App() {
   )
 
   const handleSettingsSaved = useCallback(
-    (result: SettingsSavePayload) => {
+    (result: SettingsSavePayload, generation?: number) => {
+      if (generation !== undefined && generation !== settingsSaveGenerationRef.current) return
       if (result.ompConfig) {
         acceptOmpConfig(result.ompConfig, result.bootstrap.runtime)
       } else if (
@@ -2818,6 +2821,15 @@ function App() {
           onConfigLoaded={(snapshot) => acceptOmpConfig(snapshot, payload.runtime)}
           onError={showError}
           onNotice={showNotice}
+          onSaveStarted={() => {
+            ++payloadRevisionRef.current
+            ++refreshRequestRef.current
+            setRefreshing(false)
+            return ++settingsSaveGenerationRef.current
+          }}
+          onReconciled={(actual, generation) =>
+            handleSettingsSaved({ bootstrap: actual, ompConfig: null }, generation)
+          }
           onSaved={handleSettingsSaved}
           runtime={payload.runtime}
           settings={payload.settings}
@@ -2945,11 +2957,19 @@ function App() {
 
         {clientUpdate && (
           <UpdateNotice
-            title={t(lang, "desktopUpdateAvailable")}
+            title={t(
+              lang,
+              clientUpdateInstalled ? "desktopUpdateInstalled" : "desktopUpdateAvailable",
+            )}
+            prerelease={clientUpdate.prerelease}
             message={t(lang, "desktopUpdateVersion").replace("{version}", clientUpdate.version)}
             actionLabel={t(
               lang,
-              installingClientUpdate ? "desktopUpdateInstalling" : "desktopUpdateInstall",
+              installingClientUpdate
+                ? "desktopUpdateInstalling"
+                : clientUpdateInstalled
+                  ? "desktopUpdateRelaunch"
+                  : "desktopUpdateInstall",
             )}
             disabled={installingClientUpdate || checkingClientUpdate || launching !== null}
             language={lang}

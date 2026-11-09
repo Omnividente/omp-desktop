@@ -15,6 +15,7 @@ import {
   discardSwitchInputRecovery,
   sendSwitchInputRecovery,
   settingsUnavailableDetails,
+  sessionLeaseConflictDetails,
   subscribeSettingsUnavailable,
   switchInputRecoveryDetails,
 } from "./api"
@@ -174,6 +175,78 @@ describe("backend error codes", () => {
       request,
       undefined,
     )
+  })
+})
+
+describe("session lease conflict metadata", () => {
+  const pending = {
+    metadataState: "reclaim_pending",
+    ownerPid: 4242,
+    ownerStartedAt: "synthetic-start",
+    acquiredAt: "synthetic-time",
+    sessionPath: "/synthetic/session.jsonl",
+  }
+
+  it.each(["session_lease_stale", "session_lease_active"])(
+    "retains the recorded owner of interrupted reclaim for %s",
+    (code) => {
+      const details = JSON.stringify(pending)
+      expect(sessionLeaseConflictDetails(`[${code}] ${details}`)).toEqual(pending)
+      expect(sessionLeaseConflictDetails({ code, details })).toEqual(pending)
+    },
+  )
+
+  it.each(["valid", "corrupt", "missing"])("preserves the existing %s metadata state", (state) => {
+    const details = { ...pending, metadataState: state }
+    expect(
+      sessionLeaseConflictDetails({
+        code: "session_lease_stale",
+        details: JSON.stringify(details),
+      }),
+    ).toEqual(details)
+  })
+
+  it("retains pending reclaim metadata when the previous owner is unknown", () => {
+    const details = {
+      ...pending,
+      ownerPid: null,
+      ownerStartedAt: null,
+      acquiredAt: null,
+    }
+    expect(
+      sessionLeaseConflictDetails({
+        code: "session_lease_stale",
+        details: JSON.stringify(details),
+      }),
+    ).toEqual(details)
+  })
+
+  it.each([
+    { ...pending, metadataState: "future_state" },
+    { ...pending, ownerPid: "4242" },
+    { ...pending, ownerPid: 1.5 },
+    { ...pending, ownerStartedAt: 42 },
+    { ...pending, acquiredAt: 42 },
+    { ...pending, sessionPath: null },
+  ])("still rejects unsupported or malformed metadata: %j", (details) => {
+    expect(
+      sessionLeaseConflictDetails({
+        code: "session_lease_stale",
+        details: JSON.stringify(details),
+      }),
+    ).toBeNull()
+  })
+
+  it("does not infer lease metadata from malformed JSON or unrelated errors", () => {
+    expect(
+      sessionLeaseConflictDetails({ code: "session_lease_stale", details: "invalid JSON" }),
+    ).toBeNull()
+    expect(
+      sessionLeaseConflictDetails({
+        code: "session_lease_failed",
+        details: JSON.stringify(pending),
+      }),
+    ).toBeNull()
   })
 })
 

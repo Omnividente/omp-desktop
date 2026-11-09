@@ -46,6 +46,7 @@ function usableCopyBootstrap(value: unknown): boolean {
   return (
     strings(settings, ["appFontFamily", "terminalFontFamily", "language"]) &&
     numbers(settings, ["appFontSize", "terminalFontSize"]) &&
+    booleans(settings, ["desktopUpdatePrereleases"]) &&
     nullableStrings(settings, ["ompExecutable", "sessionRoot", "lastWorkspace"]) &&
     [
       "recentWorkspaces",

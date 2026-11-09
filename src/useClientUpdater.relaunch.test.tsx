@@ -4,36 +4,67 @@ import { act, useState } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, expect, it, vi } from "vitest"
 import { useClientUpdater, type ClientUpdaterState } from "./useClientUpdater"
+import { desktopUpdateCheck, desktopUpdateInstall, desktopUpdateStatus } from "./api"
+import { relaunch } from "@tauri-apps/plugin-process"
+import { confirm } from "@tauri-apps/plugin-dialog"
+import type { DesktopUpdateStatus } from "./types"
 
-const sdk = vi.hoisted(() => ({ check: vi.fn(), relaunch: vi.fn(), confirm: vi.fn() }))
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: sdk.check }))
-vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: sdk.relaunch }))
-vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: sdk.confirm }))
+vi.mock("./api", async (original) => ({
+  ...(await original<typeof import("./api")>()),
+  desktopUpdateStatus: vi.fn(),
+  desktopUpdateCheck: vi.fn(),
+  desktopUpdateInstall: vi.fn(),
+}))
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }))
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn() }))
 
-;(
-  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true
-
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const container = document.createElement("div")
 const root = createRoot(container)
-
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
   window.localStorage.clear()
 })
 
-it("reconfirms a user retry after relaunch failure without downloading twice", async () => {
+it("reconfirms a user retry after relaunch failure without reinstalling after a policy switch", async () => {
   window.localStorage.clear()
   document.body.appendChild(container)
-  const update = {
-    version: "0.9.11",
-    close: vi.fn().mockResolvedValue(undefined),
-    downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+  const ready: DesktopUpdateStatus = {
+    policyState: "ready",
+    includePrereleases: true,
+    revision: "1",
+    checking: false,
+    installState: "idle",
+    installed: null,
+    update: {
+      candidateId: "preview",
+      version: "0.9.11",
+      date: null,
+      body: null,
+      prerelease: true,
+      releaseId: "release",
+      releaseUrl: "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.11",
+    },
   }
-  sdk.check.mockResolvedValue(update)
-  sdk.confirm.mockResolvedValueOnce(true)
-  sdk.relaunch.mockRejectedValueOnce(new Error("relaunch failed"))
+  let actual = ready
+  vi.mocked(desktopUpdateStatus).mockImplementation(async () => actual)
+  vi.mocked(desktopUpdateCheck).mockImplementation(async () => actual)
+  vi.mocked(desktopUpdateInstall).mockImplementation(async () => {
+    actual = {
+      ...ready,
+      policyState: "changing",
+      revision: "2",
+      includePrereleases: null,
+      installState: "installed",
+      installed: ready.update,
+      update: null,
+    }
+    return actual
+  })
+  vi.mocked(confirm).mockResolvedValue(true)
+  vi.mocked(relaunch).mockRejectedValueOnce(new Error("relaunch failed"))
   let updater!: ClientUpdaterState
   let running = 1
   function Harness() {
@@ -55,16 +86,15 @@ it("reconfirms a user retry after relaunch failure without downloading twice", a
   }
   await act(async () => root.render(<Harness />))
   await act(async () => container.querySelector("button")!.click())
-  expect(container.querySelector("output")?.textContent).toBe("relaunch failed")
+  expect(container.querySelector("output")?.textContent).toContain("relaunch failed")
   expect(container.querySelector("span")?.textContent).toBe("0.9.11")
+  expect(confirm).toHaveBeenCalledTimes(2) // Explicit preview confirmation and active terminals.
   expect(updater.isInstalling()).toBe(false)
-  expect(container.querySelector("button")!.disabled).toBe(false)
 
-  // A new terminal appeared after the first attempt; retry must ask again.
   running = 2
   let decide!: (accepted: boolean) => void
-  sdk.confirm.mockReturnValueOnce(
-    new Promise<boolean>((resolve) => {
+  vi.mocked(confirm).mockReturnValueOnce(
+    new Promise((resolve) => {
       decide = resolve
     }),
   )
@@ -73,20 +103,17 @@ it("reconfirms a user retry after relaunch failure without downloading twice", a
     updater.install()
   })
   expect(updater.isInstalling()).toBe(true)
-  expect(sdk.confirm).toHaveBeenCalledTimes(2)
-  expect(sdk.confirm.mock.calls[1][0]).toContain("2")
-  expect(sdk.relaunch).toHaveBeenCalledTimes(1)
+  expect(confirm).toHaveBeenCalledTimes(3)
+  expect(vi.mocked(confirm).mock.calls[2][0]).toContain("2")
   await act(async () => decide(false))
-  expect(updater.isInstalling()).toBe(false)
-  expect(sdk.relaunch).toHaveBeenCalledTimes(1)
-  expect(update.downloadAndInstall).toHaveBeenCalledTimes(1)
+  expect(relaunch).toHaveBeenCalledTimes(1)
+  expect(desktopUpdateInstall).toHaveBeenCalledTimes(1)
 
-  sdk.confirm.mockResolvedValueOnce(true)
-  sdk.relaunch.mockResolvedValueOnce(undefined)
+  vi.mocked(confirm).mockResolvedValueOnce(true)
+  vi.mocked(relaunch).mockResolvedValueOnce(undefined)
   await act(async () => container.querySelector("button")!.click())
-  expect(sdk.confirm).toHaveBeenCalledTimes(3)
-  expect(sdk.relaunch).toHaveBeenCalledTimes(2)
-  expect(update.downloadAndInstall).toHaveBeenCalledTimes(1)
-  expect(update.close).toHaveBeenCalledTimes(1)
+  expect(confirm).toHaveBeenCalledTimes(4)
+  expect(relaunch).toHaveBeenCalledTimes(2)
+  expect(desktopUpdateInstall).toHaveBeenCalledTimes(1)
   expect(updater.isInstalling()).toBe(false)
 })

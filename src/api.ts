@@ -1,6 +1,7 @@
 import { invoke as tauriInvoke, type InvokeArgs, type InvokeOptions } from "@tauri-apps/api/core"
 import type {
   BootstrapPayload,
+  DesktopUpdateStatus,
   CodexSessionSummary,
   ImportBatchPayload,
   ImportSessionRequest,
@@ -82,6 +83,22 @@ export function startWithDefaults(): Promise<BootstrapPayload> {
 
 export function openSettingsFolder(): Promise<void> {
   return invoke("open_settings_folder")
+}
+
+export function desktopUpdateStatus(): Promise<DesktopUpdateStatus> {
+  return invoke("desktop_update_status")
+}
+
+export function desktopUpdateCheck(): Promise<DesktopUpdateStatus> {
+  return invoke("desktop_update_check")
+}
+
+export function desktopUpdateInstall(candidateId: string): Promise<DesktopUpdateStatus> {
+  return invoke("desktop_update_install", { candidateId })
+}
+
+export function desktopUpdateReconcileSettings(): Promise<DesktopUpdateStatus> {
+  return invoke("desktop_update_reconcile_settings")
 }
 
 export function addWorkspace(path: string): Promise<BootstrapPayload> {
@@ -284,7 +301,7 @@ interface BackendError {
 }
 
 export interface SessionLeaseConflictDetails {
-  metadataState: "valid" | "corrupt" | "missing"
+  metadataState: "valid" | "corrupt" | "missing" | "reclaim_pending"
   ownerPid: number | null
   ownerStartedAt: string | null
   acquiredAt: string | null
@@ -440,7 +457,7 @@ export function sessionLeaseConflictDetails(error: unknown): SessionLeaseConflic
   try {
     const details = JSON.parse(parsed.details) as Partial<SessionLeaseConflictDetails>
     if (
-      !["valid", "corrupt", "missing"].includes(details.metadataState ?? "") ||
+      !["valid", "corrupt", "missing", "reclaim_pending"].includes(details.metadataState ?? "") ||
       typeof details.sessionPath !== "string" ||
       (details.ownerPid !== null &&
         details.ownerPid !== undefined &&

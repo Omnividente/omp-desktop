@@ -138,8 +138,16 @@ export const UI_TEXT = {
     desktopUpdateVersion: "Версия {version}",
     desktopUpdateInstall: "Установить и перезапустить",
     desktopUpdateInstalling: "Устанавливаем…",
+    desktopUpdateInstalled: "Обновление OMP Desktop установлено",
+    desktopUpdateRelaunch: "Перезапустить Desktop",
     desktopUpdateCheck: "Проверить обновления OMP Desktop",
     desktopUpdateCurrent: "Установлена актуальная версия OMP Desktop",
+    desktopUpdatePrereleases: "Предлагать предварительные версии",
+    desktopUpdatePrereleasesHelp:
+      "После сохранения будут предлагаться стабильные и предварительные версии Desktop. Установка — только по вашей команде; более старые версии не устанавливаются.",
+    desktopUpdatePrereleaseBadge: "Предварительная версия",
+    desktopUpdatePrereleaseConfirm:
+      "Версия {version} отмечена издателем как предварительная и может быть нестабильной. Установить эту предварительную версию и перезапустить Desktop?",
     desktopUpdateRunningConfirm:
       "Работающих терминалов: {count}. Установка завершит их процессы и прервёт незавершённую работу. Продолжить?",
     desktopUpdateWaitForLaunch:
@@ -914,8 +922,16 @@ export const UI_TEXT = {
     desktopUpdateVersion: "Version {version}",
     desktopUpdateInstall: "Install and restart",
     desktopUpdateInstalling: "Installing…",
+    desktopUpdateInstalled: "OMP Desktop update installed",
+    desktopUpdateRelaunch: "Restart Desktop",
     desktopUpdateCheck: "Check for OMP Desktop updates",
     desktopUpdateCurrent: "OMP Desktop is up to date",
+    desktopUpdatePrereleases: "Offer prerelease versions",
+    desktopUpdatePrereleasesHelp:
+      "After saving, Desktop will offer stable and prerelease versions. Installation requires your explicit action; older versions are never installed.",
+    desktopUpdatePrereleaseBadge: "Prerelease",
+    desktopUpdatePrereleaseConfirm:
+      "Version {version} is marked as a prerelease by its publisher and may be unstable. Install this prerelease and restart Desktop?",
     desktopUpdateRunningConfirm:
       "Running terminals: {count}. Installing will stop their processes and interrupt unfinished work. Continue?",
     desktopUpdateWaitForLaunch:
