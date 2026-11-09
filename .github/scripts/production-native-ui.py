@@ -354,8 +354,7 @@ def main(q):
             global phase
             previous_phase = phase
             phase = "linux-control-name"
-            roles = {"button": {"push button"}, "tab": {"page tab"},
-                     "combo": {"combo box"}, "edit": {"entry"}}
+            roles = {"button": {"push button"}, "tab": {"page tab"}, "combo": {"combo box"}}
             if kind == "edit":
                 phase = "linux-control-id"
                 native_id = q["nativeId"]
@@ -364,11 +363,19 @@ def main(q):
             else:
                 candidates = [n for n in nodes() if name(n) == label]
                 counts["controlNameMatches"] = len(candidates)
-            phase = "linux-control-role"
-            found = [n for n in candidates if n.getRoleName() in roles[kind]]
-            counts["controlRoleMatches"] = len(found)
+            if kind == "edit":
+                phase = "linux-control-editable"
+                found = [n for n in candidates if n.getState().contains(pyatspi.STATE_EDITABLE)]
+                counts["controlEditableMatches"] = len(found)
+            else:
+                phase = "linux-control-role"
+                found = [n for n in candidates if n.getRoleName() in roles[kind]]
+                counts["controlRoleMatches"] = len(found)
             require(len(found) == 1)
             node = found[0]
+            if kind == "edit":
+                phase = "linux-control-editable-interface"
+                node.queryEditableText()
             if require_enabled:
                 phase = "linux-control-enabled"
                 require(node.getState().contains(pyatspi.STATE_ENABLED))
@@ -409,7 +416,7 @@ def main(q):
 
         def value(n):
             global phase
-            if n.getRoleName() == "entry":
+            if q.get("kind", "combo") == "edit":
                 phase = "linux-value-text"
                 text = n.queryText()
                 return text.getText(0, text.characterCount)

@@ -432,6 +432,7 @@ async function native(request, retry = false) {
               "selectionMenus",
               "controlNameMatches",
               "controlIdMatches",
+              "controlEditableMatches",
               "controlRoleMatches",
               "controlWasVisible",
               "actualValueChars",
