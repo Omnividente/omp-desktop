@@ -487,6 +487,10 @@ async function start(binary, label) {
     "Native app metadata mismatch",
   )
   const window = await nativeIdentity(app)
+  requireThat(
+    !result.launches.some((launch) => launch.pid === window.pid),
+    "Native restart reused a previous PID",
+  )
   const identity = {
     label,
     ...window,
@@ -706,7 +710,7 @@ async function preferences(app, fixture, initial = false) {
       samePath(general.executable, fixture.noCli),
     "Rendered general preferences differ",
   )
-  if (app.binary.release.version === "0.9.11") {
+  if (app.binary.release.version === "0.9.12") {
     requireThat(general.theme === fixture.theme, "Target theme UI missing")
     await waitUntil("applied Desktop theme", () =>
       app.cdp.evaluate(
@@ -902,7 +906,7 @@ async function main() {
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"))
   requireThat(receipt.repository === "Omnividente/omp-desktop", "Receipt repository mismatch")
   await validateRelease(receipt.base, "0.9.10")
-  await validateRelease(receipt.target, "0.9.11")
+  await validateRelease(receipt.target, "0.9.12")
   requireThat(
     receipt.base.commit === BASE_COMMIT &&
       receipt.base.tagObjectSha === BASE_TAG_OBJECT &&

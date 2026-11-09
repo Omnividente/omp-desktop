@@ -1,0 +1,174 @@
+name: Verify Production Trust New Broker
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact immutable v0.9.12 production source SHA
+        required: true
+        type: string
+      target_release_id:
+        description: Immutable production v0.9.12 prerelease ID (must remain non-latest)
+        required: true
+        type: string
+      target_run_id:
+        description: Successful production release-artifacts.yml push run ID
+        required: true
+        type: string
+      harness_sha:
+        description: Exact signed diagnostic harness SHA; dispatch at the same ref
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-trust-updater-${{ inputs.target_sha }}
+  cancel-in-progress: false
+
+jobs:
+  production-broker:
+    name: Actual production-trust broker SDK and FIRST target native UI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-22.04]
+    env:
+      PRODUCTION_HARNESS_SHA: ${{ inputs.harness_sha }}
+      PRODUCTION_TARGET_SHA: ${{ inputs.target_sha }}
+      PRODUCTION_TARGET_RELEASE_ID: ${{ inputs.target_release_id }}
+      PRODUCTION_TARGET_RUN_ID: ${{ inputs.target_run_id }}
+      PRODUCTION_NATIVE_MODE: updater
+    steps:
+      - name: Admit exact signed harness and fresh hosted VM
+        shell: bash
+        env:
+          WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+          WORKFLOW_SOURCE_REF: ${{ github.workflow_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == Omnividente/omp-desktop && "$GITHUB_EVENT_NAME" == workflow_dispatch ]]
+          [[ "$RUNNER_ENVIRONMENT" == github-hosted && "$PRODUCTION_TARGET_SHA" =~ ^[0-9a-f]{40}$ && "$PRODUCTION_HARNESS_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PRODUCTION_TARGET_RELEASE_ID" =~ ^[1-9][0-9]*$ && "$PRODUCTION_TARGET_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$GITHUB_SHA" == "$PRODUCTION_HARNESS_SHA" && "$WORKFLOW_SOURCE_SHA" == "$PRODUCTION_HARNESS_SHA" ]]
+          [[ "$WORKFLOW_SOURCE_REF" == Omnividente/omp-desktop/.github/workflows/production-updater-smoke.yml@* ]]
+          signature=$(gh api "repos/$GITHUB_REPOSITORY/commits/$PRODUCTION_HARNESS_SHA" --jq '.commit.verification | .verified == true and .reason == "valid"')
+          [[ "$signature" == true ]]
+          root="$RUNNER_TEMP/production-updater-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          echo "PRODUCTION_WORK_DIR=$root/downloads" >> "$GITHUB_ENV"
+          echo "PRODUCTION_EVIDENCE_DIR=$root/evidence" >> "$GITHUB_ENV"
+          echo "PRODUCTION_SMOKE_WORK_DIR=$root/scenario" >> "$GITHUB_ENV"
+          echo "PRODUCTION_PROBE_OVERLAY=$root/probe-overlay.json" >> "$GITHUB_ENV"
+
+      - name: Check out immutable production source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: production-target
+      - name: Check out independently pinned signed diagnostic source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.harness_sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          path: acceptance-harness
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Acquire every production asset and verify production signatures
+        id: acquire
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs
+      - name: Admit unchanged normal production core config and crypto inputs
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/prepare-production-probe.mjs
+      - name: Set up Rust for private diagnostic client only
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable 2026-08-05
+      - name: Install Linux native build and observation dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick
+      - name: Install Windows native observation dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m pip install pywinauto==0.6.9 psutil==6.1.1 Pillow==11.1.0
+          if ($LASTEXITCODE -ne 0) { throw 'Native observation dependencies unavailable' }
+          "PRODUCTION_NATIVE_PYTHON=$((Get-Command python).Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Install frontend dependencies for diagnostic client
+        working-directory: acceptance-harness
+        run: npm ci
+      - name: Build unsigned diagnostic PROBE with production identity and trust unchanged
+        working-directory: acceptance-harness
+        shell: bash
+        env:
+          OMP_PRODUCTION_TARGET_SHA: ${{ inputs.target_sha }}
+          OMP_PRODUCTION_HARNESS_SHA: ${{ inputs.harness_sha }}
+          OMP_PRODUCTION_RELEASE_ID: ${{ inputs.target_release_id }}
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            npx tauri build --features updater-e2e --bundles appimage --config "$PRODUCTION_PROBE_OVERLAY"
+          else
+            npx tauri build --features updater-e2e --no-bundle --config "$PRODUCTION_PROBE_OVERLAY"
+          fi
+      - name: Recheck unchanged production inputs and locate exact diagnostic bytes
+        working-directory: production-target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ../acceptance-harness/.github/scripts/prepare-production-probe.mjs --recheck
+          node --input-type=module <<'NODE'
+          import { appendFile, readdir } from 'node:fs/promises';
+          import { resolve, join } from 'node:path';
+          let path = resolve('../acceptance-harness/src-tauri/target/release/omp-desktop.exe');
+          if (process.platform === 'linux') {
+            const directory = resolve('../acceptance-harness/src-tauri/target/release/bundle/appimage');
+            const matches = (await readdir(directory)).filter(name => name.endsWith('.AppImage'));
+            if (matches.length !== 1) throw new Error('Exactly one diagnostic AppImage required');
+            path = join(directory, matches[0]);
+            await appendFile(process.env.GITHUB_ENV, 'PRODUCTION_NATIVE_PYTHON=/usr/bin/python3\n');
+          }
+          await appendFile(process.env.GITHUB_ENV, `PRODUCTION_PROBE_PATH=${path}\n`);
+          NODE
+      - name: Observe Windows baseline UI Save then actual SDK target relaunch UI and state
+        if: runner.os == 'Windows'
+        env:
+          PRODUCTION_RECEIPT: ${{ env.PRODUCTION_EVIDENCE_DIR }}/verified-production-assets.json
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/run-production-native-smoke.mjs
+      - name: Observe Linux baseline UI Save then actual SDK AppImage replacement relaunch UI and state
+        if: runner.os == 'Linux'
+        env:
+          PRODUCTION_RECEIPT: ${{ env.PRODUCTION_EVIDENCE_DIR }}/verified-production-assets.json
+        working-directory: production-target
+        run: |
+          xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' dbus-run-session -- bash -euc '
+            openbox >/dev/null 2>&1 &
+            node ../acceptance-harness/.github/scripts/run-production-native-smoke.mjs
+          '
+      - name: Freeze recheck every immutable release field and asset
+        if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
+        working-directory: production-target
+        run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs --recheck
+      - name: Upload only public source identity and bounded synthetic native proofs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: production-trust-new-broker-${{ runner.os }}-proofs
+          path: |
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/*.json
+            ${{ env.PRODUCTION_EVIDENCE_DIR }}/*.png
+          if-no-files-found: warn
+          retention-days: 3
+          # No raw profile, JSONL, binary, app log, environment, token or build dump.
