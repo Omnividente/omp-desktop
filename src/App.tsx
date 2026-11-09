@@ -1656,7 +1656,10 @@ function App() {
 
   const openAndRereadSession = useCallback(
     async (session: SessionSummary) => {
-      const prompt = `${t(lang, "transcriptRereadPrompt").replace("{path}", session.filePath)}\r`
+      const prompt = `${t(lang, "transcriptRereadPrompt").replace(
+        "{path}",
+        () => session.filePath,
+      )}\r`
       await launchSession(session, prompt)
       closeTranscript()
     },

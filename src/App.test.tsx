@@ -27,6 +27,7 @@ import type {
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
+const terminalReady = vi.hoisted(() => new Map<string, (terminalId: string) => void>())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
@@ -74,17 +75,22 @@ vi.mock("./TerminalView", () => ({
     tab,
     active,
     focusRequestSequence,
+    onReady,
   }: {
     tab: TerminalTab
     active: boolean
     focusRequestSequence: number
-  }) => (
-    <div
-      data-terminal-id={tab.id}
-      data-active={active}
-      data-focus-sequence={focusRequestSequence}
-    />
-  ),
+    onReady: (terminalId: string) => void
+  }) => {
+    terminalReady.set(tab.id, onReady)
+    return (
+      <div
+        data-terminal-id={tab.id}
+        data-active={active}
+        data-focus-sequence={focusRequestSequence}
+      />
+    )
+  },
 }))
 
 ;(
@@ -944,6 +950,7 @@ describe("App lifecycle serialization", () => {
     previousDocumentLanguage = document.documentElement.getAttribute("lang")
     vi.clearAllMocks()
     invokeMock.mockReset()
+    terminalReady.clear()
     vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
@@ -3057,6 +3064,85 @@ describe("App lifecycle serialization", () => {
       await act(async () => read.click())
       expect(container.querySelector(".transcript-panel")).not.toBeNull()
       expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ["en", "new"],
+    ["ru", "new"],
+    ["en", "pending"],
+    ["ru", "pending"],
+    ["en", "ready"],
+    ["ru", "ready"],
+  ] as const)(
+    "preserves the literal reread path in terminal input (%s, %s)",
+    async (language, lifecycle) => {
+      const paths = [
+        "C:/fixture/ordinary.jsonl",
+        "C:/fixture/price-$$5.jsonl",
+        "/synthetic/A $& B/history.jsonl",
+        "C:/fixture/A $` B.jsonl",
+        "/synthetic/A $' B/history.jsonl",
+        "/synthetic/Проект 👩🏽‍💻 {path} $1/history.jsonl",
+      ]
+      for (const filePath of paths) {
+        const session = { ...bootstrap.sessions[0], filePath }
+        vi.mocked(api.bootstrap).mockResolvedValue({
+          ...bootstrap,
+          settings: { ...bootstrap.settings, language },
+          sessions: [session],
+        })
+        vi.mocked(api.startTerminal).mockClear()
+        invokeMock.mockClear().mockImplementation((command: string) => {
+          if (command === "write_terminal") return Promise.resolve()
+          if (command === "read_session_transcript") {
+            return Promise.resolve({
+              session,
+              entries: [],
+              updatedAt: 1,
+              truncated: false,
+              malformedRecords: 0,
+              incompleteLastRecord: false,
+            })
+          }
+          throw new Error(`Unexpected reread fixture command: ${command}`)
+        })
+        terminalReady.clear()
+        await act(async () => root.render(<App />))
+        if (lifecycle !== "new") {
+          await act(async () => element(".recent-resume").click())
+          if (lifecycle === "ready") {
+            await act(async () => terminalReady.get(started.terminalId)!(started.terminalId))
+          }
+        }
+        await act(async () => element(".session-transcript").click())
+        await act(async () => element(".transcript-reread-button").click())
+        expect(container.querySelector(".transcript-panel")).toBeNull()
+        expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+          session.cwd,
+          filePath,
+          120,
+          36,
+          null,
+          false,
+        )
+        const writes = () =>
+          invokeMock.mock.calls.filter(([command]) => command === "write_terminal")
+        expect(writes()).toHaveLength(lifecycle === "ready" ? 1 : 0)
+        await act(async () => terminalReady.get(started.terminalId)!(started.terminalId))
+        await act(async () => terminalReady.get(started.terminalId)!(started.terminalId))
+        expect(writes()).toEqual([
+          [
+            "write_terminal",
+            {
+              terminalId: started.terminalId,
+              data: `${t(language, "transcriptRereadPrompt").split("{path}").join(filePath)}\r`,
+            },
+            undefined,
+          ],
+        ])
+        await act(async () => root.render(null))
+      }
     },
   )
 
