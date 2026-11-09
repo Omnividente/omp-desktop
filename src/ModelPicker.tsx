@@ -393,7 +393,12 @@ export function ModelPicker({
                     closePicker()
                   }}
                   onFocus={() => setActiveIndex(index)}
-                  onMouseEnter={() => setActiveIndex(index)}
+                  onMouseEnter={(event) => {
+                    // Hover must not replace the keyboard target while the listbox owns focus.
+                    if (!event.currentTarget.parentElement?.contains(document.activeElement)) {
+                      setActiveIndex(index)
+                    }
+                  }}
                   ref={(element) => {
                     optionRefs.current[index] = element
                   }}

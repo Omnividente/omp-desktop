@@ -1,77 +1,92 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
-import { checkClientUpdate, installClientUpdate } from "./clientUpdater"
+import { beforeEach, expect, it, vi } from "vitest"
+import { installClientUpdate } from "./clientUpdater"
+import { desktopUpdateCheck, desktopUpdateInstall, desktopUpdateStatus } from "./api"
+import { relaunch } from "@tauri-apps/plugin-process"
+import type { DesktopUpdateStatus } from "./types"
 
-const sdk = vi.hoisted(() => ({ check: vi.fn(), relaunch: vi.fn() }))
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: sdk.check }))
-vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: sdk.relaunch }))
-
+vi.mock("./api", () => ({
+  desktopUpdateCheck: vi.fn(),
+  desktopUpdateInstall: vi.fn(),
+  desktopUpdateStatus: vi.fn(),
+}))
+vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }))
+const ready: DesktopUpdateStatus = {
+  policyState: "ready",
+  includePrereleases: false,
+  revision: "1",
+  checking: false,
+  installState: "idle",
+  installed: null,
+  update: {
+    candidateId: "candidate-1",
+    version: "0.9.12",
+    date: null,
+    body: null,
+    prerelease: false,
+    releaseId: "release-1",
+    releaseUrl: "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.12",
+  },
+}
+const installed: DesktopUpdateStatus = {
+  ...ready,
+  installState: "installed",
+  installed: ready.update,
+  update: null,
+}
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.resetAllMocks()
+  vi.mocked(desktopUpdateStatus).mockResolvedValue(ready)
+  vi.mocked(desktopUpdateInstall).mockResolvedValue(installed)
+  vi.mocked(relaunch).mockResolvedValue(undefined)
 })
 
-afterEach(async () => {
-  sdk.check.mockResolvedValue(null)
-  await checkClientUpdate()
+it("does not install a candidate invalidated by a fresh native check", async () => {
+  vi.mocked(desktopUpdateCheck).mockResolvedValue({ ...ready, update: null })
+  await desktopUpdateCheck()
+  vi.mocked(desktopUpdateStatus).mockResolvedValue({ ...ready, update: null })
+  await expect(installClientUpdate("candidate-1")).rejects.toThrow()
+  expect(desktopUpdateInstall).not.toHaveBeenCalled()
+  expect(relaunch).not.toHaveBeenCalled()
 })
 
-it("owns only the latest update while a failed check preserves the installable candidate", async () => {
-  const resources = new Set<string>()
-  const installed: string[] = []
-  let sequence = 0
-  sdk.check.mockImplementation(async () => {
-    const version = `0.9.${++sequence}`
-    resources.add(version)
-    return {
-      version,
-      date: null,
-      body: null,
-      close: async () => {
-        resources.delete(version)
-      },
-      downloadAndInstall: async () => {
-        if (!resources.has(version)) throw new Error("closed update resource")
-        installed.push(version)
-      },
-    }
-  })
-  await checkClientUpdate()
-  await checkClientUpdate()
-  expect([...resources]).toEqual(["0.9.2"])
-  sdk.check.mockRejectedValueOnce(new Error("offline"))
-  await expect(checkClientUpdate()).rejects.toThrow("offline")
-  await installClientUpdate()
-  expect(installed).toEqual(["0.9.2"])
-  expect([...resources]).toEqual([])
+it.each(["notReady", "changing", "uncertain"] as const)(
+  "blocks installation under %s policy even with stale metadata",
+  async (policyState) => {
+    vi.mocked(desktopUpdateStatus).mockResolvedValue({ ...ready, policyState })
+    await expect(installClientUpdate("candidate-1")).rejects.toThrow()
+    expect(desktopUpdateInstall).not.toHaveBeenCalled()
+  },
+)
+
+it("reads native status after an unknown IPC outcome and refuses to repeat uncertain installation", async () => {
+  vi.mocked(desktopUpdateInstall).mockRejectedValue(new Error("IPC lost after install side effect"))
+  const uncertain: DesktopUpdateStatus = { ...ready, installState: "uncertain", update: null }
+  vi.mocked(desktopUpdateStatus).mockResolvedValueOnce(ready).mockResolvedValue(uncertain)
+  await expect(installClientUpdate("candidate-1")).rejects.toThrow("IPC lost")
+  expect(desktopUpdateStatus).toHaveBeenCalledTimes(2)
+  await expect(installClientUpdate("candidate-1")).rejects.toThrow()
+  expect(desktopUpdateInstall).toHaveBeenCalledTimes(1)
+  expect(relaunch).not.toHaveBeenCalled()
 })
 
-it("retains a failed installation for retry and never replaces an in-flight install", async () => {
-  let release!: () => void
-  let attempts = 0
-  let closed = false
-  sdk.check.mockResolvedValue({
-    version: "0.9.9",
-    close: async () => {
-      closed = true
-    },
-    downloadAndInstall: async () => {
-      if (closed) throw new Error("closed update resource")
-      if (++attempts === 1) throw new Error("download failed")
-      await new Promise<void>((resolve) => {
-        release = resolve
-      })
-    },
-  })
-  await checkClientUpdate()
-  await expect(installClientUpdate()).rejects.toThrow("download failed")
-  const install = installClientUpdate()
-  const duplicate = installClientUpdate()
-  try {
-    expect(await checkClientUpdate()).toMatchObject({ version: "0.9.9" })
-    expect(attempts).toBe(2)
-    expect(closed).toBe(false)
-  } finally {
-    release()
-    await Promise.all([install, duplicate])
-  }
-  expect(closed).toBe(true)
+it("never relaunches on an unconfirmed native install result", async () => {
+  vi.mocked(desktopUpdateInstall).mockResolvedValue({ ...ready, installState: "uncertain" })
+  await expect(installClientUpdate("candidate-1")).rejects.toThrow()
+  expect(relaunch).not.toHaveBeenCalled()
+})
+
+it("coalesces duplicate explicit clicks while native installation is in flight", async () => {
+  let complete!: (value: DesktopUpdateStatus) => void
+  vi.mocked(desktopUpdateInstall).mockReturnValue(
+    new Promise((resolve) => {
+      complete = resolve
+    }),
+  )
+  const first = installClientUpdate("candidate-1")
+  const duplicate = installClientUpdate("candidate-1")
+  await Promise.resolve()
+  expect(desktopUpdateInstall).toHaveBeenCalledTimes(1)
+  complete(installed)
+  await Promise.all([first, duplicate])
+  expect(relaunch).toHaveBeenCalledTimes(1)
 })

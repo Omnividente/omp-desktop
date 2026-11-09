@@ -4,8 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       base_tag:
-        description: Stable release tag to upgrade from
+        description: Stable legacy source tag; same-source PROBE version floor for channels
         required: true
+        type: string
+      scenario:
+        description: Legacy SDK old-stable upgrade or actual native broker channels (test trust only)
+        required: true
+        type: choice
+        default: legacy
+        options:
+          - legacy
+          - channels
+      target_source_ref:
+        description: Source alias resolving to the workflow ref SHA; dispatch on the intended source branch
+        required: false
         type: string
   workflow_run:
     workflows:
@@ -16,7 +28,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: updater-e2e-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: updater-e2e-${{ inputs.scenario || 'legacy' }}-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -30,6 +42,9 @@ jobs:
       target_version: ${{ steps.plan.outputs.target_version }}
       target_ref: ${{ steps.plan.outputs.target_ref }}
       matrix: ${{ steps.plan.outputs.matrix }}
+      scenario: ${{ steps.plan.outputs.scenario }}
+      base_role: ${{ steps.plan.outputs.base_role }}
+      runner: ${{ steps.plan.outputs.runner }}
     steps:
       - name: Check out target source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,10 +58,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_NAME: ${{ github.event_name }}
           INPUT_BASE_TAG: ${{ inputs.base_tag }}
-          TARGET_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+          DEFAULT_TARGET_REF: ${{ github.event.workflow_run.head_sha || github.sha }}
+          INPUT_TARGET_SOURCE_REF: ${{ inputs.target_source_ref }}
+          INPUT_SCENARIO: ${{ inputs.scenario }}
         shell: bash
         run: |
           set -euo pipefail
+          scenario="${INPUT_SCENARIO:-legacy}"
+          case "$scenario" in legacy|channels) ;; *) echo "Unknown updater E2E scenario" >&2; exit 1 ;; esac
+          target_source_ref="${INPUT_TARGET_SOURCE_REF:-$DEFAULT_TARGET_REF}"
+          if [[ ! "$target_source_ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || ! git check-ref-format --allow-onelevel "$target_source_ref"; then
+            echo "Invalid target_source_ref" >&2
+            exit 1
+          fi
+          git fetch --depth=1 --no-tags origin "$target_source_ref"
+          target_sha=$(git rev-parse 'FETCH_HEAD^{commit}')
+          # Environment admission applies to the workflow ref, never to an arbitrary checkout.
+          if [[ "$target_sha" != "$(git rev-parse 'HEAD^{commit}')" ]]; then
+            echo "target_source_ref must resolve to the workflow ref; dispatch on the intended source branch" >&2
+            exit 1
+          fi
+          git show "$target_sha:package.json" > "$RUNNER_TEMP/updater-target-package.json"
+          git show "$target_sha:src-tauri/tauri.conf.json" > "$RUNNER_TEMP/updater-target-tauri.json"
+          git show "$target_sha:src-tauri/Cargo.toml" > "$RUNNER_TEMP/updater-target-Cargo.toml"
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             base_tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name')
           else
@@ -58,12 +92,20 @@ jobs:
           fi
           git fetch --depth=1 --no-tags origin "refs/tags/$base_tag:refs/tags/$base_tag"
           git show "$base_tag:package.json" > "$RUNNER_TEMP/updater-base-package.json"
-          BASE_TAG="$base_tag" node --input-type=module <<'EOF'
+          BASE_TAG="$base_tag" TARGET_REF="$target_sha" SCENARIO="$scenario" node --input-type=module <<'EOF'
           import { compareStableVersions } from "./.github/scripts/run-updater-e2e.mjs";
           import { appendFileSync, readFileSync } from "node:fs";
 
           const baseVersion = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/updater-base-package.json`, "utf8")).version;
-          const targetVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
+          const targetVersion = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/updater-target-package.json`, "utf8")).version;
+          const tauriVersion = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/updater-target-tauri.json`, "utf8")).version;
+          const cargoVersion = readFileSync(`${process.env.RUNNER_TEMP}/updater-target-Cargo.toml`, "utf8").match(/^version\s*=\s*"([^"]+)"/m)?.[1];
+          if (process.env.BASE_TAG !== `v${baseVersion}` || targetVersion !== tauriVersion || targetVersion !== cargoVersion) {
+            throw new Error("Source manifests must agree on real versions; overlays must not edit them");
+          }
+          const channels = process.env.SCENARIO === "channels";
+          const baseRole = channels ? "probe" : "base";
+          const runner = channels ? "run-preview-updater-e2e.mjs" : "run-updater-e2e.mjs";
           if (compareStableVersions(targetVersion, baseVersion) <= 0) {
             throw new Error(`Target version ${targetVersion} must be newer than base ${baseVersion}`);
           }
@@ -73,8 +115,8 @@ jobs:
           ];
           const include = platforms.flatMap(({ os, platform }) => [
             {
-              role: "base",
-              source_ref: process.env.BASE_TAG,
+              role: baseRole,
+              source_ref: channels ? process.env.TARGET_REF : process.env.BASE_TAG,
               version: baseVersion,
               os,
               platform,
@@ -89,12 +131,12 @@ jobs:
           ]);
           appendFileSync(
             process.env.GITHUB_OUTPUT,
-            `base_version=${baseVersion}\ntarget_version=${targetVersion}\ntarget_ref=${process.env.TARGET_REF}\nmatrix=${JSON.stringify({ include })}\n`,
+            `base_version=${baseVersion}\ntarget_version=${targetVersion}\ntarget_ref=${process.env.TARGET_REF}\nscenario=${process.env.SCENARIO}\nbase_role=${baseRole}\nrunner=${runner}\nmatrix=${JSON.stringify({ include })}\n`,
           );
           EOF
 
   build:
-    name: Build ${{ matrix.role }} ${{ matrix.version }} (${{ matrix.platform }})
+    name: Build ${{ needs.plan.outputs.scenario }} ${{ matrix.role }} ${{ matrix.version }} (${{ matrix.platform }})
     needs: plan
     environment: updater-e2e
     runs-on: ${{ matrix.os }}
@@ -143,12 +185,17 @@ jobs:
       - name: Create updater E2E overlays
         env:
           E2E_VERSION: ${{ matrix.version }}
+          E2E_SCENARIO: ${{ needs.plan.outputs.scenario }}
           UPDATER_E2E_PUBLIC_KEY: ${{ vars.UPDATER_E2E_PUBLIC_KEY }}
         shell: bash
         run: |
           node --input-type=module <<'EOF'
           import { writeFileSync } from "node:fs";
-          writeFileSync(".tmp-tauri-updater-e2e-version.json", JSON.stringify({ version: process.env.E2E_VERSION }));
+          // Only channels builds suppress the real frontend: this is broker/SDK proof, not UI proof.
+          // Both PROBE and TARGET use exactly target_ref, with a test-only PROBE version floor.
+          const overlay = { version: process.env.E2E_VERSION };
+          if (process.env.E2E_SCENARIO === "channels") overlay.app = { windows: [{ label: "main", title: "OMP Desktop Updater E2E", url: "about:blank", width: 800, height: 600 }] };
+          writeFileSync(".tmp-tauri-updater-e2e-version.json", JSON.stringify(overlay));
           writeFileSync(".tmp-tauri-updater-e2e-trust.json", JSON.stringify({ plugins: { updater: { pubkey: process.env.UPDATER_E2E_PUBLIC_KEY, windows: { installMode: "quiet" } } } }));
           EOF
 
@@ -156,6 +203,7 @@ jobs:
         if: runner.os == 'Linux'
         env:
           CI: "false"
+          OMP_DESKTOP_UPDATER_E2E_SOURCE_SHA: ${{ matrix.source_ref }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: >-
@@ -170,6 +218,7 @@ jobs:
         if: runner.os == 'Windows'
         env:
           CI: "false"
+          OMP_DESKTOP_UPDATER_E2E_SOURCE_SHA: ${{ matrix.source_ref }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.UPDATER_E2E_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: >-
@@ -203,7 +252,7 @@ jobs:
           retention-days: 3
 
   smoke:
-    name: Upgrade v${{ needs.plan.outputs.base_version }} to v${{ needs.plan.outputs.target_version }} (${{ matrix.platform }})
+    name: ${{ needs.plan.outputs.scenario }} v${{ needs.plan.outputs.base_version }} to v${{ needs.plan.outputs.target_version }} (${{ matrix.platform }})
     needs:
       - plan
       - build
@@ -229,17 +278,26 @@ jobs:
         with:
           node-version: 22
 
-      - name: Download base artifact
+      - name: Download legacy base or same-source PROBE artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: updater-e2e-base-${{ matrix.platform }}
+          name: updater-e2e-${{ needs.plan.outputs.base_role }}-${{ matrix.platform }}
           path: .tmp/updater-e2e/base
 
       - name: Download target artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.plan.outputs.scenario == 'legacy'
         with:
           name: updater-e2e-target-${{ matrix.platform }}
           path: .tmp/updater-e2e/target
+
+      - name: Download both signed target platforms for complete native fixture inventory
+        if: needs.plan.outputs.scenario == 'channels'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: updater-e2e-target-*
+          path: .tmp/updater-e2e/target
+          merge-multiple: false
 
       - name: Install Linux runtime dependencies
         if: runner.os == 'Linux'
@@ -252,7 +310,7 @@ jobs:
             libfuse2 \
             xvfb
 
-      - name: Exercise Linux signed update and restart
+      - name: Exercise Linux selected scenario (native SDK, isolated test trust)
         if: runner.os == 'Linux'
         env:
           E2E_BASE_DIR: ${{ github.workspace }}/.tmp/updater-e2e/base
@@ -260,9 +318,10 @@ jobs:
           E2E_BASE_VERSION: ${{ needs.plan.outputs.base_version }}
           E2E_TARGET_VERSION: ${{ needs.plan.outputs.target_version }}
           E2E_WORK_DIR: ${{ runner.temp }}/omp-updater-e2e
-        run: xvfb-run --auto-servernum node .github/scripts/run-updater-e2e.mjs
+          E2E_SOURCE_SHA: ${{ needs.plan.outputs.target_ref }}
+        run: xvfb-run --auto-servernum node .github/scripts/${{ needs.plan.outputs.runner }}
 
-      - name: Exercise Windows signed update and restart
+      - name: Exercise Windows selected scenario (native SDK, isolated test trust)
         if: runner.os == 'Windows'
         env:
           E2E_BASE_DIR: ${{ github.workspace }}/.tmp/updater-e2e/base
@@ -270,7 +329,20 @@ jobs:
           E2E_BASE_VERSION: ${{ needs.plan.outputs.base_version }}
           E2E_TARGET_VERSION: ${{ needs.plan.outputs.target_version }}
           E2E_WORK_DIR: ${{ runner.temp }}/omp-updater-e2e
-        run: node .github/scripts/run-updater-e2e.mjs
+          E2E_SOURCE_SHA: ${{ needs.plan.outputs.target_ref }}
+        run: node .github/scripts/${{ needs.plan.outputs.runner }}
+
+      - name: Upload native channel evidence (not rendered UI or production release proof)
+        if: always() && needs.plan.outputs.scenario == 'channels'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: updater-e2e-channels-proof-${{ matrix.platform }}
+          path: |
+            ${{ runner.temp }}/omp-updater-e2e/preview-updater-proof.json
+            ${{ runner.temp }}/omp-updater-e2e/native-events.jsonl
+            ${{ runner.temp }}/omp-updater-e2e/native-output.log
+          if-no-files-found: warn
+          retention-days: 3
 
   attest:
     name: Record updater E2E status
@@ -288,18 +360,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SMOKE_RESULT: ${{ needs.smoke.result }}
           TARGET_SHA: ${{ needs.plan.outputs.target_ref }}
+          SCENARIO: ${{ needs.plan.outputs.scenario }}
         shell: bash
         run: |
           set -euo pipefail
           state=failure
-          description="Signed updater upgrade failed"
+          context="Updater Upgrade E2E"
+          if [[ "$SCENARIO" == "channels" ]]; then context="Updater Channels E2E"; fi
+          description="Signed updater $SCENARIO scenario failed"
           if [[ "$SMOKE_RESULT" == "success" ]]; then
             state=success
-            description="Signed Linux and Windows updater upgrades passed"
+            description="Signed Linux and Windows $SCENARIO scenario passed"
           fi
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA" \
             -f state="$state" \
-            -f context="Updater Upgrade E2E" \
+            -f context="$context" \
             -f description="$description"
           if [[ "$state" != "success" ]]; then
             exit 1

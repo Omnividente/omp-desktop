@@ -7,6 +7,7 @@ interface UpdateNoticeProps {
   actionLabel: string
   language: Lang
   disabled: boolean
+  prerelease?: boolean
   onRemindLater: () => void
   onDismissSession?: () => void
   onViewChanges?: () => void
@@ -19,6 +20,7 @@ export function UpdateNotice({
   actionLabel,
   language,
   disabled,
+  prerelease = false,
   onRemindLater,
   onDismissSession,
   onUpdate,
@@ -29,6 +31,11 @@ export function UpdateNotice({
       <Icon name="spark" size={18} />
       <div className="update-toast-content">
         <strong>{title}</strong>
+        {prerelease && (
+          <strong data-testid="desktop-update-prerelease">
+            {t(language, "desktopUpdatePrereleaseBadge")}
+          </strong>
+        )}
         <span>{message}</span>
         {onViewChanges && (
           <button className="release-notes-link" onClick={onViewChanges} type="button">

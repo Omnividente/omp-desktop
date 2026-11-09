@@ -3,6 +3,9 @@
   "productName": "OMP Desktop Updater E2E",
   "identifier": "com.ompdesk.desktop.updater-e2e",
   "mainBinaryName": "omp-desktop-updater-e2e",
+  "app": {
+    "windows": [{ "label": "main", "create": false }]
+  },
   "bundle": {
     "createUpdaterArtifacts": true
   },
