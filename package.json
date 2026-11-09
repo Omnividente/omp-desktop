@@ -50,7 +50,7 @@
     "@types/react-dom": "^19.3.0",
     "@typescript-eslint/eslint-plugin": "^8.72.1",
     "@typescript-eslint/parser": "^8.65.0",
-    "@vitejs/plugin-react": "^6.1.2",
+    "@vitejs/plugin-react": "^6.2.1",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.37.5",
@@ -58,7 +58,7 @@
     "jsdom": "^29.1.1",
     "prettier": "^3.9.10",
     "typescript": "~5.9.3",
-    "vite": "^8.3.5",
+    "vite": "^8.3.6",
     "vitest": "^4.1.10"
   }
 }
