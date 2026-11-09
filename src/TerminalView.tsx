@@ -273,7 +273,7 @@ export function TerminalView({
     }
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown" || event.isComposing) return true
+      if (event.type !== "keydown" || event.isComposing || event.keyCode === 229) return true
       const modifier = (event.ctrlKey || event.metaKey) && !event.altKey
       const consume = () => {
         event.preventDefault()

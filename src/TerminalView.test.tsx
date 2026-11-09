@@ -331,6 +331,51 @@ it("does not intercept keyup, keypress or composing events", () => {
   expect(terminalState.selection).toBe("selected")
 })
 
+it.each([
+  ["KeyC", { key: "c", ctrlKey: true }],
+  ["KeyC", { key: "c", metaKey: true }],
+  ["Insert", { key: "Insert", ctrlKey: true }],
+  ["KeyV", { key: "v", ctrlKey: true }],
+  ["KeyV", { key: "v", ctrlKey: true, shiftKey: true }],
+  ["Insert", { key: "Insert", shiftKey: true }],
+  ["KeyA", { key: "a", ctrlKey: true }],
+  ["Backspace", { key: "Backspace" }],
+  ["Delete", { key: "Delete" }],
+  ["KeyZ", { key: "z", ctrlKey: true }],
+  ["Enter", { key: "Enter", ctrlKey: true }],
+] as const)("leaves IME-marked %s to xterm without Desktop actions", (code, modifiers) => {
+  terminalState.selection = "synthetic selection"
+  const { event, allowed } = terminalKey(code, { ...modifiers, keyCode: 229 })
+  expect(event.isComposing).toBe(false)
+  expect(event.keyCode).toBe(229)
+  expect(allowed).toBe(true)
+  expect(event.defaultPrevented).toBe(false)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeText).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalState.selection).toBe("synthetic selection")
+})
+
+it("keeps the existing clear arm untouched through an IME-marked deletion", () => {
+  expect(terminalKey("KeyA", { key: "a", ctrlKey: true }).allowed).toBe(false)
+  terminalState.clear.mockClear()
+  const { event, allowed } = terminalKey("Backspace", { key: "Backspace", keyCode: 229 })
+  expect(allowed).toBe(true)
+  expect(event.defaultPrevented).toBe(false)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalKey("Backspace", { key: "Backspace" }).allowed).toBe(false)
+  expect(writeTerminal).toHaveBeenCalledExactlyOnceWith(tab.id, "\x03")
+})
+
+it("does not arm a later clear from IME-marked select all", () => {
+  const { allowed } = terminalKey("KeyA", { key: "a", ctrlKey: true, keyCode: 229 })
+  expect(allowed).toBe(true)
+  expect(terminalKey("Backspace", { key: "Backspace" }).allowed).toBe(true)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+})
+
 it("gives a new visible selection precedence over an earlier Ctrl+A clear arm", () => {
   expect(terminalKey("KeyA", { ctrlKey: true }).allowed).toBe(false)
   terminalState.selection = "selection appeared after Ctrl+A"
