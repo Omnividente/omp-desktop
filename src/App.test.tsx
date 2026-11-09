@@ -3765,9 +3765,9 @@ describe("App lifecycle serialization", () => {
         .mockResolvedValueOnce(secondTerminal)
       await mountAndResume()
       await act(async () => element(".new-tab-button").click())
-      const receive = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")![
-        1
-      ] as EventCallback<PtySessionEvent>
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
       await act(async () =>
         receive({
           event: "pty-session",
@@ -3842,9 +3842,9 @@ describe("App lifecycle serialization", () => {
     vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
     await act(async () => root.render(<App />))
     act(() => element(".new-session-button").click())
-    const receive = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")![
-      1
-    ] as EventCallback<PtySessionEvent>
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<PtySessionEvent>
     const discovered = {
       ...bootstrap.sessions[0],
       id: "early-session",
