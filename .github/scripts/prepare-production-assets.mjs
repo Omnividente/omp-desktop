@@ -467,8 +467,10 @@ async function hashFile(path) {
 async function download(asset, directory) {
   let url = asset.browser_download_url
   const signal = AbortSignal.timeout(300_000)
+  let failureKind = "redirect-policy"
   try {
     for (let redirects = 0; redirects <= 5; redirects += 1) {
+      failureKind = "redirect-policy"
       const parsed = new URL(url)
       requireCondition(
         parsed.protocol === "https:" &&
@@ -483,14 +485,17 @@ async function download(asset, directory) {
         "Unsafe download redirect",
       )
       // Public release bytes never receive GH_TOKEN, even on the initial request.
+      failureKind = "transport"
       const response = await fetch(url, { redirect: "manual", signal })
       if ([301, 302, 303, 307, 308].includes(response.status)) {
+        failureKind = "redirect-location"
         const location = response.headers.get("location")
         await response.body?.cancel()
         requireCondition(location, "Missing download redirect")
         url = new URL(location, url).href
         continue
       }
+      failureKind = `http-${response.status}`
       requireCondition(response.status === 200 && response.body, "Asset download failed")
       const hash = createHash("sha256")
       let bytes = 0
@@ -502,21 +507,44 @@ async function download(asset, directory) {
           callback(null, chunk)
         },
       })
+      failureKind = "stream"
       await pipeline(
         Readable.fromWeb(response.body),
         meter,
         createWriteStream(join(directory, asset.name), { flags: "wx" }),
         { signal },
       )
+      failureKind = "integrity"
       requireCondition(
         bytes === asset.size && hash.digest("hex") === asset.digest.slice(7),
         "Asset bytes do not match frozen metadata",
       )
       return
     }
-  } catch {
-    // Fetch errors can contain signed redirect URLs. Do not expose them.
-    throw new Error(`Immutable asset download/hash failed: ${asset.name}`)
+  } catch (error) {
+    // Fetch errors can contain signed redirect URLs. Expose only fixed classifications.
+    const candidateCode = error?.cause?.code ?? error?.code
+    const safeCode = [
+      "UND_ERR_CONNECT_TIMEOUT",
+      "UND_ERR_HEADERS_TIMEOUT",
+      "UND_ERR_BODY_TIMEOUT",
+      "UND_ERR_SOCKET",
+      "ECONNRESET",
+      "ECONNREFUSED",
+      "ETIMEDOUT",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "EEXIST",
+      "ENOSPC",
+      "EACCES",
+      "EPERM",
+      "ABORT_ERR",
+    ].includes(candidateCode)
+      ? candidateCode
+      : "unclassified"
+    throw new Error(
+      `Immutable asset download/hash failed: ${asset.name} (${failureKind}; ${safeCode})`,
+    )
   }
   throw new Error(`Too many asset download redirects: ${asset.name}`)
 }
