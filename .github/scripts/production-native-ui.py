@@ -1,6 +1,6 @@
-"""One bounded native-window operation using accessibility and version-pixel OCR.
+"""One bounded native-window/process operation using accessibility and version-pixel OCR.
 No WebDriver, injected JavaScript, CDP, target features, or success markers.
-stdin/stdout: one JSON request/result. Failure exposes only phase/class/counts, never raw errors or a tree.
+One JSON request/result; the SDK process watcher first emits READY. Failures expose only phase/class/counts.
 """
 import json
 import hashlib
@@ -88,6 +88,63 @@ def rendered_version(image_path, ocr_path, expected, directory):
     return observed
 
 
+def watch_sdk_installer(q, root):
+    global phase
+    import psutil
+    phase = "sdk-installer-admission"
+    directory = Path(q["sdkTemp"]).resolve(strict=True)
+    require(within(root, directory))
+    expected = q["sha256"]
+    require(re.fullmatch(r"[0-9a-f]{64}", expected))
+    counts["sdkCandidateSnapshots"] = 0
+
+    def snapshot():
+        global phase
+        total = 0
+        # psutil 6.1.1 caches Windows names/exe paths; each snapshot must see PID reuse.
+        psutil.process_iter.cache_clear()
+        for process in psutil.process_iter():
+            total += 1
+            try:
+                if not process.name().lower().endswith("-0.9.12-installer.exe"):
+                    continue
+                phase = "sdk-installer-image"
+                path = Path(process.exe()).resolve(strict=True)
+                if not within(directory, path):
+                    continue
+                if not any("-0.9.12-updater-" in part for part in path.parts):
+                    continue
+                counts["sdkCandidateSnapshots"] += 1
+                started = process.create_time()
+                parent = process.ppid()
+                phase = "sdk-installer-hash"
+                observed = file_hash(path)
+                require(observed == expected)
+                if not process.is_running() or process.create_time() != started:
+                    continue
+                return {"pid": process.pid, "parentPid": parent, "path": str(path),
+                        "sha256": observed, "startedAtUnixSeconds": started,
+                        "observedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            except (psutil.NoSuchProcess, psutil.AccessDenied, FileNotFoundError, PermissionError):
+                # A snapshot can race a native process exit; never invent its identity.
+                continue
+        counts["snapshotProcesses"] = total
+        return None
+
+    phase = "sdk-installer-warm"
+    require(snapshot() is None)
+    require(counts["snapshotProcesses"] > 0)
+    print("READY", flush=True)
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        phase = "sdk-installer-wait"
+        observed = snapshot()
+        if observed is not None:
+            return observed
+        time.sleep(0.05)
+    require(False)
+
+
 def main(q):
     global phase
     phase = "runtime-admission"
@@ -98,6 +155,9 @@ def main(q):
     executable = Path(q["executable"]).resolve(strict=True)
     require(within(root, executable))
     windows = sys.platform == "win32"
+    if q.get("operation") == "watch-sdk-installer":
+        require(windows)
+        return watch_sdk_installer(q, root)
     if windows:
         phase = "windows-native-discovery"
         import psutil
@@ -298,8 +358,18 @@ def main(q):
                      "combo": {"combo box"}, "edit": {"entry"}}
             named = [n for n in nodes() if name(n) == label]
             counts["controlNameMatches"] = len(named)
+            candidates = named
+            if kind == "edit":
+                phase = "linux-control-label"
+                candidates = []
+                for label_node in named:
+                    for relation in label_node.getRelationSet():
+                        if relation.getRelationType() == pyatspi.RELATION_LABEL_FOR:
+                            candidates.extend(relation.getTarget(index)
+                                              for index in range(relation.getNTargets()))
+                counts["controlLabelTargets"] = len(candidates)
             phase = "linux-control-role"
-            found = [n for n in named if n.getRoleName() in roles[kind]]
+            found = [n for n in candidates if n.getRoleName() in roles[kind]]
             counts["controlRoleMatches"] = len(found)
             require(len(found) == 1)
             node = found[0]

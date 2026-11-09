@@ -248,44 +248,12 @@ async function install(release, directory, label) {
 async function observeSdkInstaller(expectedSha256) {
   const temp = env.TEMP
   const diagnostic = (result.sdkInstallerObserver = {
-    method: "Win32_ProcessStartTrace",
+    method: "psutil-process-snapshot",
     status: "starting",
     ready: false,
   })
-  // Arm the kernel-backed start subscription before PROBE can launch NSIS.
-  // Repeated PowerShell/CIM snapshots can miss the short-lived installer.
-  const script = String.raw`
-$ErrorActionPreference='Stop'
-[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
-$subscription = $null
-$workerPhase = 'register'
-try {
-  $subscription = Register-CimIndicationEvent -Namespace root/cimv2 -ClassName Win32_ProcessStartTrace -SourceIdentifier OmpProductionSdk
-  [Console]::WriteLine('READY')
-  $workerPhase = 'wait'
-  $end = [DateTime]::UtcNow.AddSeconds(180)
-  $found = $null
-  $root = $env:SDK_TEMP.TrimEnd('\') + '\'
-  while ([DateTime]::UtcNow -lt $end) {
-    $notice = Wait-Event -SourceIdentifier OmpProductionSdk -Timeout 1 | Select-Object -First 1
-    if ($null -eq $notice) { continue }
-    $started = $notice.SourceEventArgs.NewEvent
-    Remove-Event -EventIdentifier $notice.EventIdentifier
-    $image = (Get-CimInstance Win32_Process -Filter "ProcessId = $($started.ProcessID)" -ErrorAction SilentlyContinue).ExecutablePath
-    if (-not $image -or -not $image.StartsWith($root,[StringComparison]::OrdinalIgnoreCase) -or $image -notmatch '-0\.9\.12-updater-') { continue }
-    $workerPhase = 'hash'
-    try { $digest = (Get-FileHash -LiteralPath $image -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } catch { $workerPhase = 'wait'; continue }
-    if ($digest -ne $env:SDK_SHA256) { $workerPhase = 'wait'; continue }
-    $found = [pscustomobject]@{pid=[int]$started.ProcessID;parentPid=[int]$started.ParentProcessID;path=$image;sha256=$digest;observedAt=[DateTime]::UtcNow.ToString('o')}
-    break
-  }
-  ConvertTo-Json -InputObject $found -Compress
-} catch {
-  [pscustomobject]@{error=$true;phase=$workerPhase;exception=$_.Exception.GetType().Name;category=$_.CategoryInfo.Category.ToString()} | ConvertTo-Json -Compress
-  exit 1
-} finally {
-  if ($null -ne $subscription) { Unregister-Event -SourceIdentifier OmpProductionSdk }
-}`
+  // Warm one persistent native worker before PROBE; no WMI provider or repeated
+  // PowerShell launches can delay snapshots of the short-lived installer.
   let markReady, finish
   const ready = new Promise((done) => {
     markReady = done
@@ -293,11 +261,15 @@ try {
   const observed = new Promise((done) => {
     finish = done
   })
-  const child = spawn(psExe, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
-    env: { ...env, SDK_TEMP: temp, SDK_SHA256: expectedSha256 },
-    stdio: ["ignore", "pipe", "ignore"],
-    windowsHide: true,
-  })
+  const child = spawn(
+    required("PRODUCTION_NATIVE_PYTHON"),
+    [join(harness, ".github/scripts/production-native-ui.py")],
+    {
+      env,
+      stdio: ["pipe", "pipe", "ignore"],
+      windowsHide: true,
+    },
+  )
   child.unref()
   const stop = () => {
     child.kill()
@@ -344,17 +316,17 @@ try {
     markReady(false)
     try {
       const row = !tooLarge ? JSON.parse(text.replace(/^\uFEFF/, "")) : null
-      if (row?.error === true) {
+      if (row?.error) {
         diagnostic.status = "worker-failed"
-        diagnostic.workerPhase = ["register", "wait", "hash"].includes(row.phase)
-          ? row.phase
-          : "unknown"
+        diagnostic.workerPhase = /^[a-z-]{1,64}$/.test(row.phase ?? "") ? row.phase : "unknown"
         diagnostic.exception = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(row.exception ?? "")
           ? row.exception
           : "OtherError"
-        diagnostic.category = /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(row.category ?? "")
-          ? row.category
-          : "OtherCategory"
+        diagnostic.counts = Object.fromEntries(
+          ["sdkCandidateSnapshots", "snapshotProcesses"]
+            .filter((key) => Number.isSafeInteger(row.counts?.[key]))
+            .map((key) => [key, row.counts[key]]),
+        )
       }
       const matched =
         code === 0 &&
@@ -364,6 +336,8 @@ try {
         Number.isSafeInteger(row.pid) &&
         row.pid > 0 &&
         Number.isSafeInteger(row.parentPid) &&
+        Number.isFinite(row.startedAtUnixSeconds) &&
+        row.startedAtUnixSeconds > 0 &&
         inside(temp, resolve(row.path)) &&
         row.sha256 === expectedSha256
       if (matched) diagnostic.status = "observed"
@@ -377,7 +351,8 @@ try {
               path: row.path,
               sha256: row.sha256,
               observedAt: row.observedAt,
-              method: "Win32_ProcessStartTrace",
+              startedAtUnixSeconds: row.startedAtUnixSeconds,
+              method: diagnostic.method,
             }
           : null,
       )
@@ -388,6 +363,7 @@ try {
           "observation-timeout",
           "output-overflow",
           "spawn-failed",
+          "input-failed",
           "worker-failed",
         ].includes(diagnostic.status)
       )
@@ -395,6 +371,21 @@ try {
       finish(null)
     }
   })
+  child.stdin.once("error", () => {
+    diagnostic.status = "input-failed"
+    markReady(false)
+    stop()
+    finish(null)
+  })
+  child.stdin.end(
+    JSON.stringify({
+      operation: "watch-sdk-installer",
+      root: work,
+      executable,
+      sdkTemp: temp,
+      sha256: expectedSha256,
+    }) + "\n",
+  )
   const observation = observed.finally(() => {
     clearTimeout(startup)
     clearTimeout(deadline)
@@ -440,6 +431,7 @@ async function native(request, retry = false) {
               "matchedTexts",
               "selectionMenus",
               "controlNameMatches",
+              "controlLabelTargets",
               "controlRoleMatches",
               "controlWasVisible",
               "actualValueChars",
