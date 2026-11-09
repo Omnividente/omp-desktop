@@ -215,7 +215,7 @@ jobs:
       - name: Install actual native runtime and accessibility dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil x11-utils xdotool wmctrl openbox imagemagick
       - name: Exercise real baseline UI Save AppImage replacement and target native persistence
         working-directory: production-target
         env:

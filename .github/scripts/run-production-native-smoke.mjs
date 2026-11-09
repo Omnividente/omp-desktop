@@ -102,8 +102,9 @@ function command(file, args, options = {}) {
     })
     child.once("close", (code) => {
       clearTimeout(timer)
-      code === 0 && !tooLarge
-        ? done({ text, pid: child.pid })
+      const acceptedExitCodes = options.acceptExitCodes ?? [0]
+      acceptedExitCodes.includes(code) && !tooLarge
+        ? done({ text, pid: child.pid, exitCode: code })
         : reject(new Error("Owned native command failed"))
     })
   })
@@ -277,12 +278,44 @@ async function native(request, retry = false) {
       const response = await command(
         required("PRODUCTION_NATIVE_PYTHON"),
         [join(harness, ".github/scripts/production-native-ui.py")],
-        { input: JSON.stringify(q), deadline: 30_000 },
+        {
+          input: JSON.stringify(q),
+          deadline: 30_000,
+          acceptExitCodes: [0, 1],
+        },
       )
       const value = JSON.parse(response.text)
-      assert(!value.error)
+      if (response.exitCode !== 0 || value.error) {
+        // Only fixed phase/class identifiers, never native exception text or a tree.
+        result.lastNativeFailure = {
+          operation: q.operation,
+          phase: /^[a-z-]{1,64}$/.test(value.phase ?? "") ? value.phase : "unclassified",
+          exception: /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value.exception ?? "")
+            ? value.exception
+            : "OtherError",
+          counts: Object.fromEntries(
+            [
+              "ownedWindows",
+              "accessibilityApplications",
+              "ownedAccessibilityApplications",
+              "ownedAccessibleFrames",
+              "requestedTexts",
+              "visibleNodes",
+              "matchedTexts",
+            ]
+              .filter((key) => Number.isSafeInteger(value.counts?.[key]))
+              .map((key) => [key, value.counts[key]]),
+          ),
+        }
+        return null
+      }
       return value
     } catch {
+      result.lastNativeFailure = {
+        operation: q.operation,
+        phase: "observer-command",
+        exception: "CommandFailure",
+      }
       return null
     }
   }
@@ -848,6 +881,22 @@ try {
     reason: "Production native contract failed (private raw errors not retained)",
   }
   process.exitCode = 1
+  if (result.lastNativeOperation && executable && evidence) {
+    const failedOperation = result.lastNativeOperation
+    const failedDetail = result.lastNativeFailure
+    try {
+      result.failure.nativeWindow = await native({
+        operation: "capture",
+        pid: activePid ?? undefined,
+        screenshot: join(evidence, "native-failure.png"),
+      })
+    } catch {
+      // An unavailable owned window remains a gate failure, never a fallback.
+    }
+    result.lastNativeOperation = failedOperation
+    if (failedDetail) result.lastNativeFailure = failedDetail
+    else delete result.lastNativeFailure
+  }
 } finally {
   // No broad kill or profile cleanup. The exclusively owned fresh VM is disposed.
   result.stage = stage

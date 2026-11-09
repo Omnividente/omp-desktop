@@ -97,7 +97,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil x11-utils xdotool wmctrl openbox imagemagick
       - name: Install Windows native observation dependencies
         if: runner.os == 'Windows'
         shell: pwsh
