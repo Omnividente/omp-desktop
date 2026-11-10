@@ -1464,9 +1464,8 @@ describe("SettingsPanel configuration generations", () => {
       expect(container.querySelector('[role="alert"]')!.textContent).toContain(
         "Synthetic invalid fallback key",
       )
-      expect(container.querySelector<HTMLInputElement>(".fallback-chain-key input")!.value).toBe(
-        "__proto__",
-      )
+      const keyInput = container.querySelector<HTMLInputElement>(".fallback-chain-key input")!
+      expect(keyInput.value).toBe("__proto__")
       expect(save.disabled).toBe(false)
 
       const corrected = {
