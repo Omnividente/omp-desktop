@@ -1240,7 +1240,7 @@ describe("App lifecycle serialization", () => {
       expect(container.querySelector(".settings-recovery-screen")).toBeNull()
       expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
       const event = shortcut()
-      await act(async () => window.dispatchEvent(event))
+      await act(async () => element(".app-shell").dispatchEvent(event))
       expect(event.defaultPrevented).toBe(true)
       if (code === "KeyN") expect(api.startTerminal).toHaveBeenCalledTimes(2)
       else if (code === "KeyW") expect(confirm).toHaveBeenCalledTimes(1)
