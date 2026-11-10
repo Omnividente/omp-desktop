@@ -6,7 +6,7 @@ import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { useVirtualList } from "./useVirtualList"
 import { MarkdownContent, markdownContent } from "./MarkdownContent"
-import { TranscriptSearch } from "./transcriptSearch"
+import { tryCreateTranscriptSearch } from "./transcriptSearch"
 import { CopyButton } from "./CopyButton"
 import { loadedDialogue } from "./loadedDialogue"
 import { ContentActionMenu } from "./ContentActionMenu"
@@ -257,27 +257,29 @@ export function TranscriptModal({
   // Changing an idle search option must not move the reader's current position.
   const searchMatchCase = Boolean(transcriptSearch) && matchCase
   const search = useMemo(
-    () => new TranscriptSearch(contents, transcriptSearch, searchMatchCase),
+    () => tryCreateTranscriptSearch(contents, transcriptSearch, searchMatchCase),
     [contents, transcriptSearch, searchMatchCase],
   )
   const [navigation, setNavigation] = useState({ search, index: 0 })
   if (navigation.search !== search) setNavigation({ search, index: 0 })
-  const currentIndex = search.count ? (navigation.search === search ? navigation.index : 0) : -1
+  const currentIndex = search?.count ? (navigation.search === search ? navigation.index : 0) : -1
   // Retain only bounded highlight windows for currently mounted virtual rows.
   const renderedMatches = useMemo(
     () =>
-      new Map(virtualItems.map((vi) => [vi.index, search.matchesForEntry(vi.index, currentIndex)])),
+      new Map(
+        virtualItems.map((vi) => [vi.index, search?.matchesForEntry(vi.index, currentIndex) ?? []]),
+      ),
     [search, virtualItems, currentIndex],
   )
   const currentMatch = useMemo(
     () =>
-      currentIndex < 0
+      currentIndex < 0 || !search
         ? null
         : { index: currentIndex, entryIndex: search.entryIndex(currentIndex) },
     [search, currentIndex],
   )
   const navigate = (direction: number) => {
-    if (!search.count) return
+    if (!search?.count) return
     setNavigation({
       search,
       index: (currentIndex + direction + search.count) % search.count,
@@ -618,12 +620,16 @@ export function TranscriptModal({
               >
                 Aa
               </button>
-              <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
-                {currentIndex + 1} / {search.count}
-              </span>
+              {search ? (
+                <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
+                  {currentIndex + 1} / {search.count}
+                </span>
+              ) : (
+                <span role="alert">{t(lang, "transcriptSearchUnavailable")}</span>
+              )}
               <button
                 type="button"
-                disabled={!search.count}
+                disabled={!search?.count}
                 onClick={() => navigate(-1)}
                 aria-label={t(lang, "transcriptPreviousMatch")}
                 title={t(lang, "transcriptPreviousMatch")}
@@ -632,14 +638,16 @@ export function TranscriptModal({
               </button>
               <button
                 type="button"
-                disabled={!search.count}
+                disabled={!search?.count}
                 onClick={() => navigate(1)}
                 aria-label={t(lang, "transcriptNextMatch")}
                 title={t(lang, "transcriptNextMatch")}
               >
                 ↓
               </button>
-              {transcriptSearch && !search.count && <span>{t(lang, "transcriptNoMatches")}</span>}
+              {transcriptSearch && search?.count === 0 && (
+                <span>{t(lang, "transcriptNoMatches")}</span>
+              )}
             </div>
             <div
               aria-label={t(lang, "transcriptFilter")}

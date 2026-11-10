@@ -1,5 +1,9 @@
-import { expect, it } from "vitest"
-import { SEARCH_HIGHLIGHT_LIMIT, TranscriptSearch } from "./transcriptSearch"
+import { expect, it, vi } from "vitest"
+import {
+  SEARCH_HIGHLIGHT_LIMIT,
+  TranscriptSearch,
+  tryCreateTranscriptSearch,
+} from "./transcriptSearch"
 
 it("optionally distinguishes code identifiers while keeping literal UTF-16 match spans", () => {
   const contents = [{ text: "😀PATH path Path PATH.* path.*" }]
@@ -170,4 +174,56 @@ it("keeps a million occurrences navigable through fresh bounded first, distant a
   const cleared = new TranscriptSearch(contents, "")
   expect(cleared.count).toBe(0)
   expect(cleared.matchesForEntry(0, -1)).toEqual([])
+})
+
+it.each([false, true])(
+  "recovers from engine rejection of a large literal query (matchCase=%s)",
+  (matchCase) => {
+    const query = "a".repeat(50_000)
+    const search = tryCreateTranscriptSearch([{ text: `prefix ${query} suffix` }], query, matchCase)
+    // Engines may support different pattern sizes. Either return the complete search or refuse it.
+    if (search !== null) {
+      expect(search.count).toBe(1)
+      expect(search.matchesForEntry(0, 0)).toEqual([{ start: 7, end: 50_007, index: 0 }])
+    }
+  },
+)
+
+it("does not publish partial matches when regex execution fails after an earlier entry", () => {
+  const exec = RegExp.prototype.exec
+  const spy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (
+    this: RegExp,
+    text: string,
+  ) {
+    if (this.source === "needle" && text === "later entry")
+      throw new SyntaxError("synthetic compiler limit")
+    return exec.call(this, text)
+  })
+  let search: TranscriptSearch | null
+  try {
+    search = tryCreateTranscriptSearch([{ text: "needle" }, { text: "later entry" }], "needle")
+  } finally {
+    spy.mockRestore()
+  }
+  expect(search).toBeNull()
+  expect(tryCreateTranscriptSearch([{ text: "needle" }], "needle")?.count).toBe(1)
+  expect(tryCreateTranscriptSearch([{ text: "needle" }], "absent")?.count).toBe(0)
+  expect(tryCreateTranscriptSearch([{ text: "needle" }], "")?.count).toBe(0)
+})
+
+it("does not disguise unrelated failures as a refused search", () => {
+  const exec = RegExp.prototype.exec
+  const failure = new TypeError("synthetic unrelated failure")
+  const spy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (
+    this: RegExp,
+    text: string,
+  ) {
+    if (this.source === "needle") throw failure
+    return exec.call(this, text)
+  })
+  try {
+    expect(() => tryCreateTranscriptSearch([{ text: "needle" }], "needle")).toThrow(failure)
+  } finally {
+    spy.mockRestore()
+  }
 })

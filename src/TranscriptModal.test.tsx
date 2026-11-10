@@ -6,6 +6,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { readSessionTranscript, openContentLink } from "./api"
 import { TranscriptModal } from "./TranscriptModal"
 import { useTranscript } from "./useTranscript"
+import { t, type Lang } from "./i18n"
 import { SEARCH_HIGHLIGHT_LIMIT } from "./transcriptSearch"
 import type { SessionSummary, SessionTranscript } from "./types"
 
@@ -45,8 +46,14 @@ let rowHeights: Map<number, number>
 let viewportWidth: number
 let resizeObservers: Set<() => void>
 
-function Harness({ hideSearchedEntries = false }: { hideSearchedEntries?: boolean }) {
-  const state = useTranscript("en")
+function Harness({
+  hideSearchedEntries = false,
+  lang = "en",
+}: {
+  hideSearchedEntries?: boolean
+  lang?: Lang
+}) {
+  const state = useTranscript(lang)
   const { loadTranscript } = state
   useEffect(() => {
     void loadTranscript(session)
@@ -66,7 +73,7 @@ function Harness({ hideSearchedEntries = false }: { hideSearchedEntries?: boolea
       </button>
       {state.transcriptSession && (
         <TranscriptModal
-          lang="en"
+          lang={lang}
           {...state}
           initialPosition={state.transcriptInitialPosition}
           transcriptSession={state.transcriptSession}
@@ -1406,5 +1413,71 @@ it.each([
       container.querySelector('[aria-label="Copy loaded dialogue (Markdown)"]')?.textContent,
     ).toBe("Copy loaded dialogue (Markdown)")
     expect(writeText).toHaveBeenCalledTimes(1)
+  },
+)
+
+it.each(["en", "ru"] as const)(
+  "keeps a refused search editable and recovers without rereading (%s)",
+  async (lang) => {
+    await act(async () => root.render(<Harness lang={lang} />))
+    await flushFrames()
+    await searchFor("needle")
+    await click(t(lang, "transcriptNextMatch"))
+    expect(currentOccurrence()).not.toBeNull()
+    const scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+    const previousTop = scroll.scrollTop
+    const reads = vi.mocked(readSessionTranscript).mock.calls.length
+    const query = "a".repeat(50_000)
+    const exec = RegExp.prototype.exec
+    vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (this: RegExp, text: string) {
+      if (this.source === query) throw new SyntaxError("synthetic compiler limit")
+      return exec.call(this, text)
+    })
+
+    await searchFor(query)
+    expect(scroll.scrollTop).toBe(previousTop)
+    const input = container.querySelector<HTMLInputElement>("input[type=search]")!
+    expect(input.value).toBe(query)
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")?.textContent).toBe(
+      t(lang, "transcriptSearchUnavailable"),
+    )
+    expect(container.textContent).not.toContain(t(lang, "transcriptNoMatches"))
+    expect(container.querySelector(".transcript-find-navigation [role=status]")).toBeNull()
+    expect(container.querySelectorAll("mark")).toHaveLength(0)
+    for (const label of ["transcriptPreviousMatch", "transcriptNextMatch"] as const) {
+      expect(
+        container.querySelector<HTMLButtonElement>(`[aria-label="${t(lang, label)}"]`)?.disabled,
+      ).toBe(true)
+    }
+    const top = scroll.scrollTop
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    })
+    await flushFrames()
+    expect(scroll.scrollTop).toBe(top)
+    await click(t(lang, "transcriptMatchCase"))
+    expect(input.value).toBe(query)
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")).not.toBeNull()
+
+    await searchFor("needle")
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")).toBeNull()
+    expect(container.querySelector(".transcript-find-navigation [role=status]")?.textContent).toBe(
+      "1 / 3",
+    )
+    expect(currentOccurrence()).not.toBeNull()
+    expect(vi.mocked(readSessionTranscript).mock.calls.length).toBe(reads)
+    expect(writeText).not.toHaveBeenCalled()
+    expect(openContentLink).not.toHaveBeenCalled()
+
+    await searchFor(query)
+    await click(t(lang, "clearSearch"))
+    expect(input.value).toBe("")
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")).toBeNull()
+    expect(container.querySelector(".transcript-find-navigation [role=status]")?.textContent).toBe(
+      "0 / 0",
+    )
+    expect(container.querySelectorAll("mark")).toHaveLength(0)
+    await click(t(lang, "close"))
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
   },
 )
