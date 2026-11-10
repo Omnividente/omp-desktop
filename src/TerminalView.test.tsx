@@ -602,6 +602,117 @@ it("does not take focus from open tab search during attachment, activation or de
   }
 })
 
+it.each(["linux", "windows"] as const)(
+  "does not take modal input focus when a delayed %s attachment finishes",
+  async (platform) => {
+    const baseline = await vi.mocked(attachTerminal).mock.results[0].value
+    let resolveAttachment!: (value: typeof baseline) => void
+    vi.mocked(attachTerminal).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveAttachment = resolve
+      }),
+    )
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+    const dialog = document.createElement("section")
+    dialog.setAttribute("role", "dialog")
+    dialog.setAttribute("aria-modal", "true")
+    const input = document.createElement("input")
+    dialog.appendChild(input)
+    try {
+      await act(async () =>
+        root.render(
+          <TerminalView
+            tab={{ ...tab, id: `modal-attach-${platform}` }}
+            active
+            focusRequestSequence={0}
+            language="en"
+            terminalFontFamily="monospace"
+            terminalFontSize={14}
+            platform={platform}
+            onExit={() => undefined}
+            onError={() => undefined}
+            onReady={() => undefined}
+          />,
+        ),
+      )
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      document.body.appendChild(dialog)
+      input.focus()
+      terminalState.focus.mockClear()
+      await act(async () => resolveAttachment(baseline))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input)
+    } finally {
+      dialog.remove()
+    }
+  },
+)
+
+it.each(["linux", "windows"] as const)(
+  "consumes %s focus requests made in a modal and permits a later request",
+  async (platform) => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+    const dialog = document.createElement("section")
+    dialog.setAttribute("role", "dialog")
+    dialog.setAttribute("aria-modal", "true")
+    const input = document.createElement("input")
+    dialog.appendChild(input)
+    const outside = document.createElement("button")
+    document.body.appendChild(outside)
+    const render = (active: boolean, sequence: number) =>
+      root.render(
+        <TerminalView
+          tab={tab}
+          active={active}
+          focusRequestSequence={sequence}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform={platform}
+          onExit={() => undefined}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      )
+    try {
+      await act(async () => render(false, 0))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      document.body.appendChild(dialog)
+      input.focus()
+      terminalState.focus.mockClear()
+      await act(async () => render(true, 1))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input)
+
+      await act(async () => render(true, 2))
+      dialog.remove()
+      outside.focus()
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(outside)
+
+      await act(async () => render(true, 3))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+      terminalState.focus.mockClear()
+
+      await act(async () => render(true, 4))
+      document.body.appendChild(dialog)
+      input.focus()
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input)
+    } finally {
+      dialog.remove()
+      outside.remove()
+    }
+  },
+)
+
 it("returns to the latest output only while scrolled back", async () => {
   const buffer = terminalState.instance!.buffer.active
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
