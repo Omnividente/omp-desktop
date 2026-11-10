@@ -135,6 +135,59 @@ describe("declared image-input filter", () => {
     expect(selectors()).toEqual(["synthetic/image-in-name-only"])
   })
 
+  it.each(["name", "provider", "id", "selector"] as const)(
+    "matches canonical Unicode in %s while retaining the image-input filter",
+    (field) => {
+      toggle()
+      for (const form of ["NFC", "NFD"] as const) {
+        const stored = "Café".normalize(form)
+        const searched = "Café".normalize(form === "NFC" ? "NFD" : "NFC")
+        const entry = { ...model("unicode-target", ["image"]), [field]: stored }
+        const textOnly = { ...model("text-only", ["text"]), name: stored }
+        act(() => root.render(<Picker models={[entry, textOnly]} />))
+        query(` ${searched.toUpperCase()} `)
+        expect(selectors()).toEqual([entry.selector])
+        expect(selection()).toBe(initial)
+        expect(changes).not.toHaveBeenCalled()
+        expect(entry[field]).toBe(stored)
+      }
+    },
+  )
+
+  it("keeps canonical selector variants separate and returns their original bytes", () => {
+    const first = model("Café", ["image"])
+    const second = model("Cafe\u0301", ["image"])
+    const locked = model("Café-locked", ["image"], false)
+    act(() => root.render(<Picker models={[first, second, locked]} />))
+    query("CAFÉ")
+    expect(new Set(selectors())).toEqual(
+      new Set([first.selector, second.selector, locked.selector]),
+    )
+    expect(changes).not.toHaveBeenCalled()
+    const lockedOption = options().find((option) => option.textContent?.includes(locked.selector))!
+    expect(lockedOption.querySelector(".is-auth-error")).not.toBeNull()
+    for (const entry of [first, second]) {
+      const option = options().find(
+        (item) => item.querySelector("small")?.textContent === entry.selector,
+      )!
+      act(() => option.click())
+      expect(changes).toHaveBeenLastCalledWith(`${entry.selector}:high`)
+      act(() => container.querySelector<HTMLButtonElement>(".model-picker-trigger")!.click())
+      query("CAFÉ")
+    }
+    expect(changes).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not strip accents or use compatibility folding for catalog search", () => {
+    const accented = { ...model("accented"), name: "Café" }
+    const fullwidth = { ...model("fullwidth"), name: "ＣＡＦＥ" }
+    act(() => root.render(<Picker models={[accented, fullwidth]} />))
+    query("cafe")
+    expect(options()).toHaveLength(0)
+    expect(selection()).toBe(initial)
+    expect(changes).not.toHaveBeenCalled()
+  })
+
   it("selects the exact filtered model with the existing thinking suffix through keyboard navigation", () => {
     toggle()
     key(search(), "ArrowDown")

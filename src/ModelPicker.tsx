@@ -122,7 +122,10 @@ export function ModelPicker({
     () =>
       models.map((model) => ({
         model,
-        searchText: [model.name, model.provider, model.id, model.selector].join(" ").toLowerCase(),
+        searchText: [model.name, model.provider, model.id, model.selector]
+          .join(" ")
+          .normalize("NFC")
+          .toLowerCase(),
         sortKey: `${model.provider}/${model.name}`,
       })),
     [models],
@@ -152,7 +155,7 @@ export function ModelPicker({
     [modelEntries],
   )
   const filteredEntries = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+    const normalized = query.trim().normalize("NFC").toLowerCase()
     return sortedEntries.filter(
       (entry) =>
         (!imageInputOnly || entry.model.input?.includes("image")) &&
