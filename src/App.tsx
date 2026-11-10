@@ -1434,6 +1434,17 @@ function App() {
     [focusTab, tabs],
   )
 
+  const focusResourceTerminal = useCallback(
+    (terminalId: string, processId: number) => {
+      // Recheck the current tab at activation; a retained sample is not a live process lease.
+      const target = tabsRef.current.find((tab) => tab.id === terminalId)
+      if (target?.status !== "running" || target.processId !== processId) return false
+      focusTerminal(terminalId)
+      return true
+    },
+    [focusTerminal],
+  )
+
   const closeResourceHealth = useCallback(() => setResourceHealthOpen(false), [])
   const closeIncidentCenter = useCallback(() => setIncidentCenterOpen(false), [])
   const openIncidentCenter = useCallback(() => {
@@ -2753,6 +2764,7 @@ function App() {
           error={resourceHealthError}
           language={lang}
           onClose={closeResourceHealth}
+          onFocusTerminal={focusResourceTerminal}
           returnFocusRef={resourceHealthTriggerRef}
           snapshot={resourceHealth}
           tabs={tabs}

@@ -59,6 +59,7 @@ describe("resource terminal context", () => {
   let root: Root
   const returnFocusRef = createRef<HTMLButtonElement>()
   const onClose = vi.fn()
+  const onFocusTerminal = vi.fn(() => true)
 
   beforeEach(() => {
     container = document.createElement("div")
@@ -71,6 +72,7 @@ describe("resource terminal context", () => {
       return 1
     })
     onClose.mockReset()
+    onFocusTerminal.mockReset().mockReturnValue(true)
   })
 
   afterEach(async () => {
@@ -90,6 +92,7 @@ describe("resource terminal context", () => {
           tabs={tabs}
           returnFocusRef={returnFocusRef}
           onClose={onClose}
+          onFocusTerminal={onFocusTerminal}
         />,
       ),
     )
@@ -187,14 +190,14 @@ describe("resource terminal context", () => {
         new Date(1_700_000_000_000).toLocaleTimeString(language === "ru" ? "ru-RU" : "en-US"),
       )
       expect(container.querySelectorAll("meter")).toHaveLength(1)
-      expect(container.querySelectorAll("button")).toHaveLength(1)
+      expect(container.querySelectorAll("button")).toHaveLength(2)
       expect(container.querySelector(".resource-summary")?.textContent).toContain(
         t(language, "resourceWarning"),
       )
     },
   )
 
-  it("keeps the original close focus and does not create interactive process actions", async () => {
+  it("keeps the original close focus without activating a process action", async () => {
     await render([first])
     const close = container.querySelector("button")!
     expect(document.activeElement).toBe(close)
@@ -202,13 +205,82 @@ describe("resource terminal context", () => {
       container.querySelectorAll(
         ".resource-process button, .resource-process a, .resource-process input",
       ),
-    ).toHaveLength(0)
+    ).toHaveLength(1)
+    expect(onFocusTerminal).not.toHaveBeenCalled()
     close.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
     )
     expect(onClose).toHaveBeenCalledTimes(1)
     await act(async () => root.render(null))
     expect(document.activeElement).toBe(returnFocusRef.current)
+  })
+
+  it.each(["en", "ru"] as const)(
+    "navigates only the matching row and preserves the destination focus in %s",
+    async (language) => {
+      await render([first, second], snapshot(), language)
+      const buttons = container.querySelectorAll<HTMLButtonElement>(".resource-open-terminal")
+      expect(buttons).toHaveLength(2)
+      expect(buttons[0].textContent).toContain(t(language, "resourceOpenTerminal"))
+      expect(buttons[0].getAttribute("aria-label")).toContain(second.cwd)
+      expect(buttons[1].getAttribute("aria-label")).toContain(first.cwd)
+      await act(async () => buttons[0].click())
+      expect(onFocusTerminal).toHaveBeenCalledExactlyOnceWith(second.id, second.processId)
+      expect(onClose).toHaveBeenCalledTimes(1)
+      // Repeated activation before removal must not schedule another handoff.
+      await act(async () => buttons[0].click())
+      expect(onFocusTerminal).toHaveBeenCalledTimes(1)
+      const destination = document.createElement("button")
+      document.body.append(destination)
+      destination.focus()
+      await act(async () => root.render(null))
+      expect(document.activeElement).toBe(destination)
+      destination.remove()
+    },
+  )
+
+  it("keeps the dialog and ordinary return focus when the current tab rejects activation", async () => {
+    await render([first])
+    onFocusTerminal.mockReturnValue(false)
+    const button = container.querySelector<HTMLButtonElement>(".resource-open-terminal")!
+    button.focus()
+    await act(async () => button.click())
+    expect(onFocusTerminal).toHaveBeenCalledExactlyOnceWith(first.id, first.processId)
+    expect(onClose).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(button)
+    await act(async () => root.render(null))
+    expect(document.activeElement).toBe(returnFocusRef.current)
+  })
+
+  it("removes navigation for retained measurements after exit, replacement, or removal", async () => {
+    const value = snapshot()
+    await render([first], value)
+    expect(container.querySelectorAll(".resource-open-terminal")).toHaveLength(1)
+    for (const tabs of [
+      [{ ...first, status: "exited" as const }],
+      [{ ...first, processId: 999 }],
+      [],
+    ]) {
+      await render(tabs, value)
+      expect(container.querySelector(".resource-open-terminal")).toBeNull()
+    }
+    expect(onFocusTerminal).not.toHaveBeenCalled()
+  })
+
+  it("includes navigation in the modal Tab loop", async () => {
+    await render([first, second])
+    const close = container.querySelector<HTMLButtonElement>(".resource-panel-header button")!
+    const last = container.querySelectorAll<HTMLButtonElement>(".resource-open-terminal")[1]
+    last.focus()
+    last.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+    )
+    expect(document.activeElement).toBe(close)
+    close.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }),
+    )
+    expect(document.activeElement).toBe(last)
+    expect(onFocusTerminal).not.toHaveBeenCalled()
   })
 
   it.each(["en", "ru"] as const)(

@@ -4516,6 +4516,56 @@ describe("App lifecycle serialization", () => {
       expect(vi.mocked(api.switchTerminal)).not.toHaveBeenCalled()
     })
 
+    it.each([false, true])(
+      "navigates from a resource row to the existing terminal without process changes (overview=%s)",
+      async (overview) => {
+        await mountResources()
+        await act(async () => element(".resource-panel-header button").click())
+        const processId = started.processId
+        if (processId === null) throw new Error("The synthetic terminal needs a process ID")
+        vi.mocked(api.startTerminal)
+          .mockResolvedValueOnce(started)
+          .mockResolvedValueOnce({ ...started, terminalId: "resource-second", processId: 202 })
+        await act(async () => element(".new-session-button").click())
+        await act(async () => element(".new-session-button").click())
+        const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+        expect(pane.getAttribute("data-active")).toBe("false")
+        if (overview) await act(async () => element(".workspace-overview-button").click())
+        nextSample = () =>
+          Promise.resolve({
+            ...snapshot(),
+            processes: [
+              { source: "omp", terminalId: started.terminalId, processId, residentBytes: 1024 },
+            ],
+          })
+        await advance(30_000)
+        await act(async () => element(".resource-health-trigger").click())
+        expect(container.querySelectorAll(".resource-open-terminal")).toHaveLength(1)
+        await act(async () => element(".resource-open-terminal").click())
+        expect(container.querySelector(".resource-panel")).toBeNull()
+        expect(container.querySelector(".workspace-home")).toBeNull()
+        expect(element(`[data-terminal-id="${started.terminalId}"]`)).toBe(pane)
+        expect(pane.getAttribute("data-active")).toBe("true")
+        expect(Number(pane.getAttribute("data-focus-sequence"))).toBeGreaterThan(0)
+        // TerminalView is mocked here: simulate its focus effect and check no trigger steals it.
+        pane.tabIndex = -1
+        pane.focus()
+        await advance(100)
+        expect(document.activeElement).toBe(pane)
+        const sequence = Number(pane.getAttribute("data-focus-sequence"))
+        // Reopening creates a fresh handoff even when the target is already active.
+        await act(async () => element(".resource-health-trigger").click())
+        await act(async () => element(".resource-open-terminal").click())
+        expect(container.querySelector(".resource-panel")).toBeNull()
+        expect(element(`[data-terminal-id="${started.terminalId}"]`)).toBe(pane)
+        expect(Number(pane.getAttribute("data-focus-sequence"))).toBeGreaterThan(sequence)
+        expect(api.startTerminal).toHaveBeenCalledTimes(2)
+        expect(api.switchTerminal).not.toHaveBeenCalled()
+        expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+        expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+      },
+    )
+
     it("samples the current workspace immediately after an obsolete request settles", async () => {
       await mountResources()
       const old = holdSample()

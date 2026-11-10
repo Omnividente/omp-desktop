@@ -11,6 +11,7 @@ interface ResourceHealthPanelProps {
   error: string | null
   language: Lang
   onClose: () => void
+  onFocusTerminal: (terminalId: string, processId: number) => boolean
   returnFocusRef: RefObject<HTMLButtonElement | null>
   snapshot: ResourceHealthSnapshot | null
   tabs: readonly Pick<TerminalTab, "id" | "label" | "cwd" | "processId" | "status">[]
@@ -20,11 +21,13 @@ export function ResourceHealthPanel({
   error,
   language,
   onClose,
+  onFocusTerminal,
   returnFocusRef,
   snapshot,
   tabs,
 }: ResourceHealthPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
+  const restoreTriggerFocusRef = useRef(true)
   const panelRef = useRef<HTMLElement>(null)
   const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
 
@@ -100,9 +103,17 @@ export function ResourceHealthPanel({
         else element.setAttribute("aria-hidden", previousAriaHidden)
         if (!hadInert) element.removeAttribute("inert")
       }
-      window.requestAnimationFrame(() => returnFocusTarget?.focus())
+      if (restoreTriggerFocusRef.current) {
+        window.requestAnimationFrame(() => returnFocusTarget?.focus())
+      }
     }
   }, [onClose, returnFocusRef])
+
+  const focusTerminal = (terminalId: string, processId: number) => {
+    if (!restoreTriggerFocusRef.current || !onFocusTerminal(terminalId, processId)) return
+    restoreTriggerFocusRef.current = false
+    onClose()
+  }
 
   const closeOnBackdrop = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) onClose()
@@ -284,6 +295,17 @@ export function ResourceHealthPanel({
                         )}
                       </div>
                       <strong>{formatBytes(process.residentBytes)}</strong>
+                      {currentTab && (
+                        <button
+                          aria-label={`${t(language, "resourceOpenTerminal")}: ${currentTab.label} · ${currentTab.cwd}`}
+                          className="button secondary resource-open-terminal"
+                          onClick={() => focusTerminal(currentTab.id, process.processId)}
+                          type="button"
+                        >
+                          <Icon name="terminal" size={13} />
+                          {t(language, "resourceOpenTerminal")}
+                        </button>
+                      )}
                     </div>
                   )
                 })}
