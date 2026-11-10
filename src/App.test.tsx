@@ -498,9 +498,8 @@ describe("App lifecycle serialization", () => {
       const pending = deferred<TerminalStarted>()
       vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
       await act(async () => element(".new-tab-button").click())
-      const tabButtons = [
-        ...container.querySelectorAll<HTMLButtonElement>(".terminal-tab > button:first-child"),
-      ]
+      const tabSelector = ".terminal-tab > button:first-child"
+      const tabButtons = [...container.querySelectorAll<HTMLButtonElement>(tabSelector)]
       expect(tabButtons).toHaveLength(2)
       expect(tabButtons.every((button) => !button.disabled)).toBe(true)
       if (choice === "session") {
@@ -522,9 +521,7 @@ describe("App lifecycle serialization", () => {
       expect(thirdPane.getAttribute("data-active")).toBe("false")
       expect(api.startTerminal).toHaveBeenCalledTimes(3)
       expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
-      const thirdTab = container.querySelectorAll<HTMLButtonElement>(
-        ".terminal-tab > button:first-child",
-      )[2]
+      const thirdTab = container.querySelectorAll<HTMLButtonElement>(tabSelector)[2]
       await act(async () => thirdTab.click())
       expect(thirdPane.getAttribute("data-active")).toBe("true")
     },
@@ -551,9 +548,7 @@ describe("App lifecycle serialization", () => {
         payload: { terminalId: "terminal-2", session: discovered },
       }),
     )
-    await act(async () =>
-      pending.resolve({ ...started, terminalId: "terminal-2", processId: 102 }),
-    )
+    await act(async () => pending.resolve({ ...started, terminalId: "terminal-2", processId: 102 }))
     expect(element('[data-terminal-id="terminal-2"]').getAttribute("data-active")).toBe("true")
     expect(element(".terminal-tab.is-active").textContent).toContain(discovered.title)
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
