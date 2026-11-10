@@ -196,6 +196,12 @@ it("preserves literal thinking-like IDs and does not guess pricing statuses", ()
     pricingStatus: "future-status",
   }
   act(() => root.render(<Picker models={[...catalog, literal]} />))
+  expect(row("Catalog entry")).toEqual(["synthetic/a:high", "synthetic/a"])
+  expect(row("Context, tokens")).toEqual(["777", "32000"])
+  const candidate = options().find(
+    (option) => option.querySelector("small")?.textContent === "synthetic/a:high",
+  )!
+  hover(candidate)
   expect(row("Catalog entry")).toEqual(["synthetic/a:high", "synthetic/a:high"])
   expect(row("Context, tokens")).toEqual(["777", "777"])
   expect(row("Pricing status")).toEqual(["Unknown", "Unknown"])

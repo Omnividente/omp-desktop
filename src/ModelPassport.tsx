@@ -68,7 +68,7 @@ export function ModelComparison({
   const selectedRows = passportRows(selected, language)
   const candidateRows = passportRows(candidate, language)
   return (
-    <details className="model-passport model-comparison">
+    <details className="model-comparison">
       <summary>{t(language, "modelComparisonTitle")}</summary>
       <p>{t(language, "modelComparisonHelp")}</p>
       <table>

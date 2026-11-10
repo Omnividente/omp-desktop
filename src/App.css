@@ -6309,12 +6309,14 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   opacity: 1;
 }
 
-.model-passport {
+.model-passport,
+.model-comparison {
   margin: 6px 0;
   font-size: 12px;
 }
 
-.model-passport summary {
+.model-passport summary,
+.model-comparison summary {
   cursor: pointer;
 }
 
@@ -6329,7 +6331,8 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   overflow-wrap: anywhere;
 }
 
-.model-passport p {
+.model-passport p,
+.model-comparison p {
   line-height: 1.5;
 }
 
