@@ -220,6 +220,24 @@ export function ModelPicker({
     closePicker()
   }
 
+  const focusOption = (index: number) => {
+    const option = optionRefs.current[index]
+    if (!option) return
+    option.focus({ preventScroll: true })
+    // Reveal only inside the catalog, not the surrounding settings dialog or page.
+    const listbox = option.parentElement
+    if (!listbox) return
+    const bounds = listbox.getBoundingClientRect()
+    const optionBounds = option.getBoundingClientRect()
+    const top = bounds.top + listbox.clientTop
+    if (optionBounds.top < top) listbox.scrollTop += optionBounds.top - top
+    else if (optionBounds.bottom > top + listbox.clientHeight)
+      listbox.scrollTop += Math.min(
+        optionBounds.top - top,
+        optionBounds.bottom - top - listbox.clientHeight,
+      )
+  }
+
   const handleListboxKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (filteredEntries.length === 0) return
@@ -240,7 +258,7 @@ export function ModelPicker({
     if (nextIndex !== null) {
       event.preventDefault()
       setActiveIndex(nextIndex)
-      optionRefs.current[nextIndex]?.focus({ preventScroll: true })
+      focusOption(nextIndex)
     }
   }
 
@@ -346,7 +364,7 @@ export function ModelPicker({
                 event.preventDefault()
                 const nextIndex = event.key === "ArrowDown" ? 0 : filteredEntries.length - 1
                 setActiveIndex(nextIndex)
-                optionRefs.current[nextIndex]?.focus({ preventScroll: true })
+                focusOption(nextIndex)
               }}
               placeholder={t(language, "searchModelsPlaceholder")}
               spellCheck={false}
