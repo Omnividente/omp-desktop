@@ -270,6 +270,7 @@ export const UI_TEXT = {
     resourcePartial:
       "Измерение неполное: некоторые пути недоступны. Проверьте доступ к указанным ниже путям; показатели остальных ресурсов сохранены.",
     resourceLoading: "Проверяем память и диски…",
+    resourceRefresh: "Обновить показатели",
     resourceDetails: "Открыть сведения о ресурсах",
     resourceMemory: "Системная память",
     resourceMemoryAvailable: "Доступно {available} из {total}",
@@ -1053,6 +1054,7 @@ export const UI_TEXT = {
     resourcePartial:
       "Measurement is incomplete: some paths are unavailable. Check access to the paths listed below; other resource metrics are still shown.",
     resourceLoading: "Checking memory and disks…",
+    resourceRefresh: "Refresh measurements",
     resourceDetails: "Open resource details",
     resourceMemory: "System memory",
     resourceMemoryAvailable: "{available} available of {total}",

@@ -59,6 +59,7 @@ describe("resource terminal context", () => {
   let root: Root
   const returnFocusRef = createRef<HTMLButtonElement>()
   const onClose = vi.fn()
+  const onRefresh = vi.fn()
 
   beforeEach(() => {
     container = document.createElement("div")
@@ -71,6 +72,7 @@ describe("resource terminal context", () => {
       return 1
     })
     onClose.mockReset()
+    onRefresh.mockReset()
   })
 
   afterEach(async () => {
@@ -80,16 +82,22 @@ describe("resource terminal context", () => {
     vi.restoreAllMocks()
   })
 
-  async function render(tabs: readonly Tab[], value = snapshot(), language: Lang = "en") {
+  async function render(
+    tabs: readonly Tab[],
+    value: ResourceHealthSnapshot | null = snapshot(),
+    language: Lang = "en",
+    error: string | null = null,
+  ) {
     await act(async () =>
       root.render(
         <ResourceHealthPanel
           snapshot={value}
-          error={null}
+          error={error}
           language={language}
           tabs={tabs}
           returnFocusRef={returnFocusRef}
           onClose={onClose}
+          onRefresh={onRefresh}
         />,
       ),
     )
@@ -98,6 +106,44 @@ describe("resource terminal context", () => {
   function rows(): HTMLDivElement[] {
     return Array.from(container.querySelectorAll(".resource-process"))
   }
+
+  it.each(["en", "ru"] as const)(
+    "offers refresh for a sample or failure and preserves the focused pending control in %s",
+    async (language) => {
+      await render([], snapshot(), language)
+      const refresh = container.querySelector<HTMLButtonElement>(".resource-panel-footer button")!
+      const close = container.querySelector<HTMLButtonElement>(".resource-panel-header button")!
+      expect(refresh.textContent).toBe(t(language, "resourceRefresh"))
+      refresh.focus()
+      await act(async () => refresh.click())
+      expect(onRefresh).toHaveBeenCalledTimes(1)
+      await render([], null, language)
+      expect(refresh.getAttribute("aria-disabled")).toBe("true")
+      expect(refresh.disabled).toBe(false)
+      expect(document.activeElement).toBe(refresh)
+      expect(container.querySelector(".resource-panel-footer span")).toBeNull()
+      await act(async () => refresh.click())
+      expect(onRefresh).toHaveBeenCalledTimes(1)
+      refresh.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }),
+      )
+      expect(document.activeElement).toBe(close)
+      close.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
+      expect(document.activeElement).toBe(refresh)
+      await render([], null, language, "Synthetic sampling failure")
+      expect(refresh.getAttribute("aria-disabled")).toBe("false")
+      await act(async () => refresh.click())
+      expect(onRefresh).toHaveBeenCalledTimes(2)
+      expect(onClose).not.toHaveBeenCalled()
+    },
+  )
 
   it("identifies equally named running terminals by their current project paths while preserving raw identity, RSS, and producer order", async () => {
     const value = snapshot()
@@ -187,7 +233,7 @@ describe("resource terminal context", () => {
         new Date(1_700_000_000_000).toLocaleTimeString(language === "ru" ? "ru-RU" : "en-US"),
       )
       expect(container.querySelectorAll("meter")).toHaveLength(1)
-      expect(container.querySelectorAll("button")).toHaveLength(1)
+      expect(container.querySelectorAll("button")).toHaveLength(2)
       expect(container.querySelector(".resource-summary")?.textContent).toContain(
         t(language, "resourceWarning"),
       )

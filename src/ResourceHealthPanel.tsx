@@ -11,6 +11,7 @@ interface ResourceHealthPanelProps {
   error: string | null
   language: Lang
   onClose: () => void
+  onRefresh: () => void
   returnFocusRef: RefObject<HTMLButtonElement | null>
   snapshot: ResourceHealthSnapshot | null
   tabs: readonly Pick<TerminalTab, "id" | "label" | "cwd" | "processId" | "status">[]
@@ -20,6 +21,7 @@ export function ResourceHealthPanel({
   error,
   language,
   onClose,
+  onRefresh,
   returnFocusRef,
   snapshot,
   tabs,
@@ -293,16 +295,28 @@ export function ResourceHealthPanel({
           </div>
         )}
 
-        {snapshot && (
-          <footer className="resource-panel-footer">
-            {t(language, "resourceMeasuredAt").replace(
-              "{time}",
-              new Date(snapshot.sampledAt).toLocaleTimeString(
-                language === "ru" ? "ru-RU" : "en-US",
-              ),
-            )}
-          </footer>
-        )}
+        <footer className="resource-panel-footer">
+          <button
+            className="button secondary"
+            aria-disabled={!snapshot && !error}
+            onClick={() => {
+              if (snapshot || error) onRefresh()
+            }}
+            type="button"
+          >
+            {t(language, "resourceRefresh")}
+          </button>
+          {snapshot && (
+            <span>
+              {t(language, "resourceMeasuredAt").replace(
+                "{time}",
+                new Date(snapshot.sampledAt).toLocaleTimeString(
+                  language === "ru" ? "ru-RU" : "en-US",
+                ),
+              )}
+            </span>
+          )}
+        </footer>
       </section>
     </div>
   )

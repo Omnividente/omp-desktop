@@ -6067,10 +6067,20 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 }
 
 .resource-panel-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding-top: 12px;
   color: var(--chrome-text-soft, #667069);
   font-size: 0.5625rem;
   text-align: right;
+}
+
+.resource-panel-footer button[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
 }
 
 @keyframes slide-in {

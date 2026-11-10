@@ -399,6 +399,7 @@ function App() {
   const [resourceHealth, setResourceHealth] = useState<ResourceHealthSnapshot | null>(null)
   const [resourceHealthError, setResourceHealthError] = useState<string | null>(null)
   const [resourceHealthOpen, setResourceHealthOpen] = useState(false)
+  const [resourceHealthRefresh, setResourceHealthRefresh] = useState(0)
   const resourceHealthTriggerRef = useRef<HTMLButtonElement>(null)
   const resourceHealthSamplingRef = useRef(false)
   const resourceHealthPendingRefreshRef = useRef<(() => void) | null>(null)
@@ -1376,7 +1377,7 @@ function App() {
         resourceHealthPendingRefreshRef.current = null
       }
     }
-  }, [lang, selectedWorkspace?.path])
+  }, [lang, selectedWorkspace?.path, resourceHealthRefresh])
 
   const workspaceSessions = useMemo(() => {
     if (!payload || !selectedWorkspace) return []
@@ -2753,6 +2754,7 @@ function App() {
           error={resourceHealthError}
           language={lang}
           onClose={closeResourceHealth}
+          onRefresh={() => setResourceHealthRefresh((revision) => revision + 1)}
           returnFocusRef={resourceHealthTriggerRef}
           snapshot={resourceHealth}
           tabs={tabs}

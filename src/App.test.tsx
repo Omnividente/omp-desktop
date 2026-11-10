@@ -4456,6 +4456,98 @@ describe("App lifecycle serialization", () => {
       vi.useRealTimers()
     })
 
+    it("refreshes the current resource sample immediately and coalesces same-turn activations", async () => {
+      await mountResources()
+      const current = holdSample()
+      nextSample = () => current.promise
+      const refresh = element(".resource-panel-footer button")
+      await act(async () => {
+        refresh.click()
+        refresh.click()
+      })
+      expect(sampleCalls()).toHaveLength(1)
+      expect(sampleCalls()[0][1]).toEqual({ workspacePath: "C:/fixture/A" })
+      expect(summary()).toBe(t("ru", "resourceLoading"))
+      expect(refresh.getAttribute("aria-disabled")).toBe("true")
+      expect(container.querySelector(".resource-panel-footer span")).toBeNull()
+      await act(async () => refresh.click())
+      expect(sampleCalls()).toHaveLength(1)
+      await act(async () => current.resolve(snapshot("warning")))
+      expect(summary()).toBe(t("ru", "resourceWarning"))
+      expect(refresh.getAttribute("aria-disabled")).toBe("false")
+      expect(vi.mocked(api.startTerminal)).not.toHaveBeenCalled()
+      expect(vi.mocked(api.switchTerminal)).not.toHaveBeenCalled()
+    })
+
+    it("allows explicit retry after a manual sample fails without adding an automatic retry", async () => {
+      await mountResources()
+      nextSample = () => Promise.reject(new Error("Synthetic sampling failure"))
+      await act(async () => element(".resource-panel-footer button").click())
+      expect(sampleCalls()).toHaveLength(1)
+      expect(summary()).toBe(t("ru", "resourceUnavailable"))
+      expect(container.textContent).toContain("Synthetic sampling failure")
+      expect(element(".resource-panel-footer button").getAttribute("aria-disabled")).toBe("false")
+      await advance(1)
+      expect(sampleCalls()).toHaveLength(1)
+      nextSample = () => Promise.resolve(snapshot())
+      await act(async () => element(".resource-panel-footer button").click())
+      expect(sampleCalls()).toHaveLength(2)
+      expect(summary()).toBe(t("ru", "resourceOk"))
+      expect(container.textContent).not.toContain("Synthetic sampling failure")
+    })
+
+    it("queues one fresh manual sample after a pending periodic sample without accepting its stale result", async () => {
+      await mountResources()
+      const old = holdSample()
+      const current = holdSample()
+      nextSample = () => old.promise
+      await advance(30_000)
+      expect(sampleCalls()).toHaveLength(1)
+      await act(async () => element(".resource-panel-footer button").click())
+      expect(sampleCalls()).toHaveLength(1)
+      expect(summary()).toBe(t("ru", "resourceLoading"))
+      nextSample = () => current.promise
+      await act(async () => old.resolve(snapshot("critical")))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(summary()).toBe(t("ru", "resourceLoading"))
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(2)
+      await act(async () => current.resolve(snapshot("warning")))
+      expect(summary()).toBe(t("ru", "resourceWarning"))
+      expect(sampleCalls()).toHaveLength(2)
+    })
+
+    it("keeps a later workspace authoritative while a manual resource sample is pending", async () => {
+      await mountResources()
+      const old = holdSample()
+      nextSample = () => old.promise
+      await act(async () => element(".resource-panel-footer button").click())
+      await selectProject("B")
+      nextSample = () => Promise.resolve(snapshot("warning"))
+      await act(async () => old.reject(new Error("Obsolete manual sample")))
+      expect(sampleCalls()).toHaveLength(2)
+      expect(sampleCalls().at(-1)?.[1]).toEqual({ workspacePath: "C:/fixture/B" })
+      expect(summary()).toBe(t("ru", "resourceWarning"))
+      expect(container.textContent).not.toContain("Obsolete manual sample")
+    })
+
+    it("waits for visibility after a manual invalidation and stops on unmount", async () => {
+      await mountResources()
+      await visibility("hidden")
+      await act(async () => element(".resource-panel-footer button").click())
+      expect(sampleCalls()).toHaveLength(0)
+      expect(summary()).toBe(t("ru", "resourceLoading"))
+      const current = holdSample()
+      nextSample = () => current.promise
+      await visibility("visible")
+      expect(sampleCalls()).toHaveLength(1)
+      await act(async () => root.render(null))
+      await act(async () => current.resolve(snapshot()))
+      await advance(90_000)
+      expect(sampleCalls()).toHaveLength(1)
+      expect(container.textContent).toBe("")
+    })
+
     it.each([false, true])(
       "samples bootstrap workspace without waiting for the timer (StrictMode=%s)",
       async (strict) => {
