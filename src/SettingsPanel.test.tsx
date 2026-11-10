@@ -1439,6 +1439,71 @@ describe("SettingsPanel configuration generations", () => {
     )
   })
 
+  it.each(["ru", "en"] as const)(
+    "preserves an invalid literal fallback key for validation and correction in %s",
+    async (language) => {
+      const snapshot = {
+        ...ompConfig,
+        fallbackChains: { default: ["catalog/one", "catalog/two"], smol: ["catalog/three"] },
+      }
+      const nextSettings = { ...settings, language }
+      saveSettingsBundleMock.mockRejectedValueOnce(new Error("Synthetic invalid fallback key"))
+      await renderPanel(runtime, nextSettings, false, snapshot)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      changeField(".fallback-chain-key input", "__proto__")
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      const request = saveSettingsBundleMock.mock.calls[0][0]
+      expect(Object.hasOwn(request.ompConfig.fallbackChains, "__proto__")).toBe(true)
+      expect(JSON.parse(JSON.stringify(request)).ompConfig.fallbackChains).toEqual({
+        ["__proto__"]: ["catalog/one", "catalog/two"],
+        smol: ["catalog/three"],
+      })
+      expect(onSaved).not.toHaveBeenCalled()
+      expect(container.querySelector('[role="alert"]')!.textContent).toContain(
+        "Synthetic invalid fallback key",
+      )
+      expect(container.querySelector<HTMLInputElement>(".fallback-chain-key input")!.value).toBe(
+        "__proto__",
+      )
+      expect(save.disabled).toBe(false)
+
+      const corrected = {
+        ...snapshot,
+        fallbackChains: { "catalog/main": ["catalog/one", "catalog/two"], smol: ["catalog/three"] },
+      }
+      saveSettingsBundleMock.mockResolvedValueOnce(saveResult(corrected, runtime, nextSettings))
+      changeField(".fallback-chain-key input", "catalog/main")
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(2)
+      expect(saveSettingsBundleMock.mock.calls[1][0].ompConfig.fallbackChains).toEqual(
+        corrected.fallbackChains,
+      )
+      expect(onSaved).toHaveBeenCalledTimes(1)
+      expect(save.disabled).toBe(true)
+    },
+  )
+
+  it("rejects duplicate literal fallback keys before submitting a replacement map", async () => {
+    const snapshot = {
+      ...ompConfig,
+      fallbackChains: { default: ["catalog/one"], smol: ["catalog/two"] },
+    }
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    changeField(".fallback-chain:nth-child(1) .fallback-chain-key input", "__proto__")
+    changeField(".fallback-chain:nth-child(2) .fallback-chain-key input", " __proto__ ")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain(
+      "Модель или роль резервной цепочки не должна повторяться.",
+    )
+    expect(container.querySelectorAll(".fallback-chain")).toHaveLength(2)
+  })
+
   it("adds and removes fallback chains and entries without saving discarded selectors", async () => {
     const snapshot = { ...ompConfig, fallbackChains: { default: ["catalog/one", "catalog/two"] } }
     saveSettingsBundleMock.mockResolvedValue(saveResult(snapshot))
@@ -2557,3 +2622,4 @@ describe("unsaved dismissal guard", () => {
     expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
   })
 })
+

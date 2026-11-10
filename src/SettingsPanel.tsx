@@ -233,7 +233,7 @@ function serializeFallbackChains(
   drafts: FallbackChainDraft[],
   language: Lang,
 ): Record<string, string[]> {
-  const chains: Record<string, string[]> = {}
+  const chains: Record<string, string[]> = Object.create(null)
   for (const draft of drafts) {
     const key = draft.key.trim()
     if (!key) {
