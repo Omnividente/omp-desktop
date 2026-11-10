@@ -613,7 +613,9 @@ it.each(["linux", "windows"] as const)(
       }),
     )
     const frames: FrameRequestCallback[] = []
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      return frames.push(callback)
+    })
     const dialog = document.createElement("section")
     dialog.setAttribute("role", "dialog")
     dialog.setAttribute("aria-modal", "true")
@@ -654,7 +656,9 @@ it.each(["linux", "windows"] as const)(
   "consumes %s focus requests made in a modal and permits a later request",
   async (platform) => {
     const frames: FrameRequestCallback[] = []
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback))
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      return frames.push(callback)
+    })
     const dialog = document.createElement("section")
     dialog.setAttribute("role", "dialog")
     dialog.setAttribute("aria-modal", "true")
