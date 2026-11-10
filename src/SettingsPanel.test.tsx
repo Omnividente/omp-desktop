@@ -2621,4 +2621,3 @@ describe("unsaved dismissal guard", () => {
     expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
   })
 })
-
