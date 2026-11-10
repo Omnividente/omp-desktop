@@ -5,6 +5,7 @@ import { t, type Lang } from "./i18n"
 import {
   runtimeIncidentsLatestFirst,
   type RuntimeIncident,
+  type RuntimeIncidentKind,
   type RuntimeIncidentResolutionReason,
 } from "./runtimeIncidents"
 import type { TerminalCapture, TerminalTab } from "./types"
@@ -39,6 +40,7 @@ export function IncidentCenter({
   const captureHelpId = useId()
   const [filter, setFilter] = useState<IncidentFilter>("active")
   const [terminalFilter, setTerminalFilter] = useState("")
+  const [kindFilter, setKindFilter] = useState<RuntimeIncidentKind | "all">("all")
   const [captures, setCaptures] = useState<Record<string, CaptureState>>({})
   const initialFocusRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLElement>(null)
@@ -66,9 +68,10 @@ export function IncidentCenter({
       latestFirst.filter(
         (incident) =>
           (filter === "all" || incident.status === filter) &&
-          (!selectedTerminal || incident.terminalId === selectedTerminal),
+          (!selectedTerminal || incident.terminalId === selectedTerminal) &&
+          (kindFilter === "all" || incident.kind === kindFilter),
       ),
-    [filter, latestFirst, selectedTerminal],
+    [filter, kindFilter, latestFirst, selectedTerminal],
   )
   const resolvedCount = incidents.filter((incident) => incident.status === "resolved").length
   const activeCount = incidents.filter((incident) => incident.status === "active").length
@@ -260,6 +263,20 @@ export function IncidentCenter({
               ))}
             </select>
           </label>
+          <label className="incident-kind-filter">
+            <span>{t(language, "incidentKindFilter")}</span>
+            <select
+              onChange={(event) =>
+                setKindFilter(event.currentTarget.value as RuntimeIncidentKind | "all")
+              }
+              value={kindFilter}
+            >
+              <option value="all">{t(language, "incidentAllKinds")}</option>
+              <option value="fallback">{t(language, "incidentFallback")}</option>
+              <option value="modelError">{t(language, "incidentModelError")}</option>
+              <option value="runtimeError">{t(language, "incidentRuntimeError")}</option>
+            </select>
+          </label>
           <button
             className="button secondary incident-clear-button"
             disabled={resolvedCount === 0}
@@ -279,13 +296,15 @@ export function IncidentCenter({
                   language,
                   incidents.length === 0
                     ? "incidentNoIncidents"
-                    : filter === "resolved"
-                      ? selectedTerminal
-                        ? "incidentNoResolvedForTerminal"
-                        : "incidentNoResolvedIncidents"
-                      : selectedTerminal
-                        ? "incidentNoActiveForTerminal"
-                        : "incidentNoActiveIncidents",
+                    : kindFilter !== "all"
+                      ? "incidentNoMatchingIncidents"
+                      : filter === "resolved"
+                        ? selectedTerminal
+                          ? "incidentNoResolvedForTerminal"
+                          : "incidentNoResolvedIncidents"
+                        : selectedTerminal
+                          ? "incidentNoActiveForTerminal"
+                          : "incidentNoActiveIncidents",
                 )}
               </strong>
             </div>

@@ -5478,7 +5478,8 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   background: var(--chrome-surface, #111412);
 }
 
-.incident-terminal-filter {
+.incident-terminal-filter,
+.incident-kind-filter {
   display: flex;
   flex: 1 1 200px;
   align-items: center;
@@ -5488,7 +5489,8 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   font-size: 0.6875rem;
 }
 
-.incident-terminal-filter select {
+.incident-terminal-filter select,
+.incident-kind-filter select {
   min-width: 0;
   width: 100%;
   min-height: 30px;
