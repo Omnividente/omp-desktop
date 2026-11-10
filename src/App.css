@@ -4890,6 +4890,7 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.agent-search-row > input,
 .settings-operation-filters > input,
 .settings-operation-filters > select,
 .settings-operation-row > input,
