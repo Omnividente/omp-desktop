@@ -418,7 +418,7 @@ export function IncidentCenter({
                         <p className="incident-capture-result" title={capture.capture.path}>
                           {t(language, "incidentCaptureSaved")
                             .replace("{size}", formatCaptureSize(capture.capture.bytes))
-                            .replace("{path}", capture.capture.path)}
+                            .replace("{path}", () => capture.capture.path)}
                         </p>
                         {capture.capture.truncated && (
                           <p className="incident-capture-truncation">
