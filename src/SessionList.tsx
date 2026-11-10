@@ -496,6 +496,7 @@ export function SessionList({
                     childrenExpanded={vi.item.expanded}
                     depth={vi.item.depth}
                     deleting={deleting}
+                    groupToggleDisabled={filtersActive}
                     lang={lang}
                     launchDisabled={launchDisabled}
                     hasChildren={vi.item.hasChildren}

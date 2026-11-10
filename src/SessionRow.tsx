@@ -28,6 +28,7 @@ interface SessionRowProps {
   depth: number
   hasChildren: boolean
   childrenExpanded: boolean
+  groupToggleDisabled?: boolean
   onSelect: () => void
   onDoubleLaunch: () => void
   onKeySelect: (e: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -59,6 +60,7 @@ export function SessionRow({
   depth,
   hasChildren,
   childrenExpanded,
+  groupToggleDisabled = false,
   onSelect,
   onDoubleLaunch,
   onKeySelect,
@@ -123,11 +125,19 @@ export function SessionRow({
               aria-expanded={childrenExpanded}
               aria-label={`${t(lang, childrenExpanded ? "collapseSessionGroup" : "expandSessionGroup")}: ${session.title}`}
               className="session-group-toggle"
+              disabled={groupToggleDisabled}
               onClick={(event) => {
                 event.stopPropagation()
                 onToggleChildren()
               }}
-              title={t(lang, childrenExpanded ? "collapseSessionGroup" : "expandSessionGroup")}
+              title={t(
+                lang,
+                groupToggleDisabled
+                  ? "sessionGroupsSearchHint"
+                  : childrenExpanded
+                    ? "collapseSessionGroup"
+                    : "expandSessionGroup",
+              )}
               type="button"
             >
               <Icon name="chevron" size={13} />
