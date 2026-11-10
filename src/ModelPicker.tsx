@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react"
 import { Icon } from "./Icon"
-import { ModelPassport } from "./ModelPassport"
+import { ModelComparison, ModelPassport } from "./ModelPassport"
 import { catalogModelForSelector } from "./modelPassportMetadata"
 import { statusLabel, t, thinkingLevelLabel, type Lang } from "./i18n"
 import type { OmpModelInfo } from "./types"
@@ -420,6 +420,12 @@ export function ModelPicker({
               <div className="model-picker-empty">{t(language, "noModelsFound")}</div>
             )}
           </div>
+
+          <ModelComparison
+            selected={selectedModel}
+            candidate={filteredEntries[activeIndex]?.model}
+            language={language}
+          />
 
           {selectorSuggestions && (
             <label className="model-picker-shortcuts">

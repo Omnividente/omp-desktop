@@ -7,6 +7,11 @@ export const UI_TEXT = {
     modelPassportCacheReadRate: "Чтение кэша",
     modelPassportCacheWriteRate: "Запись кэша",
     modelPassportTitle: "Паспорт выбранной модели",
+    modelComparisonTitle: "Сравнить метаданные",
+    modelComparisonSelected: "Выбранная",
+    modelComparisonCandidate: "Просматриваемая",
+    modelComparisonHelp:
+      "Наведите указатель на строку или перейдите к ней стрелками в списке. Сравнение не меняет выбор и черновик. Нажатие на строку или Enter выбирает модель.",
     modelPassportSelector: "Запись каталога",
     modelPassportUnknown: "Неизвестно",
     modelPassportFixed: "Фиксированный тариф",
@@ -789,6 +794,11 @@ export const UI_TEXT = {
     modelPassportCacheReadRate: "Cache read",
     modelPassportCacheWriteRate: "Cache write",
     modelPassportTitle: "Selected model passport",
+    modelComparisonTitle: "Compare metadata",
+    modelComparisonSelected: "Selected",
+    modelComparisonCandidate: "Preview",
+    modelComparisonHelp:
+      "Hover a row or navigate to it with arrow keys in the list. Comparing does not change the selection or draft. Clicking a row or pressing Enter selects the model.",
     modelPassportSelector: "Catalog entry",
     modelPassportUnknown: "Unknown",
     modelPassportFixed: "Fixed rate",

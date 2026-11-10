@@ -6332,3 +6332,32 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
 .model-passport p {
   line-height: 1.5;
 }
+
+.model-comparison {
+  min-width: 0;
+}
+
+.model-comparison table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.model-comparison caption {
+  text-align: left;
+  margin-bottom: 6px;
+}
+
+.model-comparison th,
+.model-comparison td {
+  padding: 4px;
+  border-bottom: 1px solid var(--chrome-border, #39423b);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.model-comparison thead span {
+  display: block;
+  font-weight: normal;
+}

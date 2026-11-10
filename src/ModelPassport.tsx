@@ -3,7 +3,7 @@ import { t, type Lang } from "./i18n"
 import { modelMetadataNumber, modelPricingStatus } from "./modelPassportMetadata"
 import type { OmpModelInfo } from "./types"
 
-export function ModelPassport({ model, language }: { model: OmpModelInfo; language: Lang }) {
+function passportRows(model: OmpModelInfo | undefined, language: Lang): string[][] {
   const unknown = t(language, "modelPassportUnknown")
   const statuses = {
     fixed: t(language, "modelPassportFixed"),
@@ -18,36 +18,84 @@ export function ModelPassport({ model, language }: { model: OmpModelInfo; langua
     cacheRead: t(language, "modelPassportCacheReadRate"),
     cacheWrite: t(language, "modelPassportCacheWriteRate"),
   }
-  const declaredInput = model.input?.length ? model.input.join(", ") : unknown
+  return [
+    [t(language, "modelPassportSelector"), model?.selector ?? unknown],
+    [t(language, "modelPassportContext"), modelMetadataNumber(model?.contextWindow) ?? unknown],
+    [t(language, "modelPassportOutput"), modelMetadataNumber(model?.maxTokens) ?? unknown],
+    [
+      t(language, "modelPassportReasoning"),
+      model?.reasoning === true
+        ? t(language, "modelPassportYes")
+        : model?.reasoning === false
+          ? t(language, "modelPassportNo")
+          : unknown,
+    ],
+    [t(language, "modelPassportInput"), model?.input?.length ? model.input.join(", ") : unknown],
+    [t(language, "modelPassportPricing"), model ? statuses[modelPricingStatus(model)] : unknown],
+    ...(["input", "output", "cacheRead", "cacheWrite"] as const).map((leg) => [
+      rateLabels[leg],
+      modelMetadataNumber(model?.cost?.[leg]) ?? unknown,
+    ]),
+  ]
+}
+
+export function ModelPassport({ model, language }: { model: OmpModelInfo; language: Lang }) {
   return (
     <details className="model-passport">
       <summary>{t(language, "modelPassportTitle")}</summary>
       <dl>
-        <dt>{t(language, "modelPassportSelector")}</dt>
-        <dd>{model.selector}</dd>
-        <dt>{t(language, "modelPassportContext")}</dt>
-        <dd>{modelMetadataNumber(model.contextWindow) ?? unknown}</dd>
-        <dt>{t(language, "modelPassportOutput")}</dt>
-        <dd>{modelMetadataNumber(model.maxTokens) ?? unknown}</dd>
-        <dt>{t(language, "modelPassportReasoning")}</dt>
-        <dd>
-          {model.reasoning === true
-            ? t(language, "modelPassportYes")
-            : model.reasoning === false
-              ? t(language, "modelPassportNo")
-              : unknown}
-        </dd>
-        <dt>{t(language, "modelPassportInput")}</dt>
-        <dd>{declaredInput}</dd>
-        <dt>{t(language, "modelPassportPricing")}</dt>
-        <dd>{statuses[modelPricingStatus(model)]}</dd>
-        {(["input", "output", "cacheRead", "cacheWrite"] as const).map((leg) => (
-          <Fragment key={leg}>
-            <dt>{rateLabels[leg]}</dt>
-            <dd>{modelMetadataNumber(model.cost?.[leg]) ?? unknown}</dd>
+        {passportRows(model, language).map(([label, value]) => (
+          <Fragment key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
           </Fragment>
         ))}
       </dl>
+      <p>{t(language, "modelPassportHelp")}</p>
+    </details>
+  )
+}
+
+export function ModelComparison({
+  selected,
+  candidate,
+  language,
+}: {
+  selected: OmpModelInfo | undefined
+  candidate: OmpModelInfo | undefined
+  language: Lang
+}) {
+  const selectedRows = passportRows(selected, language)
+  const candidateRows = passportRows(candidate, language)
+  return (
+    <details className="model-passport model-comparison">
+      <summary>{t(language, "modelComparisonTitle")}</summary>
+      <p>{t(language, "modelComparisonHelp")}</p>
+      <table>
+        <caption>{t(language, "modelComparisonTitle")}</caption>
+        <thead>
+          <tr>
+            <td />
+            <th scope="col">
+              {t(language, "modelComparisonSelected")}
+              <span>{selected?.name ?? t(language, "modelPassportUnknown")}</span>
+            </th>
+            <th scope="col">
+              {t(language, "modelComparisonCandidate")}
+              <span>{candidate?.name ?? t(language, "modelPassportUnknown")}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {selectedRows.map(([label, value], index) => (
+            <tr key={label}>
+              <th scope="row">{label}</th>
+              <td>{value}</td>
+              <td>{candidateRows[index][1]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       <p>{t(language, "modelPassportHelp")}</p>
     </details>
   )
