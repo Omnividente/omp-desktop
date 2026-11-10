@@ -2287,6 +2287,28 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.agent-search-controls {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.agent-search-controls > label {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.agent-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.agent-search-row input {
+  flex: 1 1 15rem;
+  min-width: 0;
+}
+
 .agent-definition {
   display: grid;
   gap: 0.35rem;

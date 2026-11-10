@@ -1096,6 +1096,232 @@ describe("SettingsPanel configuration generations", () => {
     )
   })
 
+  const searchableAgents = [
+    {
+      name: "reviewer",
+      description: "Checks changes",
+      source: "builtin",
+      enabled: true,
+      modelOverride: null,
+      defaultModelSelectors: [],
+    },
+    {
+      name: "Café-auditor",
+      description: "Проверяет безопасность",
+      source: "project",
+      enabled: false,
+      modelOverride: ["catalog/first", "catalog/second"],
+      defaultModelSelectors: [],
+    },
+    {
+      name: "writer",
+      description: "Writes documentation",
+      source: "configured",
+      enabled: true,
+      modelOverride: null,
+      defaultModelSelectors: [],
+    },
+  ]
+  const agentSnapshot = {
+    ...ompConfig,
+    agents: searchableAgents,
+    agentSettingsSupported: true,
+  }
+  const agentRows = () =>
+    Array.from(container.querySelectorAll<HTMLElement>(".agent-row")).map(
+      (row) => row.dataset.agent,
+    )
+  function openAgentSection() {
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+  }
+
+  it.each(["ru", "en"] as const)(
+    "searches agent names, descriptions and sources locally in %s",
+    async (language) => {
+      await renderPanel(runtime, { ...settings, language }, false, agentSnapshot)
+      openAgentSection()
+      expect(container.querySelector('label[for="task-agent-search"]')?.textContent).toBe(
+        language === "ru"
+          ? "Поиск по имени, описанию или источнику"
+          : "Search names, descriptions or sources",
+      )
+      expect(agentRows()).toEqual(["reviewer", "Café-auditor", "writer"])
+      for (const query of ["  CAFE\u0301  ", "БЕЗОПАСНОСТЬ", "PROJECT"]) {
+        changeField("#task-agent-search", query)
+        expect(agentRows()).toEqual(["Café-auditor"])
+      }
+      changeField("#task-agent-search", "catalog/first")
+      expect(agentRows()).toEqual([])
+      expect(container.querySelector(".agent-search-controls [role=status]")?.textContent).toBe(
+        language === "ru"
+          ? "В текущем снимке нет агентов, соответствующих запросу."
+          : "No agents in this snapshot match the search.",
+      )
+      const clear = container.querySelector<HTMLButtonElement>(".agent-search-row button")!
+      act(() => clear.click())
+      expect(agentRows()).toEqual(["reviewer", "Café-auditor", "writer"])
+      expect(document.activeElement).toBe(container.querySelector("#task-agent-search"))
+      expect(clear.disabled).toBe(true)
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(loadOmpConfigMock).not.toHaveBeenCalled()
+      expect(refreshOmpConfigMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it("finds one agent in a larger snapshot without changing its order or selection", async () => {
+    const agents = Array.from({ length: 100 }, (_, index) => ({
+      ...searchableAgents[0],
+      name: `agent-${index}`,
+      description: index === 73 ? "Synthetic needle" : "Synthetic worker",
+    }))
+    await renderPanel(runtime, settings, false, { ...agentSnapshot, agents })
+    openAgentSection()
+    expect(agentRows()).toHaveLength(100)
+    changeField("#task-agent-search", "needle")
+    expect(agentRows()).toEqual(["agent-73"])
+    expect(container.querySelector(".agent-search-controls [role=status]")?.textContent).toContain(
+      "1 / 100",
+    )
+    changeField("#task-agent-search", "   ")
+    expect(agentRows()).toEqual(agents.map((agent) => agent.name))
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="agent-73"] input')!.checked,
+    ).toBe(true)
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
+  it("saves hidden agent edits and retains the search after a failed save and retry", async () => {
+    saveSettingsBundleMock.mockRejectedValueOnce(new Error("Synthetic save failure"))
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult({
+        ...agentSnapshot,
+        agents: [
+          { ...searchableAgents[0], enabled: false },
+          { ...searchableAgents[1], modelOverride: null },
+          searchableAgents[2],
+        ],
+      }),
+    )
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    act(() =>
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input')!.click(),
+    )
+    changeField('[data-agent="Café-auditor"] .agent-model-mode select', "inherit")
+    changeField("#task-agent-search", "writer")
+    expect(agentRows()).toEqual(["writer"])
+    expect(container.querySelector("#task-agent-search-help")?.textContent).toContain("скрытых")
+    const save = () => container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    await act(async () => save().click())
+    expect(container.querySelector<HTMLInputElement>("#task-agent-search")!.value).toBe("writer")
+    changeField("#task-agent-search", "reviewer")
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input')!.checked,
+    ).toBe(false)
+    changeField("#task-agent-search", "no matches")
+    await act(async () => save().click())
+    const expectedChanges = {
+      reviewer: { enabled: false, expectedEnabled: true },
+      "Café-auditor": {
+        modelOverride: null,
+        expectedModelOverride: ["catalog/first", "catalog/second"],
+      },
+    }
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(2)
+    for (const [payload] of saveSettingsBundleMock.mock.calls) {
+      expect(payload.ompConfig.agentChanges).toEqual(expectedChanges)
+    }
+    expect(container.querySelector<HTMLInputElement>("#task-agent-search")!.value).toBe(
+      "no matches",
+    )
+    act(() => container.querySelector<HTMLButtonElement>(".agent-search-row button")!.click())
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input')!.checked,
+    ).toBe(false)
+    expect(
+      container.querySelector<HTMLSelectElement>(
+        '[data-agent="Café-auditor"] .agent-model-mode select',
+      )!.value,
+    ).toBe("inherit")
+    expect(save().disabled).toBe(true)
+  })
+
+  it("keeps the search and hidden drafts when an explicit catalog refresh adds a match", async () => {
+    const refreshed = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refreshed.promise)
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    act(() =>
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input')!.click(),
+    )
+    changeField("#task-agent-search", "new agent")
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    await act(async () =>
+      refreshed.resolve({
+        ...agentSnapshot,
+        agents: [
+          ...searchableAgents,
+          { ...searchableAgents[0], name: "new agent", description: "New snapshot entry" },
+        ],
+      }),
+    )
+    expect(agentRows()).toEqual(["new agent"])
+    expect(container.querySelector<HTMLInputElement>("#task-agent-search")!.value).toBe("new agent")
+    changeField("#task-agent-search", "reviewer")
+    expect(
+      container.querySelector<HTMLInputElement>('[data-agent="reviewer"] input')!.checked,
+    ).toBe(false)
+    expect(refreshOmpConfigMock).toHaveBeenCalledTimes(1)
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
+  it("distinguishes an empty snapshot and keeps unsupported agent controls disabled", async () => {
+    await renderPanel(runtime, settings, false, { ...agentSnapshot, agentSettingsSupported: false })
+    openAgentSection()
+    changeField("#task-agent-search", "reviewer")
+    expect(agentRows()).toEqual(["reviewer"])
+    expect(container.querySelector(".agent-controls")?.hasAttribute("disabled")).toBe(true)
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await renderPanel(runtime, settings, false, { ...agentSnapshot, agents: [] })
+    openAgentSection()
+    changeField("#task-agent-search", "missing")
+    expect(container.querySelector(".agent-search-controls [role=status]")?.textContent).toBe(
+      "В этом снимке OMP нет доступных определений агентов.",
+    )
+  })
+
+  it("closes a hidden picker, preserves search across sections, and resets after dismissal", async () => {
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-agent="Café-auditor"] .model-picker-trigger')!
+        .click(),
+    )
+    expect(container.querySelector(".model-picker-panel")).not.toBeNull()
+    changeField("#task-agent-search", "writer")
+    changeField("#task-agent-search", "auditor")
+    expect(container.querySelector(".model-picker-panel")).toBeNull()
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+    openAgentSection()
+    expect(container.querySelector<HTMLInputElement>("#task-agent-search")!.value).toBe("auditor")
+    act(() =>
+      container.querySelector("#task-agent-search")!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    )
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    expect(container.querySelector<HTMLInputElement>("#task-agent-search")!.value).toBe("")
+    expect(agentRows()).toEqual(["reviewer", "Café-auditor", "writer"])
+  })
+
   it("saves only changed agent fields without collapsing inherited or ordered overrides", async () => {
     const reviewer = {
       name: "reviewer",

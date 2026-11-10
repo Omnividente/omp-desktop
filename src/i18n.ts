@@ -547,6 +547,11 @@ export const UI_TEXT = {
       "Каталог включает встроенные агенты OMP, пользовательские определения, ближайший .omp/agents последнего рабочего каталога Desktop и доступные абсолютные пути extensions. Относительные extensions, installed/marketplace plugins и временные определения сессии могут быть представлены не полностью. Источник configured означает сохранённые настройки без найденного определения. Наследуемую модель окончательно выбирает OMP в рабочем каталоге сессии. Это ограничение отображаемого каталога, а не ошибка конфигурации.",
     taskAgentsUnsupported:
       "Этот runtime не поддерживает настройки агентов. Просмотр доступен, изменение выключено.",
+    taskAgentsSearch: "Поиск по имени, описанию или источнику",
+    taskAgentsSearchHelp:
+      "Поиск только в текущем снимке каталога. Сохранение применяет все правки, включая скрытых поиском агентов.",
+    taskAgentsNoMatches: "В текущем снимке нет агентов, соответствующих запросу.",
+    taskAgentsShown: "Показано агентов",
     taskAgentsEmpty: "В этом снимке OMP нет доступных определений агентов.",
     agentSource: "Источник определения",
     agentDefinitionModels: "Модели из определения",
@@ -1327,6 +1332,11 @@ export const UI_TEXT = {
       "The catalog includes bundled OMP agents, user definitions, the nearest .omp/agents for Desktop's last workspace, and accessible absolute extension paths. Relative extensions, installed/marketplace plugins, and transient session definitions may not be fully listed. The configured source denotes saved settings without a known definition. OMP ultimately resolves the inherited model in the session's working directory. This is a catalog display limitation, not a configuration error.",
     taskAgentsUnsupported:
       "This runtime does not support agent settings. Definitions are read-only.",
+    taskAgentsSearch: "Search names, descriptions or sources",
+    taskAgentsSearchHelp:
+      "Search only this catalog snapshot. Save applies all edits, including agents hidden by search.",
+    taskAgentsNoMatches: "No agents in this snapshot match the search.",
+    taskAgentsShown: "Agents shown",
     taskAgentsEmpty: "No available agent definitions were returned in this OMP snapshot.",
     agentSource: "Definition source",
     agentDefinitionModels: "Definition model selectors",
