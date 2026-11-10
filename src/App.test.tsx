@@ -1230,9 +1230,8 @@ describe("App lifecycle serialization", () => {
           expect(confirm).not.toHaveBeenCalled()
           expect(open).not.toHaveBeenCalled()
           expect(api.saveSettingsBundle).not.toHaveBeenCalled()
-          expect(
-            invokeMock.mock.calls.some(([command]) => command === "close_terminal"),
-          ).toBe(false)
+          const commands = invokeMock.mock.calls.map(([command]) => command)
+          expect(commands).not.toContain("close_terminal")
           expect(container.querySelector(".settings-recovery-screen")).toBe(screen)
         } finally {
           if (retry) await act(async () => retry.resolve(bootstrap))
