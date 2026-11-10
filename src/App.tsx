@@ -283,6 +283,7 @@ function App() {
   const restartingTerminalIdsRef = useRef(new Set<string>())
   const restartExitEventsRef = useRef(new Map<string, PtyExitEvent>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const tabSelectionRequestRef = useRef(0)
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
     terminalId: string
     sequence: number
@@ -1414,6 +1415,7 @@ function App() {
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
       if (!target) return
+      ++tabSelectionRequestRef.current
       ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
       if (target.sessionId) {
@@ -1582,6 +1584,7 @@ function App() {
       const launchKey = session?.id ?? "new"
       launchingRef.current = true
       setLaunching(launchKey)
+      const tabSelectionRequest = tabSelectionRequestRef.current
       try {
         const started = await runWithSessionLeaseReclaim(
           lang,
@@ -1633,7 +1636,8 @@ function App() {
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
         unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, tab])
-        setActiveTabId(tab.id)
+        // Publish the new terminal without taking back a newer explicit tab choice.
+        if (tabSelectionRequest === tabSelectionRequestRef.current) setActiveTabId(tab.id)
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
