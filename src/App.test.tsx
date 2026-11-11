@@ -27,6 +27,7 @@ import type {
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
+const rereadTerminalReady = vi.hoisted(() => new Map<string, (terminalId: string) => void>())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
@@ -74,17 +75,22 @@ vi.mock("./TerminalView", () => ({
     tab,
     active,
     focusRequestSequence,
+    onReady,
   }: {
     tab: TerminalTab
     active: boolean
     focusRequestSequence: number
-  }) => (
-    <div
-      data-terminal-id={tab.id}
-      data-active={active}
-      data-focus-sequence={focusRequestSequence}
-    />
-  ),
+    onReady: (terminalId: string) => void
+  }) => {
+    rereadTerminalReady.set(tab.id, onReady)
+    return (
+      <div
+        data-terminal-id={tab.id}
+        data-active={active}
+        data-focus-sequence={focusRequestSequence}
+      />
+    )
+  },
 }))
 
 ;(
@@ -944,6 +950,7 @@ describe("App lifecycle serialization", () => {
     previousDocumentLanguage = document.documentElement.getAttribute("lang")
     vi.clearAllMocks()
     invokeMock.mockReset()
+    rereadTerminalReady.clear()
     vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
@@ -3057,6 +3064,126 @@ describe("App lifecycle serialization", () => {
       await act(async () => read.click())
       expect(container.querySelector(".transcript-panel")).not.toBeNull()
       expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ["same", false, false],
+    ["other", false, false],
+    ["same", true, false],
+    ["other", true, false],
+    ["same", false, true],
+    ["other", false, true],
+    ["same", true, true],
+    ["other", true, true],
+  ] as const)(
+    "keeps a newer %s reader after reread launch (pending read: %s, failure: %s)",
+    async (target, pendingRead, failure) => {
+      const original = bootstrap.sessions[0]
+      const other = {
+        ...original,
+        id: "session-other",
+        title: "Other history",
+        filePath: "C:/fixture/sessions/other.jsonl",
+      }
+      const replacement = target === "same" ? original : other
+      const launch = deferred<TerminalStarted>()
+      const read = deferred<Awaited<ReturnType<typeof api.readSessionTranscript>>>()
+      const transcriptFor = (session: typeof original) => ({
+        session,
+        entries: [],
+        updatedAt: 1,
+        truncated: false,
+        malformedRecords: 0,
+        incompleteLastRecord: false,
+      })
+      let holdRead = false
+      vi.mocked(api.bootstrap).mockResolvedValue({ ...bootstrap, sessions: [original, other] })
+      vi.mocked(api.startTerminal).mockReturnValue(launch.promise)
+      invokeMock.mockImplementation((command: string, args?: { path: string }) => {
+        if (command === "read_session_transcript") {
+          if (holdRead) return read.promise
+          return Promise.resolve(transcriptFor(args?.path === other.filePath ? other : original))
+        }
+        throw new Error(`Unexpected reread lifecycle command: ${command}`)
+      })
+      const openHistory = (title: string) => {
+        const row = element(`[aria-label="${title}"].session-select`).closest(".session-item")!
+        row.querySelector<HTMLButtonElement>(".session-transcript")!.click()
+      }
+      await act(async () => root.render(<App />))
+      await act(async () => openHistory(original.title))
+      await act(async () => element(".transcript-reread-button").click())
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        original.cwd,
+        original.filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+      holdRead = pendingRead
+      await act(async () => openHistory(replacement.title))
+      expect(element("#transcript-title").textContent).toBe(replacement.title)
+      await act(async () => {
+        if (failure) launch.reject(new Error("Synthetic reread launch failure"))
+        else launch.resolve(started)
+      })
+      expect(element("#transcript-title").textContent).toBe(replacement.title)
+      if (pendingRead) {
+        await act(async () => read.resolve(transcriptFor(replacement)))
+        expect(element("#transcript-title").textContent).toBe(replacement.title)
+        expect(container.textContent).toContain(t("ru", "transcriptEmpty"))
+      }
+      if (failure) expect(container.textContent).toContain("Synthetic reread launch failure")
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it.each([false, true])(
+    "keeps reopened history after a pending reread write (failure: %s)",
+    async (failure) => {
+      const session = bootstrap.sessions[0]
+      const write = deferred<void>()
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "write_terminal") return write.promise
+        if (command === "read_session_transcript") {
+          return Promise.resolve({
+            session,
+            entries: [],
+            updatedAt: 1,
+            truncated: false,
+            malformedRecords: 0,
+            incompleteLastRecord: false,
+          })
+        }
+        throw new Error(`Unexpected reread write command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".recent-resume").click())
+      await act(async () => rereadTerminalReady.get(started.terminalId)!(started.terminalId))
+      await act(async () => element(".session-transcript").click())
+      await act(async () => element(".transcript-reread-button").click())
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      await act(async () => element(".session-transcript").click())
+      await act(async () => {
+        if (failure) write.reject(new Error("Synthetic reread write failure"))
+        else write.resolve(undefined)
+      })
+      expect(element("#transcript-title").textContent).toBe(session.title)
+      expect(invokeMock.mock.calls.filter(([command]) => command === "write_terminal")).toEqual([
+        [
+          "write_terminal",
+          {
+            terminalId: started.terminalId,
+            data: `${t("ru", "transcriptRereadPrompt").replace("{path}", session.filePath)}\r`,
+          },
+          undefined,
+        ],
+      ])
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      if (failure) expect(container.textContent).toContain("Synthetic reread write failure")
     },
   )
 
