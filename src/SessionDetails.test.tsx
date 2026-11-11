@@ -124,7 +124,9 @@ it.each([
   "copies only the exact loaded file path after an explicit %s action",
   async (lang, filePath, label) => {
     act(() =>
-      root.render(<SessionDetails session={{ ...session, filePath }} lang={lang} onError={onError} />),
+      root.render(
+        <SessionDetails session={{ ...session, filePath }} lang={lang} onError={onError} />,
+      ),
     )
     expect(writeText).not.toHaveBeenCalled()
     act(() => container.querySelector("summary")!.click())
