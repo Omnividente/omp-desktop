@@ -4756,6 +4756,81 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).not.toHaveBeenCalled()
   })
 
+  it.each(["en", "ru"] as const)(
+    "retains a rejected Codex JSONL source for explicit retry in %s UI",
+    async (language) => {
+      const payload = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        runtime: { ...bootstrap.runtime, language },
+      }
+      const source = "C:/fixture/codex/incomplete.jsonl"
+      const complete = "C:/fixture/codex/complete.jsonl"
+      const raw =
+        "[session_import_invalid_codex_json] Некорректная или незавершённая запись Codex JSONL в строке 3"
+      let attempts = 0
+      vi.mocked(api.bootstrap).mockResolvedValue(payload)
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "list_codex_sessions")
+          return Promise.resolve(
+            [source, complete].map((filePath) => ({
+              id: filePath,
+              title: filePath === source ? "Incomplete source" : "Complete source",
+              cwd: "C:/fixture/project",
+              filePath,
+              createdAt: "2026-09-27T00:00:00.000Z",
+              updatedAt: 1,
+              model: null,
+              preview: "Synthetic",
+            })),
+          )
+        if (command === "import_sessions") {
+          attempts += 1
+          return Promise.resolve({
+            bootstrap: payload,
+            items:
+              attempts === 1
+                ? [
+                    { sourcePath: source, destinationPath: null, status: "failed", message: raw },
+                    {
+                      sourcePath: complete,
+                      destinationPath: "C:/fixture/sessions/complete.jsonl",
+                      status: "imported",
+                      message: null,
+                    },
+                  ]
+                : [
+                    {
+                      sourcePath: source,
+                      destinationPath: "C:/fixture/sessions/retried.jsonl",
+                      status: "imported",
+                      message: null,
+                    },
+                  ],
+          } satisfies ImportBatchPayload)
+        }
+        throw new Error(`Unexpected research command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(`[title="${t(language, "importCodex")}"]`).click())
+      const choices = () =>
+        Array.from(container.querySelectorAll<HTMLInputElement>(".codex-item input"))
+      await act(async () => choices().forEach((input) => input.click()))
+      await act(async () => element(".codex-import-panel .primary").click())
+      expect(container.textContent).toContain(t(language, "importSessionInvalidCodexJson"))
+      expect(container.textContent).not.toContain(raw)
+      expect(choices().map((input) => input.checked)).toEqual([true, false])
+      expect(container.querySelector(".codex-import-panel")).not.toBeNull()
+      expect(attempts).toBe(1)
+      await act(async () => element(".codex-import-panel .primary").click())
+      const calls = invokeMock.mock.calls.filter(([command]) => command === "import_sessions")
+      expect(calls).toHaveLength(2)
+      expect(calls[1][1]).toMatchObject({ requests: [{ path: source }] })
+      expect(container.querySelector(".codex-import-panel")).toBeNull()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it("localizes Codex partial failure and retains context and retry target in English UI", async () => {
     const payload = {
       ...bootstrap,

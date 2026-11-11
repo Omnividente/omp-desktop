@@ -1031,9 +1031,22 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
     }
     // Reject before recovery or destination writes can turn corrupt bytes into
     // apparently valid history through the importers' lossy text projection.
-    std::str::from_utf8(&bytes).map_err(|_| {
+    let text = std::str::from_utf8(&bytes).map_err(|_| {
         "[session_import_invalid_encoding] Файл сессии содержит некорректный UTF-8".to_owned()
     })?;
+    // Codex conversion omits unreadable records. Reject the captured snapshot
+    // before recovery or writes can replace intact history with a partial copy.
+    // Valid unknown records and a complete final record without LF remain valid.
+    if looks_like_codex_session(text) {
+        for (index, line) in text.lines().enumerate() {
+            if !line.trim().is_empty() && serde_json::from_str::<Value>(line).is_err() {
+                return Err(format!(
+                    "[session_import_invalid_codex_json] Некорректная или незавершённая запись Codex JSONL в строке {}",
+                    index + 1
+                ));
+            }
+        }
+    }
     Ok(bytes)
 }
 
@@ -5425,6 +5438,221 @@ mod tests {
         drop(isolated);
         // Inspect the override itself; do not fall back to the user's real index.
         assert!(super::TEST_CODEX_THREAD_NAMES.with(|names| names.borrow().is_none()));
+    }
+
+    #[test]
+    fn invalid_codex_json_fails_before_creating_history() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-json-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("codex.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"session_id": "codex-json", "cwd": "/synthetic/project"}
+        });
+        for tail in [
+            "{malformed}\n",
+            "{\"type\":\"response_item\",\"payload\":",
+            "{\"type\":\"future_metadata\",\"payload\":}\n",
+        ] {
+            let bytes = format!("{header}\n\n{tail}").into_bytes();
+            fs::write(&source, &bytes).unwrap();
+            for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+                let result = import_sessions(
+                    &[ImportSessionRequest {
+                        path: source.to_string_lossy().into_owned(),
+                        target_cwd: project.to_string_lossy().into_owned(),
+                        mode,
+                    }],
+                    &session_root,
+                    &HashSet::new(),
+                );
+                assert_eq!(result[0].status, ImportItemStatus::Failed);
+                assert_eq!(result[0].destination_path, None);
+                let message = result[0].message.as_deref().unwrap();
+                assert!(message.starts_with("[session_import_invalid_codex_json]"));
+                assert!(message.ends_with("строке 3"));
+                assert!(!message.contains(tail.trim()));
+                assert_eq!(fs::read(&source).unwrap(), bytes);
+                assert!(!session_root.exists());
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_codex_json_update_preserves_history_and_allows_explicit_retry() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-json-update-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("codex.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"session_id": "codex-json-update", "cwd": "/synthetic/project"}
+        });
+        let answer = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "kept answer"}]
+            }
+        });
+        let valid = format!("{header}\n{answer}\n");
+        fs::write(&source, &valid).unwrap();
+        let mut request = ImportSessionRequest {
+            path: source.to_string_lossy().into_owned(),
+            target_cwd: project.to_string_lossy().into_owned(),
+            mode: ImportMode::Skip,
+        };
+        let first = import_session(&request, &session_root).unwrap();
+        assert_eq!(first.status, ImportItemStatus::Imported);
+        let destination = first.destination_path.unwrap();
+        let original = fs::read(&destination).unwrap();
+        let sidecar = Path::new(&destination).with_extension("");
+        fs::create_dir_all(&sidecar).unwrap();
+        fs::write(sidecar.join("kept.txt"), "existing artifact").unwrap();
+        let parent = Path::new(&destination).parent().unwrap();
+        let original_entries = fs::read_dir(parent)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<BTreeSet<_>>();
+        for tail in ["{malformed-answer}\n", "{\"type\":\"response_item\",\"payload\":"] {
+            let corrupt = format!("{header}\n{tail}");
+            fs::write(&source, &corrupt).unwrap();
+            for mode in [ImportMode::Update, ImportMode::Skip, ImportMode::Copy] {
+                request.mode = mode;
+                let result = import_sessions(&[request.clone()], &session_root, &HashSet::new());
+                assert_eq!(result[0].status, ImportItemStatus::Failed);
+                assert_eq!(result[0].destination_path, None);
+                assert!(result[0]
+                    .message
+                    .as_deref()
+                    .unwrap()
+                    .starts_with("[session_import_invalid_codex_json]"));
+                assert_eq!(fs::read(&source).unwrap(), corrupt.as_bytes());
+                assert_eq!(fs::read(&destination).unwrap(), original);
+                assert_eq!(
+                    fs::read_to_string(sidecar.join("kept.txt")).unwrap(),
+                    "existing artifact"
+                );
+                let entries = fs::read_dir(parent)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect::<BTreeSet<_>>();
+                assert_eq!(entries, original_entries);
+            }
+        }
+        fs::write(&source, valid.replace("kept answer", "completed answer")).unwrap();
+        request.mode = ImportMode::Update;
+        let retried = import_session(&request, &session_root).unwrap();
+        assert_eq!(retried.status, ImportItemStatus::Updated);
+        assert_eq!(retried.destination_path.as_deref(), Some(destination.as_str()));
+        let transcript = read_session_transcript(&destination, &session_root).unwrap();
+        assert!(transcript
+            .entries
+            .iter()
+            .any(|entry| entry.text == "completed answer"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn codex_json_validation_preserves_valid_records_and_mixed_batch_results() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-json-batch-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&project).unwrap();
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"session_id": "codex-json-batch", "cwd": "/synthetic/project"}
+        });
+        let answer = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "Кириллица 😀 �"}]
+            }
+        });
+        let unknown = serde_json::json!({"type": "future_metadata", "payload": [1, true, null]});
+        let fixtures = [
+            ("invalid.jsonl", format!("{header}\n{{malformed}}\n")),
+            (
+                "valid.jsonl",
+                format!("{header}\r\n \t\r\n{unknown}\r\nnull\r\n{answer}"),
+            ),
+            (
+                "omp.jsonl",
+                concat!(
+                    "{\"type\":\"session\",\"id\":\"omp-json-control\",\"cwd\":\"/synthetic/project\"}\n",
+                    "{malformed-omp}\n"
+                )
+                .to_owned(),
+            ),
+        ];
+        let requests = fixtures
+            .iter()
+            .map(|(name, text)| {
+                let source = root.join(name);
+                fs::write(&source, text).unwrap();
+                ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: project.to_string_lossy().into_owned(),
+                    mode: ImportMode::Skip,
+                }
+            })
+            .collect::<Vec<_>>();
+        let results = import_sessions(&requests, &session_root, &HashSet::new());
+        assert_eq!(results.len(), fixtures.len());
+        assert_eq!(results[0].status, ImportItemStatus::Failed);
+        for index in [1, 2] {
+            assert_eq!(results[index].status, ImportItemStatus::Imported);
+            assert_eq!(results[index].message, None);
+        }
+        let codex = read_session_transcript(
+            results[1].destination_path.as_deref().unwrap(),
+            &session_root,
+        )
+        .unwrap();
+        assert!(codex
+            .entries
+            .iter()
+            .any(|entry| entry.text == "Кириллица 😀 �"));
+        assert_eq!(codex.malformed_records, 0);
+        let omp_path = results[2].destination_path.as_deref().unwrap();
+        assert!(fs::read_to_string(omp_path)
+            .unwrap()
+            .contains("{malformed-omp}\n"));
+        let omp = read_session_transcript(omp_path, &session_root).unwrap();
+        assert_eq!(omp.malformed_records, 1);
+        for (name, text) in fixtures {
+            assert_eq!(fs::read(root.join(name)).unwrap(), text.as_bytes());
+        }
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

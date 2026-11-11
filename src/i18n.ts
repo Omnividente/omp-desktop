@@ -253,6 +253,8 @@ export const UI_TEXT = {
     importSessionInUse: "Невозможно импортировать: сессия используется",
     importSessionInvalidUtf8:
       "Невозможно импортировать: файл содержит повреждённый текст UTF-8. Исходный файл не изменён.",
+    importSessionInvalidCodexJson:
+      "Невозможно импортировать: Codex JSONL содержит некорректную или незавершённую запись. Дождитесь окончания записи исходной сессии и повторите импорт. Этот файл не импортирован.",
     importCodex: "Импорт из Codex",
     refresh: "Обновить список",
     sessions: "Сессии",
@@ -1036,6 +1038,8 @@ export const UI_TEXT = {
     importSessionInUse: "Cannot import: the session is in use",
     importSessionInvalidUtf8:
       "Cannot import: the file contains invalid UTF-8 text. The source file was not changed.",
+    importSessionInvalidCodexJson:
+      "Cannot import: Codex JSONL contains an invalid or incomplete record. Wait for the source session to finish writing, then retry. This file was not imported.",
     importCodex: "Import from Codex",
     refresh: "Refresh list",
     sessions: "Sessions",

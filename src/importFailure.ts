@@ -8,6 +8,9 @@ export function importFailureMessage(item: ImportItemResult, language: Lang): st
   if (backendErrorCode(item.message) === "session_import_invalid_encoding") {
     return t(language, "importSessionInvalidUtf8")
   }
+  if (backendErrorCode(item.message) === "session_import_invalid_codex_json") {
+    return t(language, "importSessionInvalidCodexJson")
+  }
   if (backendErrorCode(item.message) !== "session_lease_active") return detail
   // Keep the original diagnostic: it can contain a target path absent from the result.
   return `${t(language, "importSessionInUse")}\n${detail}`

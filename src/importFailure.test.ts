@@ -47,6 +47,19 @@ describe("import failure presentation", () => {
     expect(importFailureMessage(item(null), "en")).toBe(item(null).sourcePath)
   })
 
+  it.each(["en", "ru"] as const)(
+    "localizes invalid or incomplete Codex JSONL in %s",
+    (language) => {
+      const raw =
+        "[session_import_invalid_codex_json] Некорректная или незавершённая запись Codex JSONL в строке 3"
+      expect(importFailureMessage(item(raw), language)).toBe(
+        language === "en"
+          ? "Cannot import: Codex JSONL contains an invalid or incomplete record. Wait for the source session to finish writing, then retry. This file was not imported."
+          : "Невозможно импортировать: Codex JSONL содержит некорректную или незавершённую запись. Дождитесь окончания записи исходной сессии и повторите импорт. Этот файл не импортирован.",
+      )
+    },
+  )
+
   it("does not truncate or reinterpret a long HTML-looking raw diagnostic", () => {
     const raw =
       "[session_lease_active] <img src=x onerror=alert(1)>" +
