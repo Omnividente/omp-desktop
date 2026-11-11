@@ -3013,6 +3013,44 @@ button:disabled {
   }
 }
 
+.codex-search {
+  display: grid;
+  flex-shrink: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.codex-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  color: var(--text);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  font: inherit;
+}
+
+.codex-search input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.codex-search-status {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.codex-search-status .field-help {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
 .codex-list {
   flex: 1;
   min-height: 0;
