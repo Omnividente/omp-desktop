@@ -373,12 +373,13 @@ describe("Incident Center terminal filter", () => {
     expect(visibleReasons()).toEqual(["Synthetic reason 1"])
   })
   function searchInput() {
-    return container.querySelector<HTMLInputElement>('.incident-search input[type="search"]')!
+    return container.querySelector<HTMLInputElement>(".incident-search input")!
   }
   async function searchFor(value: string) {
     const input = searchInput()
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!
     await act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      setter.call(input, value)
       input.dispatchEvent(new Event("input", { bubbles: true }))
     })
   }
@@ -392,18 +393,16 @@ describe("Incident Center terminal filter", () => {
       await render([incident(1, "a")], [], language)
       const input = searchInput()
       expect(input.labels?.[0]?.textContent).toContain(t(language, "incidentSearchLabel"))
-      expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe(
-        t(language, "incidentSearchHelp"),
-      )
+      const helpId = input.getAttribute("aria-describedby")!
+      expect(document.getElementById(helpId)?.textContent).toBe(t(language, "incidentSearchHelp"))
       expect(clearSearchButton().disabled).toBe(true)
       await searchFor("missing")
       expect(visibleReasons()).toEqual([])
       expect(container.querySelector(".incident-empty")?.textContent).toContain(
         t(language, "incidentNoSearchResults"),
       )
-      expect(container.querySelector(".incident-search-help [role=status]")?.textContent).toBe(
-        t(language, "incidentSearchCount").replace("{count}", "0"),
-      )
+      const count = container.querySelector(".incident-search-help [role=status]")
+      expect(count?.textContent).toBe(t(language, "incidentSearchCount").replace("{count}", "0"))
       await render([], [], language)
       expect(input.value).toBe("missing")
       expect(container.querySelector(".incident-empty")?.textContent).toContain(
@@ -412,7 +411,7 @@ describe("Incident Center terminal filter", () => {
     },
   )
 
-  it("finds diagnostic text in 100 retained records without changing their order or counts", async () => {
+  it("finds text in 100 records without changing order or counts", async () => {
     const incidents = Array.from({ length: 100 }, (_, index) => ({
       ...incident(index + 1, index % 2 ? "a" : "b", index % 4 === 0),
       reason: index % 10 === 0 ? `Quota [429] ${index}` : `Other reason ${index}`,
@@ -456,7 +455,7 @@ describe("Incident Center terminal filter", () => {
     expect(visibleReasons()).toEqual(["Needle three", "Needle two", "Needle one"])
   })
 
-  it("uses current titles, recorded titles after closure, role and full fallback diagnostic text", async () => {
+  it("searches displayed titles, role and full fallback diagnostics", async () => {
     const entry = {
       ...incident(1, "a"),
       terminalLabel: "Recorded Café",
@@ -467,7 +466,8 @@ describe("Incident Center terminal filter", () => {
       reason: `${"prefix ".repeat(40)}tail-marker`,
     }
     await render([entry], [tab("a", "Current Cafe\u0301")])
-    for (const query of ["CURRENT CAFÉ", "reviewer", "primary", "backup", "tail-marker"]) {
+    const queries = ["CURRENT CAFÉ", "reviewer", "primary", "backup", "tail-marker"]
+    for (const query of queries) {
       await searchFor(query)
       expect(visibleReasons()).toEqual([entry.reason])
     }
@@ -477,7 +477,7 @@ describe("Incident Center terminal filter", () => {
     expect(visibleReasons()).toEqual([entry.reason])
   })
 
-  it("preserves the query on updates and locale changes without clearing hidden resolved records", async () => {
+  it("retains the query on updates while keeping clear global", async () => {
     const initial = [incident(1, "a"), incident(2, "b", true)]
     await render(initial)
     await searchFor("new reason")
@@ -492,12 +492,13 @@ describe("Incident Center terminal filter", () => {
     await act(() => clear.click())
     expect(onClearResolved).toHaveBeenCalledOnce()
     expect(onClearResolved).toHaveBeenCalledWith()
-    await render(next.filter((entry) => entry.status !== "resolved"), [], "ru")
+    const remaining = next.filter((entry) => entry.status !== "resolved")
+    await render(remaining, [], "ru")
     expect(searchInput().value).toBe("new reason")
     expect(visibleReasons()).toEqual(["New reason"])
   })
 
-  it("clears only search, restores its input focus and preserves the other filters", async () => {
+  it("clears only search and returns focus to its input", async () => {
     await render([incident(1, "a", true), incident(2, "b", true), incident(3, "a")])
     await choose("a")
     await act(() => statusButton("resolved").click())

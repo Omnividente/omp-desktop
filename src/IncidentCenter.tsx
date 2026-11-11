@@ -248,7 +248,10 @@ export function IncidentCenter({
             {t(language, "incidentSearchHelp")}
             {hasSearch && (
               <span aria-atomic="true" role="status">
-                {t(language, "incidentSearchCount").replace("{count}", String(visibleIncidents.length))}
+                {t(language, "incidentSearchCount").replace(
+                  "{count}",
+                  String(visibleIncidents.length),
+                )}
               </span>
             )}
           </p>

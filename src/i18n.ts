@@ -512,7 +512,8 @@ export const UI_TEXT = {
     incidentTerminalFilter: "Терминал",
     incidentSearchLabel: "Поиск в сохранённых инцидентах",
     incidentSearchClear: "Очистить поиск",
-    incidentSearchHelp: "Причина, роль, терминал или модель fallback. Учитываются выбранные фильтры.",
+    incidentSearchHelp:
+      "Причина, роль, терминал или модель fallback. Учитываются выбранные фильтры.",
     incidentSearchCount: "Найдено: {count}",
     incidentNoSearchResults: "Нет инцидентов для этого запроса и выбранных фильтров",
     incidentAllTerminals: "Все терминалы",
