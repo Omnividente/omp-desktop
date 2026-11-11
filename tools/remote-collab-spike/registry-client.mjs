@@ -111,7 +111,9 @@ async function readMetadata(filename) {
     if (!before.isFile() || before.isSymbolicLink() || !privateOwner(before)) {
       fail("unsafe_metadata")
     }
-    handle = await open(filename, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    // A path can become a FIFO after lstat. Do not block before the descriptor
+    // type/owner/identity checks below; regular-file reads are unaffected.
+    handle = await open(filename, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0))
     const stat = await handle.stat()
     if (!stat.isFile() || !privateOwner(stat) || before.ino !== stat.ino || before.dev !== stat.dev) {
       fail("unsafe_metadata")
