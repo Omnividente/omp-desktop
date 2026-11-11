@@ -565,6 +565,7 @@ export function TerminalWorkspace({
             setTabPickerOpen(false)
             onFocusTerminal(terminalId)
           }}
+          runtimeStatusByTerminal={runtimeStatusByTerminal}
           tabs={tabs}
         />
       )}
