@@ -542,6 +542,7 @@ export function TranscriptModal({
             key={transcript.session.filePath}
             session={transcript.session}
             lang={lang}
+            onError={onError}
           />
         )}
         {transcript?.truncated && (

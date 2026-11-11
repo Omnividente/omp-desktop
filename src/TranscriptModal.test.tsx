@@ -374,6 +374,21 @@ it("hides session details while reloading and after a failed read", async () => 
   expect(container.querySelector<HTMLDetailsElement>(".session-details")?.open).toBe(false)
 })
 
+it("copies the loaded history-file path rather than the selected row's path", async () => {
+  const filePath = " /synthetic/loaded e\u0301/$&/history.jsonl "
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    session: { ...session, filePath },
+  })
+  await click("Open transcript")
+  await act(async () => container.querySelector<HTMLElement>(".session-details summary")!.click())
+  const reads = vi.mocked(readSessionTranscript).mock.calls.length
+  await click("Copy history file path")
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(filePath)
+  expect(readSessionTranscript).toHaveBeenCalledTimes(reads)
+  expect(openContentLink).not.toHaveBeenCalled()
+})
+
 it("does not carry expanded details to another history", async () => {
   await act(async () => container.querySelector<HTMLElement>(".session-details summary")!.click())
   const next = { ...session, id: "other-id", filePath: "/synthetic/other.jsonl" }
