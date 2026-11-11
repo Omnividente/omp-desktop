@@ -205,7 +205,7 @@ export const UI_TEXT = {
     startupWorkspaceChoose: "Выбрать другую папку",
     startupWorkspaceContinue: "Продолжить здесь",
     settingsRecovered:
-      "Повреждённый settings.json сохранён в {path}; применены настройки по умолчанию.",
+      "Повреждённый settings.json сохранён в {path}. Восстановлены доступные безопасные поля; для остальных использованы значения по умолчанию. Проверьте учётные данные и пути.",
     settingsRecoveryTitle: "Настройки недоступны",
     settingsRecoveryDescription:
       "OMP Desktop не продолжит работу с настройками по умолчанию, пока исходный файл не будет исправлен или сохранён в резервную копию.",
@@ -988,7 +988,7 @@ export const UI_TEXT = {
     startupWorkspaceChoose: "Choose another folder",
     startupWorkspaceContinue: "Continue here",
     settingsRecovered:
-      "The invalid settings.json was saved to {path}; default settings were applied.",
+      "The invalid settings.json was saved to {path}. Available safe fields were recovered; other settings used defaults. Check credentials and paths.",
     settingsRecoveryTitle: "Settings unavailable",
     settingsRecoveryDescription:
       "OMP Desktop will not continue with implicit defaults until the source file is fixed or preserved in a backup.",

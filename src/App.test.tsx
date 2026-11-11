@@ -383,6 +383,98 @@ describe("App lifecycle serialization", () => {
   }
 
   it.each(["en", "ru"] as const)(
+    "preserves literal recovery backup paths and explains partial recovery (%s)",
+    async (language) => {
+      const paths = ["ordinary", "$$", "$&", "$`", "$'", "{path}", "Проект 😀"]
+      for (const [index, name] of paths.entries()) {
+        const path = `C:/fixture/${name}/settings.invalid-1.json`
+        vi.mocked(api.bootstrap).mockResolvedValue({
+          ...bootstrap,
+          settings: {
+            ...bootstrap.settings,
+            language,
+            ompExecutable: "fixture-omp-custom",
+            settingsWarning: { code: "settings_recovered", message: "fallback", details: path },
+          },
+        })
+        if (index === 0) await act(async () => root.render(<App />))
+        else await act(async () => element(`[title="${t(language, "refresh")}"]`).click())
+        const notice = [
+          ...container.querySelectorAll<HTMLElement>(".notice-toast .toast-message"),
+        ].at(-1)!
+        const message = notice.title || notice.textContent
+        expect(message).toBe(t(language, "settingsRecovered").split("{path}").join(path))
+        expect(message).toContain(language === "en" ? "safe fields" : "безопасные поля")
+        expect(message).toContain(
+          language === "en" ? "Check credentials and paths" : "Проверьте учётные данные и пути",
+        )
+      }
+      const notices = () =>
+        [...container.querySelectorAll<HTMLElement>(".notice-toast .toast-message")].map(
+          (notice) => notice.title || notice.textContent,
+        )
+      const beforeRefresh = notices()
+      await act(async () => element(`[title="${t(language, "refresh")}"]`).click())
+      expect(notices()).toEqual(beforeRefresh)
+      await act(async () => element(".runtime-pill").click())
+      expect(element<HTMLInputElement>("#omp-executable").value).toBe("fixture-omp-custom")
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["en", "ru"] as const)(
+    "retains the full recovery notice for a long literal backup path (%s)",
+    async (language) => {
+      const path = `C:/fixture/$&/${"x".repeat(240)}/settings.invalid-1.json`
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: {
+          ...bootstrap.settings,
+          language,
+          settingsWarning: { code: "settings_recovered", message: "fallback", details: path },
+        },
+      })
+      await act(async () => root.render(<App />))
+      const notice = element<HTMLElement>(".notice-toast .toast-message")
+      expect(notice.title).toBe(t(language, "settingsRecovered").split("{path}").join(path))
+      expect(notice.textContent).toContain("…")
+    },
+  )
+
+  it.each(["en", "ru"] as const)(
+    "keeps recovery fallback paths and other settings warnings intact (%s)",
+    async (language) => {
+      const payload = {
+        ...bootstrap,
+        settings: {
+          ...bootstrap.settings,
+          language,
+          settingsWarning: { code: "settings_recovered", message: "fallback", details: null },
+        },
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue(payload)
+      await act(async () => root.render(<App />))
+      const first = element<HTMLElement>(".notice-toast .toast-message")
+      expect(first.title || first.textContent).toBe(
+        t(language, "settingsRecovered").split("{path}").join("settings.invalid.json"),
+      )
+      const message = "Unchanged settings warning $& {path}"
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...payload,
+        settings: {
+          ...payload.settings,
+          settingsWarning: { code: "settings_defaults_started", message, details: null },
+        },
+      })
+      await act(async () => element(`[title="${t(language, "refresh")}"]`).click())
+      const latest = [
+        ...container.querySelectorAll<HTMLElement>(".notice-toast .toast-message"),
+      ].at(-1)!
+      expect(latest.textContent).toBe(message)
+    },
+  )
+
+  it.each(["en", "ru"] as const)(
     "names the selected Home resume target after choosing an older session (%s)",
     async (language) => {
       const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
