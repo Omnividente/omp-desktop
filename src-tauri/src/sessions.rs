@@ -1740,14 +1740,17 @@ fn render_json_value(value: &Value) -> String {
 }
 
 pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
-    let root = codex_sessions_root();
+    list_codex_sessions_from_root(&codex_sessions_root()?)
+}
+
+fn list_codex_sessions_from_root(root: &Path) -> Result<Vec<CodexSessionSummary>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
 
     let mut files = Vec::new();
-    collect_jsonl_files(&root, 0, 8, &mut files, &mut Vec::new())?;
-    let thread_names = load_codex_thread_names();
+    collect_jsonl_files(root, 0, 8, &mut files, &mut Vec::new())?;
+    let thread_names = load_codex_thread_names_from_root(root);
     let sessions = files
         .into_iter()
         .filter_map(|path| {
@@ -3843,7 +3846,15 @@ fn load_codex_thread_names() -> HashMap<String, String> {
     if let Some(names) = TEST_CODEX_THREAD_NAMES.with(|names| names.borrow().clone()) {
         return names;
     }
-    let Some(index_path) = codex_sessions_root()
+    let Ok(root) = codex_sessions_root() else {
+        // An invalid explicit home must not read titles from a different profile.
+        return HashMap::new();
+    };
+    load_codex_thread_names_from_root(&root)
+}
+
+fn load_codex_thread_names_from_root(root: &Path) -> HashMap<String, String> {
+    let Some(index_path) = root
         .parent()
         .map(|directory| directory.join("session_index.jsonl"))
     else {
@@ -3897,11 +3908,31 @@ fn load_codex_thread_names_from_path(index_path: &Path) -> HashMap<String, Strin
     names
 }
 
-fn codex_sessions_root() -> PathBuf {
-    if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
-        return PathBuf::from(home).join(".codex").join("sessions");
+fn codex_sessions_root() -> Result<PathBuf, String> {
+    let codex_home = env::var("CODEX_HOME").ok();
+    let home = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
+    codex_sessions_root_from(codex_home.as_deref(), home.as_deref().map(Path::new))
+}
+
+fn codex_sessions_root_from(
+    codex_home: Option<&str>,
+    home: Option<&Path>,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = codex_home.filter(|value| !value.is_empty()) {
+        // Match Codex: explicit homes must exist, relative paths use the process cwd,
+        // and whitespace is part of the path. Never fall back to a different profile.
+        let root = Path::new(configured)
+            .canonicalize()
+            .map_err(|error| format!("Не удалось открыть каталог CODEX_HOME: {error}"))?;
+        if !root.is_dir() {
+            return Err("CODEX_HOME должен указывать на каталог".to_owned());
+        }
+        return Ok(root.join("sessions"));
     }
-    PathBuf::from(".codex").join("sessions")
+    Ok(home
+        .unwrap_or_else(|| Path::new(""))
+        .join(".codex")
+        .join("sessions"))
 }
 
 trait IfEmpty {
@@ -3979,6 +4010,134 @@ mod tests {
             previous, active, &mut pins
         ));
         assert_eq!(pins, BTreeSet::from([path_key(active)]));
+    }
+
+    struct CodexHomeFixture(std::path::PathBuf);
+
+    impl CodexHomeFixture {
+        fn new(base: &Path) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = base.join(format!("omp-codex-home-{}-{nonce}", std::process::id()));
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn write_session(&self, home: &Path, id: &str, title: &str) {
+            assert!(home.starts_with(&self.0));
+            let sessions = home.join("sessions").join("2026").join("11").join("11");
+            fs::create_dir_all(&sessions).unwrap();
+            let record = serde_json::json!({
+                "type": "session_meta",
+                "timestamp": "2026-11-11T09:00:00Z",
+                "payload": { "id": id, "cwd": "/synthetic/project" }
+            });
+            fs::write(sessions.join(format!("{id}.jsonl")), record.to_string()).unwrap();
+            let index = serde_json::json!({ "id": id, "thread_name": title });
+            fs::write(home.join("session_index.jsonl"), index.to_string()).unwrap();
+        }
+    }
+
+    impl Drop for CodexHomeFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn codex_home_absent_or_empty_preserves_default_root() {
+        let home = Path::new("synthetic-profile");
+        for override_value in [None, Some("")] {
+            assert_eq!(
+                super::codex_sessions_root_from(override_value, Some(home)).unwrap(),
+                home.join(".codex").join("sessions")
+            );
+            assert_eq!(
+                super::codex_sessions_root_from(override_value, None).unwrap(),
+                Path::new(".codex").join("sessions")
+            );
+        }
+    }
+
+    #[test]
+    fn codex_home_override_discovers_only_its_sessions_and_indexed_titles() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let profile = fixture.0.join("profile");
+        let custom = fixture.0.join("custom home 東京");
+        fixture.write_session(&profile.join(".codex"), "default-only", "Default profile title");
+        fixture.write_session(&custom, "custom-only", "Custom profile title");
+        let root = super::codex_sessions_root_from(custom.to_str(), Some(&profile)).unwrap();
+        assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
+        let sessions = super::list_codex_sessions_from_root(&root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "custom-only");
+        assert_eq!(sessions[0].title, "Custom profile title");
+        assert!(Path::new(&sessions[0].file_path).starts_with(&root));
+        let names = super::load_codex_thread_names_from_root(&root);
+        assert_eq!(names.get("custom-only").unwrap(), "Custom profile title");
+        assert!(!names.contains_key("default-only"));
+
+        let default_root = super::codex_sessions_root_from(None, Some(&profile)).unwrap();
+        let defaults = super::list_codex_sessions_from_root(&default_root).unwrap();
+        assert_eq!(defaults.len(), 1);
+        assert_eq!(defaults[0].id, "default-only");
+        assert_eq!(defaults[0].title, "Default profile title");
+    }
+
+    #[test]
+    fn codex_home_existing_empty_override_does_not_use_default_history() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let profile = fixture.0.join("profile");
+        fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
+        let custom = fixture.0.join("empty");
+        fs::create_dir(&custom).unwrap();
+        let root = super::codex_sessions_root_from(custom.to_str(), Some(&profile)).unwrap();
+        let sessions = super::list_codex_sessions_from_root(&root).unwrap();
+        assert!(sessions.is_empty());
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn codex_home_invalid_override_is_an_error_not_a_default_profile_scan() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let profile = fixture.0.join("profile");
+        fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
+        let missing = fixture.0.join("missing");
+        assert!(super::codex_sessions_root_from(missing.to_str(), Some(&profile)).is_err());
+        assert!(!missing.exists());
+        let file = fixture.0.join("not-a-directory");
+        fs::write(&file, "synthetic file").unwrap();
+        assert!(super::codex_sessions_root_from(file.to_str(), Some(&profile)).is_err());
+        assert_eq!(fs::read_to_string(file).unwrap(), "synthetic file");
+    }
+
+    #[test]
+    fn codex_home_relative_path_uses_process_directory() {
+        let fixture = CodexHomeFixture::new(Path::new("target"));
+        assert!(fixture.0.is_relative());
+        let root = super::codex_sessions_root_from(fixture.0.to_str(), None).unwrap();
+        assert_eq!(root, fixture.0.canonicalize().unwrap().join("sessions"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_home_preserves_literal_edge_spaces_and_resolves_symlinks() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let custom = fixture.0.join(" custom home ");
+        fs::create_dir(&custom).unwrap();
+        let expected = custom.canonicalize().unwrap().join("sessions");
+        assert_eq!(
+            super::codex_sessions_root_from(custom.to_str(), None).unwrap(),
+            expected
+        );
+        let link = fixture.0.join("linked-home");
+        std::os::unix::fs::symlink(&custom, &link).unwrap();
+        assert_eq!(
+            super::codex_sessions_root_from(link.to_str(), None).unwrap(),
+            expected
+        );
     }
 
     #[test]
