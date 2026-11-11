@@ -1420,9 +1420,9 @@ it("preserves reader actions after an offscreen Markdown failure", async () => {
   expect(container.querySelector('[data-virtual-index="120"]')).toBeNull()
   await searchFor("UNIQUE_FALLBACK_NEEDLE")
   expect(currentOccurrence()?.textContent).toBe("UNIQUE_FALLBACK_NEEDLE")
-  expect(
-    container.querySelector('[data-virtual-index="120"] .markdown-source')?.textContent,
-  ).toBe(source)
+  expect(container.querySelector('[data-virtual-index="120"] .markdown-source')?.textContent).toBe(
+    source,
+  )
   const failedEntry = container.querySelector<HTMLElement>('[data-virtual-index="120"]')!
   const copyText = failedEntry.querySelector<HTMLButtonElement>('[aria-label="Copy text"]')!
   const copyMarkdown = failedEntry.querySelector<HTMLButtonElement>('[aria-label="Copy Markdown"]')!
@@ -1431,9 +1431,9 @@ it("preserves reader actions after an offscreen Markdown failure", async () => {
   await act(async () => copyMarkdown.click())
   expect(writeText).toHaveBeenLastCalledWith(source)
   await click("Source")
-  expect(
-    container.querySelector('[data-virtual-index="120"] .markdown-source')?.textContent,
-  ).toBe(source)
+  expect(container.querySelector('[data-virtual-index="120"] .markdown-source')?.textContent).toBe(
+    source,
+  )
   await click("Formatted")
   expect(currentOccurrence()?.textContent).toBe("UNIQUE_FALLBACK_NEEDLE")
   await click("Close")
