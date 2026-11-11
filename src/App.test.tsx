@@ -23,6 +23,7 @@ import type {
   PtySessionEvent,
   TerminalStarted,
   TerminalTab,
+  SessionTranscript,
 } from "./types"
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
@@ -3059,6 +3060,134 @@ describe("App lifecycle serialization", () => {
       expect(api.startTerminal).not.toHaveBeenCalled()
     },
   )
+
+  it.each([
+    ["file warning", bootstrap.sessions[0].filePath, true],
+    ["file warning", bootstrap.sessions[0].filePath, false],
+    ["directory warning", "C:/fixture/sessions", true],
+    ["directory warning", "C:/fixture/sessions", false],
+    ["unrelated warning", "C:/fixture/other.jsonl", true],
+    ["unrelated warning", "C:/fixture/other.jsonl", false],
+  ] as const)(
+    "retains a loaded reader through %s (%s, restored=%s)",
+    async (_label, warningPath, restored) => {
+      const history: SessionTranscript = {
+        session: bootstrap.sessions[0],
+        entries: [
+          {
+            id: "synthetic-entry",
+            timestamp: "2026-11-11T00:00:00Z",
+            role: "user",
+            text: "Kept synthetic dialogue",
+            dialogueText: "Kept synthetic dialogue",
+            category: "dialogue",
+          },
+        ],
+        updatedAt: 1,
+        truncated: false,
+        malformedRecords: 0,
+        incompleteLastRecord: false,
+      }
+      const partial = {
+        ...bootstrap,
+        sessions: [],
+        sessionWarnings: [{ path: warningPath, message: "Synthetic scan failure" }],
+      }
+      vi.mocked(api.bootstrap).mockResolvedValueOnce(bootstrap).mockResolvedValue(partial)
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "read_session_transcript") return Promise.resolve(history)
+        throw new Error(`Unexpected transcript fixture command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".session-transcript").click())
+      const panel = element(".transcript-panel")
+      const search = element<HTMLInputElement>(".transcript-search-field input")
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          "Kept",
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      const subscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "single-instance")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+      const refresh = async () => {
+        await act(async () => {
+          receive({ event: "single-instance", id: 2, payload: { workspace: null, error: null } })
+        })
+      }
+      // Repeated incomplete snapshots must not forget the reader's known identity.
+      for (let index = 0; index < 2; index += 1) {
+        await refresh()
+        expect(element(".transcript-panel")).toBe(panel)
+        expect(panel.textContent).toContain("Kept synthetic dialogue")
+        expect(search.value).toBe("Kept")
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        sessions: restored ? bootstrap.sessions : [],
+      })
+      await refresh()
+      if (restored) {
+        expect(element(".transcript-panel")).toBe(panel)
+        expect(search.value).toBe("Kept")
+      } else {
+        expect(container.querySelector(".transcript-panel")).toBeNull()
+      }
+      expect(
+        invokeMock.mock.calls.filter(([command]) => command === "read_session_transcript"),
+      ).toHaveLength(1)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it("preserves a pending history read through a partial scan", async () => {
+    const history = deferred<SessionTranscript>()
+    vi.mocked(api.bootstrap)
+      .mockResolvedValueOnce(bootstrap)
+      .mockResolvedValue({
+        ...bootstrap,
+        sessions: [],
+        sessionWarnings: [
+          { path: bootstrap.sessions[0].filePath, message: "Synthetic locked file" },
+        ],
+      })
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "read_session_transcript") return history.promise
+      throw new Error(`Unexpected transcript fixture command: ${command}`)
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element(".session-transcript").click())
+    const panel = element(".transcript-panel")
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+    await act(async () => {
+      receive({ event: "single-instance", id: 2, payload: { workspace: null, error: null } })
+    })
+    expect(element(".transcript-panel")).toBe(panel)
+    await act(async () => {
+      history.resolve({
+        session: bootstrap.sessions[0],
+        entries: [],
+        updatedAt: 1,
+        truncated: false,
+        malformedRecords: 0,
+        incompleteLastRecord: false,
+      })
+    })
+    expect(element(".transcript-panel")).toBe(panel)
+    expect(container.querySelector(".session-details")).not.toBeNull()
+    // Explicit dismissal remains available while the scan is incomplete.
+    await act(async () => {
+      panel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    })
+    expect(container.querySelector(".transcript-panel")).toBeNull()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
 
   it("closes a transcript when external refresh removes its session", async () => {
     vi.mocked(api.bootstrap)
