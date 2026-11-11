@@ -223,7 +223,8 @@ async function notifyTerminalCompletion(
     const title = t(lang, event.success ? "notificationSuccessTitle" : "notificationFailureTitle")
     const template = t(lang, event.success ? "notificationSuccessBody" : "notificationFailureBody")
     const body = template.replace(/\{title\}|\{code\}/g, (placeholder) => {
-      return placeholder === "{title}" ? tab.label : event.error || String(event.exitCode ?? "?")
+      if (placeholder === "{title}") return tab.label
+      return event.error || String(event.exitCode ?? "?")
     })
     sendNotification({ title, body })
   } catch {
