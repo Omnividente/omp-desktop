@@ -1592,7 +1592,7 @@ const ROLE_TEXT: Record<string, { label: UiKey; description: UiKey }> = {
 }
 
 export function roleLabel(lang: Lang | string | null | undefined, role: string): string {
-  return ROLE_TEXT[role] ? t(lang, ROLE_TEXT[role].label) : role
+  return Object.hasOwn(ROLE_TEXT, role) ? t(lang, ROLE_TEXT[role].label) : role
 }
 
 export function roleDescription(lang: Lang | string | null | undefined, role: string): string {

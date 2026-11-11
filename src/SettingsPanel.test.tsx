@@ -4,6 +4,7 @@ import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
+import { roleLabel, t } from "./i18n"
 import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSavePayload } from "./types"
 import type * as Api from "./api"
 
@@ -1038,6 +1039,71 @@ describe("SettingsPanel configuration generations", () => {
     expect(container.querySelector(".model-picker-option")?.textContent).toContain("Cached model")
     expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
+
+  it.each(["ru", "en"] as const)("keeps literal custom role labels in %s", (language) => {
+    for (const name of ["__proto__", "constructor", "toString", "hasOwnProperty", "custom-role"])
+      expect(roleLabel(language, name)).toBe(name)
+    expect(roleLabel(language, "default")).toBe(t(language, "roleDefault"))
+  })
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty", "custom-role"])(
+    "loads, edits and saves the literal role %s without inherited draft values",
+    async (name) => {
+      const role = { ...pendingConfig.roles[0], role: name }
+      const snapshot = { ...ompConfig, roles: [role] }
+      loadOmpConfigMock.mockResolvedValueOnce(snapshot)
+      saveSettingsBundleMock.mockResolvedValue(
+        saveResult({ ...snapshot, roles: [{ ...role, selector: savedRole }] }),
+      )
+      await renderPanel()
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>(`[data-role="${name}"]`)!
+      expect(row.querySelector(".role-head strong")!.textContent).toBe(name)
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain(role.selector)
+      act(() => row.querySelector<HTMLButtonElement>(".model-picker-trigger")!.click())
+      changeField(`[data-role="${name}"] .model-picker-manual input`, savedRole)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.roles).toEqual({
+        [name]: savedRole,
+      })
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain(savedRole)
+      expect(save.disabled).toBe(true)
+      expect(onError).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty", "custom-role"])(
+    "refreshes a new literal role %s without making Settings dirty or losing a later draft",
+    async (name) => {
+      await renderPanel(runtime, settings, false, pendingConfig)
+      const freshRole = { ...pendingConfig.roles[0], role: name, selector: "synthetic/fresh" }
+      const refreshed = { ...pendingConfig, roles: [...pendingConfig.roles, freshRole] }
+      refreshOmpConfigMock.mockResolvedValueOnce(refreshed)
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>(".runtime-card button")!.click(),
+      )
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>(`[data-role="${name}"]`)!
+      expect(row.querySelector(".role-head strong")!.textContent).toBe(name)
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain("synthetic/fresh")
+      changeModelDraft()
+      saveSettingsBundleMock.mockResolvedValue(
+        saveResult({ ...refreshed, roles: [committedConfig.roles[0], freshRole] }),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.roles).toEqual({
+        default: savedRole,
+      })
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain("synthetic/fresh")
+      expect(save.disabled).toBe(true)
+      expect(onError).not.toHaveBeenCalled()
+    },
+  )
 
   it("makes a discovered model selectable without replacing drafts edited during refresh", async () => {
     const oldModel = {

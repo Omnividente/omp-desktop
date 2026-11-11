@@ -497,9 +497,9 @@ export function SettingsPanel({
       : undefined
     setOmpConfig(snapshot)
     setOperationDrafts({})
-    const drafts: Record<string, string> = {}
-    for (const role of snapshot?.roles ?? []) drafts[role.role] = role.selector
-    setRoleDrafts(drafts)
+    setRoleDrafts(
+      Object.fromEntries(snapshot?.roles.map((role) => [role.role, role.selector]) ?? []),
+    )
     setAgentDrafts({})
     setOpenRole(null)
     // A save advances the baseline, but controls that remain editable may have newer drafts.
@@ -944,7 +944,7 @@ export function SettingsPanel({
     let ompConfigChanged = false
     if (runtime.ompAvailable && ompConfig) {
       const rolesChanged = ompConfig.roles.some(
-        (role) => (roleDrafts[role.role] ?? role.selector) !== role.selector,
+        (role) => Object.hasOwn(roleDrafts, role.role) && roleDrafts[role.role] !== role.selector,
       )
       let fallbackChainsChanged = false
       try {
@@ -1253,7 +1253,7 @@ export function SettingsPanel({
         onOpenChange={(open) => setOpenRole(open ? role.role : null)}
         open={openRole === role.role}
         role={role.role}
-        value={roleDrafts[role.role] ?? role.selector}
+        value={Object.hasOwn(roleDrafts, role.role) ? roleDrafts[role.role] : role.selector}
       />
       <p className={`role-health is-${role.status}`}>{statusDescription(language, role.status)}</p>
     </article>
