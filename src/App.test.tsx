@@ -423,6 +423,83 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each(["same", "different"] as const)(
+    "does not select another project's %s-id session when focusing a terminal tab",
+    async (identity) => {
+      const projects = workspacePayload("A", "B")
+      const sessionA = projects.sessions[0]
+      const olderB = {
+        ...projects.sessions[1],
+        id: identity === "same" ? sessionA.id : "different-b",
+        title: "B older imported session",
+        updatedAt: 1,
+      }
+      const latestB = {
+        ...olderB,
+        id: "latest-b",
+        title: "B latest session",
+        filePath: "C:/fixture/sessions/B-latest.jsonl",
+        updatedAt: 2,
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...projects,
+        sessions: [sessionA, latestB, olderB],
+      })
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce({ ...started, cwd: sessionA.cwd })
+        .mockResolvedValueOnce({ ...started, terminalId: "terminal-b", cwd: latestB.cwd })
+      await mountAndResume()
+      await act(async () => element('.project-item[aria-label^="B,"]').click())
+      await act(async () => element(".terminal-tab > button").click())
+      expect(element(".project-item.is-active").textContent).toContain("B")
+      expect(container.querySelector('.session-select[aria-pressed="true"]')).toBeNull()
+      expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-active")).toBe("true")
+      await act(async () => element(".workspace-overview-button").click())
+      expect(element(".hero-actions .secondary").textContent).toBe("Продолжить последнюю")
+      await act(async () => element(".hero-actions .secondary").click())
+      expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      expect(api.startTerminal).toHaveBeenLastCalledWith(
+        latestB.cwd,
+        latestB.filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+    },
+  )
+
+  it("keeps same-project tab selection through refresh and project round trips", async () => {
+    const projects = workspacePayload("A", "B")
+    const sessionA = projects.sessions[0]
+    const sessionB = { ...projects.sessions[1], id: sessionA.id }
+    const payload = { ...projects, sessions: [sessionA, sessionB] }
+    vi.mocked(api.bootstrap).mockResolvedValue(payload)
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: sessionA.cwd })
+    await mountAndResume()
+    await act(async () => element(".terminal-tab > button").click())
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      sessionA.title,
+    )
+    const updatedA = { ...sessionA, title: "A refreshed session" }
+    vi.mocked(api.bootstrap).mockResolvedValueOnce({
+      ...payload,
+      sessions: [updatedA, sessionB],
+    })
+    await act(async () => element(`[title="${t("ru", "refresh")}"]`).click())
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      updatedA.title,
+    )
+    await act(async () => element('.project-item[aria-label^="B,"]').click())
+    expect(container.querySelector('.session-select[aria-pressed="true"]')).toBeNull()
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    await act(async () => element('.project-item[aria-label^="A,"]').click())
+    await act(async () => element(".terminal-tab > button").click())
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      updatedA.title,
+    )
+  })
+
   it("opens the selected project overview without closing its running terminal", async () => {
     await mountAndResume()
     const pane = element(".terminal-pane")

@@ -255,7 +255,7 @@ function App() {
   } | null>(null)
   const [workspaceSaveBusy, setWorkspaceSaveBusy] = useState(false)
   const workspaceSaveRetryPendingRef = useRef(false)
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const [selectedSessionPath, setSelectedSessionPath] = useState<string | null>(null)
   const sessionSelectionRequestRef = useRef(0)
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
@@ -724,8 +724,8 @@ function App() {
         }
         return next.workspaces[0]?.key ?? null
       })
-      setSelectedSessionId((current) =>
-        current && next.sessions.some((session) => session.id === current) ? current : null,
+      setSelectedSessionPath((current) =>
+        current && next.sessions.some((session) => session.filePath === current) ? current : null,
       )
     },
     [acceptStartupWorkspaceWarning, showNotice],
@@ -981,7 +981,7 @@ function App() {
           acceptStartupWorkspaceWarning(null)
           applyPayload(next, selectRequested ? requested : undefined)
           if (selectRequested) {
-            setSelectedSessionId(null)
+            setSelectedSessionPath(null)
             setSearch("")
           }
           return
@@ -1068,7 +1068,7 @@ function App() {
       )
 
       const sessionSelectionRequest = ++sessionSelectionRequestRef.current
-      setSelectedSessionId(session.id)
+      setSelectedSessionPath(session.filePath)
       setSearch("")
       setTabs((current) =>
         current.map((tab) =>
@@ -1102,7 +1102,7 @@ function App() {
             sessionSelectionRequest === sessionSelectionRequestRef.current &&
             workspaceSelectionRequest === workspaceSelectionRequestRef.current
           ) {
-            setSelectedSessionId(session.id)
+            setSelectedSessionPath(session.filePath)
           }
         })
         .catch((error) => {
@@ -1396,7 +1396,7 @@ function App() {
   }, [lang, search, workspaceSessions])
 
   const selectedSession =
-    workspaceSessions.find((session) => session.id === selectedSessionId) ?? null
+    workspaceSessions.find((session) => session.filePath === selectedSessionPath) ?? null
 
   const runtimeStatusByTerminal = useMemo<Record<string, RuntimeHealthStatus>>(
     () =>
@@ -1416,8 +1416,8 @@ function App() {
       if (!target) return
       ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
-      if (target.sessionId) {
-        setSelectedSessionId(target.sessionId)
+      if (target.sessionPath) {
+        setSelectedSessionPath(target.sessionPath)
       }
     },
     [tabs],
@@ -1457,7 +1457,7 @@ function App() {
   const selectSession = useCallback(
     (session: SessionSummary) => {
       ++sessionSelectionRequestRef.current
-      setSelectedSessionId(session.id)
+      setSelectedSessionPath(session.filePath)
       setSearch("")
       const platform = payload?.runtime.platform ?? "windows"
       const target =
@@ -1491,7 +1491,7 @@ function App() {
       acceptStartupWorkspaceWarning(null)
       applyPayload(next, selectRequested ? selected : undefined)
       if (selectRequested) {
-        setSelectedSessionId(null)
+        setSelectedSessionPath(null)
         setSearch("")
       }
     } catch (error) {
@@ -2643,7 +2643,7 @@ function App() {
           onSelectWorkspace={(key) => {
             ++workspaceSelectionRequestRef.current
             setSelectedWorkspaceKey(key)
-            setSelectedSessionId(null)
+            setSelectedSessionPath(null)
             setSearch("")
           }}
           selectedWorkspace={selectedWorkspace}
@@ -2697,7 +2697,7 @@ function App() {
             renameValue,
             renamingSessionId,
             search,
-            selectedSessionId,
+            selectedSessionId: selectedSession?.id ?? null,
             selectedWorkspaceName: selectedWorkspace?.name ?? null,
             selectedWorkspacePath: selectedWorkspace?.path ?? null,
             tabs,
@@ -2879,7 +2879,7 @@ function App() {
               sessionSelectionRequestRef.current === copySession.sessionRequest
             applyPayload(result.bootstrap, selectCopy ? imported.cwd : undefined)
             if (selectCopy) {
-              setSelectedSessionId(imported.id)
+              setSelectedSessionPath(imported.filePath)
               setSearch("")
             }
           }}
