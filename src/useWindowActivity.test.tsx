@@ -109,9 +109,10 @@ it("sends every thinking boundary including exit and the last tab closing", asyn
   ])
 })
 
-it("does not count error or fallback activity as thinking", async () => {
-  await render([tab("a", "error"), tab("b", "fallback")], "a")
-  await render([tab("b", "fallback"), tab("a", "error")], "b")
+it("does not count error or fallback model metadata as thinking", async () => {
+  const fallback = { ...tab("b"), currentModel: "synthetic/fallback" }
+  await render([tab("a", "error"), fallback], "a")
+  await render([fallback, tab("a", "error")], "b")
   expect(document.title).toBe("Synthetic b — OMP Desktop")
   expect(statuses()).toEqual([ProgressBarStatus.None])
 })
@@ -180,4 +181,25 @@ it("retries a rejected thinking status on a later same-state update", async () =
   expect(statuses()).toEqual([ProgressBarStatus.Indeterminate, ProgressBarStatus.Indeterminate])
   await render([tab("a", "thinking")], "a")
   expect(setProgressBar).toHaveBeenCalledTimes(2)
+})
+
+it("retains the newest marker when an older request for the same status fails", async () => {
+  let rejectFirst!: (reason: Error) => void
+  setProgressBar.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        rejectFirst = reject
+      }),
+  )
+  await render([tab("a", "thinking")], "a")
+  await render([tab("a")], "a")
+  await render([tab("a", "thinking")], "a")
+  await act(async () => rejectFirst(new Error("Synthetic older thinking failure")))
+  await render([{ ...tab("a", "thinking"), label: "Still thinking" }], "a")
+  expect(statuses()).toEqual([
+    ProgressBarStatus.Indeterminate,
+    ProgressBarStatus.None,
+    ProgressBarStatus.Indeterminate,
+  ])
+  expect(document.title).toBe("[Thinking...] Still thinking — OMP Desktop")
 })
