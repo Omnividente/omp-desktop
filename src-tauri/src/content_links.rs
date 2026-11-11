@@ -307,18 +307,28 @@ fn opens_as_document(path: &Path) -> Result<bool, String> {
     ) {
         return Ok(false);
     }
-    let mut file = fs::File::open(path).map_err(|_| "Не удалось проверить тип файла ссылки")?;
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // The path may have become a FIFO after the caller's regular-file check.
+        // Nonblocking open lets us reject its actual descriptor before reading.
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|_| "Не удалось проверить тип файла ссылки")?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| "Не удалось проверить тип файла ссылки")?;
+    if !metadata.is_file() {
+        return Err("Ссылка больше не указывает на обычный файл".to_owned());
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if file
-            .metadata()
-            .map_err(|_| "Не удалось проверить права файла")?
-            .permissions()
-            .mode()
-            & 0o111
-            != 0
-        {
+        if metadata.permissions().mode() & 0o111 != 0 {
             return Ok(false);
         }
     }
@@ -810,6 +820,95 @@ mod tests {
         let expected = canonical(&document).unwrap();
         fs::remove_dir_all(&root).unwrap();
         assert_eq!(result.unwrap(), ContentTarget::Open(expected));
+    }
+
+    #[cfg(target_os = "linux")]
+    fn replace_document_with_fifo(path: &Path) {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+
+        assert!(path.is_file());
+        fs::remove_file(path).unwrap();
+        let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: path is a valid NUL-terminated name in this test's owned directory.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn document_probe_rejects_replaced_fifo_without_a_writer() {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let fixture = Fixture::new();
+        let path = fixture.project.join("report.md");
+        fs::write(&path, "synthetic report").unwrap();
+        replace_document_with_fifo(&path);
+        let (sender, receiver) = mpsc::channel();
+        let checked_path = path.clone();
+        let worker = std::thread::spawn(move || {
+            sender.send(opens_as_document(&checked_path)).unwrap();
+        });
+        // Watchdog for a blocking open, not a filesystem performance assertion.
+        let result = receiver.recv_timeout(Duration::from_secs(5));
+        if result.is_err() {
+            // Release a regressed blocking reader before reporting the failure.
+            let mut writer = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&path)
+                .unwrap();
+            writer.write_all(b"safe").unwrap();
+            worker.join().unwrap();
+        } else {
+            worker.join().unwrap();
+        }
+        assert!(result.expect("document probe waited for a FIFO writer").is_err());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn document_probe_rejects_replaced_fifo_even_with_document_bytes() {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let fixture = Fixture::new();
+        let path = fixture.project.join("report.md");
+        fs::write(&path, "synthetic report").unwrap();
+        replace_document_with_fifo(&path);
+        let mut writer = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&path)
+            .unwrap();
+        writer.write_all(b"safe").unwrap();
+        assert!(opens_as_document(&path).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn document_probe_preserves_regular_file_and_symlink_policy() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let fixture = Fixture::new();
+        let path = fixture.project.join("report.md");
+        let link = fixture.project.join("alias.md");
+        fs::write(&path, "synthetic report").unwrap();
+        symlink(&path, &link).unwrap();
+        assert!(opens_as_document(&path).unwrap());
+        assert!(opens_as_document(&link).unwrap());
+        fs::write(&path, "").unwrap();
+        assert!(opens_as_document(&path).unwrap());
+        fs::write(&path, "#!synthetic").unwrap();
+        assert!(!opens_as_document(&path).unwrap());
+        fs::write(&path, "synthetic report").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(!opens_as_document(&path).unwrap());
+        assert!(!opens_as_document(&link).unwrap());
     }
 
     #[cfg(unix)]
