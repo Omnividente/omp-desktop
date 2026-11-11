@@ -466,6 +466,10 @@ export const UI_TEXT = {
     primaryProviderPinOff: "ВЫКЛ",
     primaryProviderPinBusy: "Дождитесь завершения текущего запроса.",
     primaryProviderPinNotReady: "Сессия ещё не готова к перезапуску.",
+    primaryProviderPinQueuedInput:
+      "Запрос на перечитывание ещё ожидает отправки. Измените фиксацию провайдера после отправки запроса.",
+    transcriptRereadRestartPending:
+      "Сессия перезапускается. Дождитесь завершения перезапуска и повторите перечитывание.",
     thinkingUnavailable: "Не поддерживается",
     switchingSession: "Переключаем…",
     switchRecoveryTitle: "Сохранённый ввод",
@@ -1246,6 +1250,10 @@ export const UI_TEXT = {
     primaryProviderPinOff: "OFF",
     primaryProviderPinBusy: "Wait for the current request to finish.",
     primaryProviderPinNotReady: "The session is not ready to restart yet.",
+    primaryProviderPinQueuedInput:
+      "The reread request is still waiting to be sent. Change the provider pin after the request is sent.",
+    transcriptRereadRestartPending:
+      "The session is restarting. Wait for the restart to finish, then try rereading again.",
     thinkingUnavailable: "Not supported",
     switchingSession: "Switching…",
     switchRecoveryTitle: "Preserved input",

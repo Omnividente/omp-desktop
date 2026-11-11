@@ -27,6 +27,7 @@ import type {
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
+const terminalReadyCallbacks = vi.hoisted(() => new Map<string, (id: string) => void>())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
@@ -74,17 +75,22 @@ vi.mock("./TerminalView", () => ({
     tab,
     active,
     focusRequestSequence,
+    onReady,
   }: {
     tab: TerminalTab
     active: boolean
     focusRequestSequence: number
-  }) => (
-    <div
-      data-terminal-id={tab.id}
-      data-active={active}
-      data-focus-sequence={focusRequestSequence}
-    />
-  ),
+    onReady: (id: string) => void
+  }) => {
+    terminalReadyCallbacks.set(tab.id, onReady)
+    return (
+      <div
+        data-terminal-id={tab.id}
+        data-active={active}
+        data-focus-sequence={focusRequestSequence}
+      />
+    )
+  },
 }))
 
 ;(
@@ -943,6 +949,7 @@ describe("App lifecycle serialization", () => {
   beforeEach(() => {
     previousDocumentLanguage = document.documentElement.getAttribute("lang")
     vi.clearAllMocks()
+    terminalReadyCallbacks.clear()
     invokeMock.mockReset()
     vi.mocked(open).mockReset()
     localStorage.clear()
@@ -3367,6 +3374,120 @@ describe("App lifecycle serialization", () => {
       expect(installClientUpdate).not.toHaveBeenCalled()
     },
   )
+
+  function allowSyntheticTranscript(session = bootstrap.sessions[0]) {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "read_session_transcript") {
+        return Promise.resolve({
+          session,
+          entries: [],
+          updatedAt: 1,
+          truncated: false,
+          malformedRecords: 0,
+          incompleteLastRecord: false,
+        })
+      }
+      return Promise.resolve(undefined)
+    })
+  }
+
+  function initialInputWrites() {
+    return invokeMock.mock.calls.filter(([command]) => command === "write_terminal")
+  }
+
+  it.each([
+    ["ru", false],
+    ["ru", true],
+    ["en", false],
+    ["en", true],
+  ] as const)(
+    "keeps queued reread input when provider pin is clicked before ready (%s, pinned=%s)",
+    async (language, pinned) => {
+      const session = { ...bootstrap.sessions[0], primaryProviderPinned: pinned }
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        sessions: [session],
+      })
+      allowSyntheticTranscript(session)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".session-transcript").click())
+      await act(async () => element(".transcript-reread-button").click())
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(initialInputWrites()).toHaveLength(0)
+      const pin = element<HTMLButtonElement>(".primary-provider-pin")
+      await act(async () => {
+        pin.click()
+        pin.click()
+      })
+      expect(api.setTerminalPrimaryProviderPin).not.toHaveBeenCalled()
+      expect(pin.getAttribute("aria-checked")).toBe(String(pinned))
+      expect(pin.getAttribute("aria-busy")).toBe("false")
+      expect(container.textContent).toContain(t(language, "primaryProviderPinQueuedInput"))
+
+      await act(async () => terminalReadyCallbacks.get(started.terminalId)!(started.terminalId))
+      await act(async () => terminalReadyCallbacks.get(started.terminalId)!(started.terminalId))
+      expect(initialInputWrites()).toHaveLength(1)
+      expect(initialInputWrites()[0][1]).toEqual({
+        terminalId: started.terminalId,
+        data: `${t(language, "transcriptRereadPrompt").replace("{path}", session.filePath)}\r`,
+      })
+      await act(async () => pin.click())
+      expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledExactlyOnceWith(
+        started.terminalId,
+        !pinned,
+      )
+      await act(async () => terminalReadyCallbacks.get("terminal-2")!("terminal-2"))
+      expect(initialInputWrites()).toHaveLength(1)
+    },
+  )
+
+  it.each(["ru", "en"] as const)(
+    "keeps history open when reread is requested during provider restart (%s)",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+      })
+      allowSyntheticTranscript()
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValue(restart.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(`[title="${t(language, "resumeSession")}"]`).click())
+      await act(async () => element(".primary-provider-pin").click())
+      expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledTimes(1)
+      await act(async () => element(".session-transcript").click())
+      await act(async () => {
+        element(".transcript-reread-button").click()
+        element(".transcript-reread-button").click()
+      })
+      expect(container.querySelector(".transcript-panel")).not.toBeNull()
+      expect(container.textContent).toContain(t(language, "transcriptRereadRestartPending"))
+      expect(initialInputWrites()).toHaveLength(0)
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      await act(async () =>
+        restart.resolve({ ...started, terminalId: "terminal-2", processId: 102 }),
+      )
+      await act(async () => element(".transcript-reread-button").click())
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      await act(async () => terminalReadyCallbacks.get("terminal-2")!("terminal-2"))
+      expect(initialInputWrites()).toHaveLength(1)
+      expect(initialInputWrites()[0][1].terminalId).toBe("terminal-2")
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it("does not replay initial input after a rejected write", async () => {
+    allowSyntheticTranscript()
+    await act(async () => root.render(<App />))
+    await act(async () => element(".session-transcript").click())
+    await act(async () => element(".transcript-reread-button").click())
+    invokeMock.mockRejectedValueOnce(new Error("Synthetic write outcome unknown"))
+    await act(async () => terminalReadyCallbacks.get(started.terminalId)!(started.terminalId))
+    await act(async () => terminalReadyCallbacks.get(started.terminalId)!(started.terminalId))
+    expect(initialInputWrites()).toHaveLength(1)
+    expect(container.textContent).toContain("Synthetic write outcome unknown")
+  })
 
   it.each([false, true])(
     "retains provider-pin focus across a replacement terminal without reclaiming external focus (%s)",
