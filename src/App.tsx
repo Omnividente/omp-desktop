@@ -1082,9 +1082,7 @@ function App() {
             pending.superseded &&
             (pending.terminalId === null || pending.terminalId === event.terminalId),
         )
-      const sessionSelectionRequest = supersededLaunch
-        ? null
-        : ++sessionSelectionRequestRef.current
+      const sessionSelectionRequest = supersededLaunch ? null : ++sessionSelectionRequestRef.current
       if (sessionSelectionRequest !== null) {
         setSelectedSessionId(session.id)
         setSearch("")

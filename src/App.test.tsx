@@ -523,9 +523,8 @@ describe("App lifecycle serialization", () => {
       vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
       await act(async () => element(".new-tab-button").click())
       const tabSelector = ".terminal-tab > button:first-child"
-      const chosenTab = container.querySelectorAll<HTMLButtonElement>(tabSelector)[
-        choice === "current" ? 1 : 0
-      ]
+      const tabButtons = container.querySelectorAll<HTMLButtonElement>(tabSelector)
+      const chosenTab = tabButtons[choice === "current" ? 1 : 0]
       await act(async () => chosenTab.click())
       const chosenSession = choice === "current" ? secondSession : projects.sessions[0]
       const search = element<HTMLInputElement>(".project-sessions .search-box input")
