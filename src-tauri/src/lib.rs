@@ -29,10 +29,10 @@ use models::{
 };
 use sessions::{build_bootstrap, path_key};
 use settings::{
-    normalize_app_font_family, normalize_app_font_size, normalize_optional, normalize_optional_path,
-    normalize_terminal_font_family, normalize_terminal_font_size, save_settings, settings_snapshot,
-    start_with_defaults_prepared, update_provider_secrets, with_settings_transaction,
-    SettingsState, SettingsTransaction,
+    normalize_app_font_family, normalize_app_font_size, normalize_optional,
+    normalize_optional_path, normalize_terminal_font_family, normalize_terminal_font_size,
+    save_settings, settings_snapshot, start_with_defaults_prepared, update_provider_secrets,
+    with_settings_transaction, SettingsState, SettingsTransaction,
 };
 use startup_workspace::{Resolution, StartupWorkspaceIntent};
 use std::path::{Path, PathBuf};

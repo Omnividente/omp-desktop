@@ -1380,7 +1380,11 @@ mod tests {
     fn configured_resolution_cache_distinguishes_literal_path_variants() {
         let cache = std::sync::Mutex::new(OmpResolutionCache::default());
         let calls = Cell::new(0);
-        for literal in ["/synthetic/omp", "/synthetic/omp ", "/synthetic/omp\u{00a0}"] {
+        for literal in [
+            "/synthetic/omp",
+            "/synthetic/omp ",
+            "/synthetic/omp\u{00a0}",
+        ] {
             let key = OmpResolutionKey {
                 configured: super::configured_path(Some(literal)).map(str::to_owned),
                 ..OmpResolutionKey::default()
