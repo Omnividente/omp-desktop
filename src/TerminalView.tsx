@@ -434,6 +434,9 @@ export function TerminalView({
     const syncScrollPosition = () => {
       const bottom = atBottom()
       setScrolledUp(!bottom)
+      // Alternate screens have no scrollback. Their bottom is not evidence that
+      // the user resumed following output in the preserved normal buffer.
+      if (terminal.buffer.active.type === "alternate") return
       if (bottom) {
         if (!userScrolledDuringWrite) followingOutput = true
         restoringBottom = false
