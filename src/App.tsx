@@ -135,6 +135,10 @@ type PendingUpdateRestart = {
   updateTerminalId: string
   sourceTab: TerminalTab | null
 }
+type PendingLaunchDiscovery = {
+  terminalId: string | null
+  superseded: boolean
+}
 type PendingRuntimeEvent = {
   event: PtyRuntimeEvent
   receivedAt: number
@@ -257,9 +261,7 @@ function App() {
   const workspaceSaveRetryPendingRef = useRef(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const sessionSelectionRequestRef = useRef(0)
-  const pendingLaunchDiscoveriesRef = useRef(
-    new Set<{ terminalId: string | null; superseded: boolean }>(),
-  )
+  const pendingLaunchDiscoveriesRef = useRef(new Map<symbol, PendingLaunchDiscovery>())
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
@@ -270,9 +272,9 @@ function App() {
     if (unpublished.size === 0) return
     // A spawned process remains guarded until its tab reaches the committed tree.
     for (const tab of tabs) unpublished.delete(tab.id)
-    for (const pending of pendingLaunchDiscoveriesRef.current) {
+    for (const [key, pending] of pendingLaunchDiscoveriesRef.current) {
       if (pending.terminalId && tabs.some((tab) => tab.id === pending.terminalId))
-        pendingLaunchDiscoveriesRef.current.delete(pending)
+        pendingLaunchDiscoveriesRef.current.delete(key)
     }
   }, [tabs])
   const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
@@ -1077,7 +1079,7 @@ function App() {
       // Early discovery must not reclaim a tab choice made while start was pending.
       const supersededLaunch =
         !tabsRef.current.some((tab) => tab.id === event.terminalId) &&
-        [...pendingLaunchDiscoveriesRef.current].some(
+        [...pendingLaunchDiscoveriesRef.current.values()].some(
           (pending) =>
             pending.superseded &&
             (pending.terminalId === null || pending.terminalId === event.terminalId),
@@ -1432,7 +1434,8 @@ function App() {
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
       if (!target) return
-      for (const pending of pendingLaunchDiscoveriesRef.current) pending.superseded = true
+      for (const [key, pending] of pendingLaunchDiscoveriesRef.current)
+        pendingLaunchDiscoveriesRef.current.set(key, { ...pending, superseded: true })
       ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
       if (target.sessionId) {
@@ -1601,8 +1604,11 @@ function App() {
       const launchKey = session?.id ?? "new"
       launchingRef.current = true
       setLaunching(launchKey)
-      const pendingDiscovery = { terminalId: null as string | null, superseded: false }
-      pendingLaunchDiscoveriesRef.current.add(pendingDiscovery)
+      const pendingDiscovery = Symbol()
+      pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
+        terminalId: null,
+        superseded: false,
+      })
       try {
         const started = await runWithSessionLeaseReclaim(
           lang,
@@ -1652,14 +1658,19 @@ function App() {
           success: null,
         }
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
-        pendingDiscovery.terminalId = tab.id
+        const discovery = pendingLaunchDiscoveriesRef.current.get(pendingDiscovery)
+        if (discovery)
+          pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
+            ...discovery,
+            terminalId: tab.id,
+          })
         unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, tab])
         setActiveTabId(tab.id)
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
-        if (pendingDiscovery.terminalId === null)
+        if (pendingLaunchDiscoveriesRef.current.get(pendingDiscovery)?.terminalId === null)
           pendingLaunchDiscoveriesRef.current.delete(pendingDiscovery)
         launchingRef.current = false
         setLaunching(null)
