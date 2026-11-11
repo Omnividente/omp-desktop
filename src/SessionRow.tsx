@@ -84,6 +84,22 @@ export function SessionRow({
     above: false,
   })
 
+  const handleTitleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      titleTooltipOpen &&
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      setTitleTooltipOpen(false)
+      return
+    }
+    onKeySelect(event)
+  }
+
   useLayoutEffect(() => {
     renameFinishedByKeyboardRef.current = false
   }, [renaming])
@@ -144,7 +160,7 @@ export function SessionRow({
           onBlur={() => setTitleTooltipOpen(false)}
           onClick={renaming ? undefined : onSelect}
           onDoubleClick={renaming ? undefined : onDoubleLaunch}
-          onKeyDown={renaming ? undefined : onKeySelect}
+          onKeyDown={renaming ? undefined : handleTitleKeyDown}
           onFocus={() => {
             if (!renaming) setTitleTooltipOpen(true)
           }}
@@ -314,3 +330,4 @@ export function SessionRow({
     </>
   )
 }
+
