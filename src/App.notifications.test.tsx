@@ -25,6 +25,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof api>()),
   bootstrap: vi.fn(),
+  readSessionAnswers: vi.fn(),
   saveWorkspaceSelection: vi.fn(),
   loadOmpConfig: vi.fn(),
   startTerminal: vi.fn(),
@@ -182,6 +183,14 @@ describe("terminal completion notification payloads", () => {
     terminalExits.clear()
     localStorage.clear()
     invokeMock.mockResolvedValue(undefined)
+    vi.mocked(api.readSessionAnswers).mockResolvedValue({
+      session: bootstrap.sessions[0],
+      entries: [],
+      updatedAt: 1,
+      truncated: false,
+      malformedRecords: 0,
+      incompleteLastRecord: false,
+    })
     vi.mocked(api.saveWorkspaceSelection).mockResolvedValue(undefined)
     vi.mocked(api.loadOmpConfig).mockResolvedValue(config("Initial"))
     vi.mocked(api.checkOmpUpdate).mockResolvedValue({
