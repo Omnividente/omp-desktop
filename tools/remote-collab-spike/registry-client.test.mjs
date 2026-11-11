@@ -155,6 +155,40 @@ test("filesystem inspection refuses unsafe POSIX directory and metadata paths wi
   await rejectsCode(inspectRegistry({ registryDir }), "unsafe_registry")
 })
 
+test("filesystem metadata races reject replacements before reading and retain opened identity", { skip: process.platform === "win32" }, async (t) => {
+  for (const [scenario, expectedCode, expectedReads] of [
+    ["normal", "invalid_metadata", 1],
+    ["regular", "unsafe_metadata", 0],
+    ["symlink", "metadata_unavailable", 0],
+    ["permissions", "unsafe_metadata", 0],
+    ["after-open", "invalid_metadata", 1],
+    ["fifo", "unsafe_metadata", 0],
+  ]) {
+    await t.test(scenario, async (t) => {
+      const root = await mkdtemp(path.join(os.tmpdir(), "ompr-race-"))
+      t.after(() => rm(root, { recursive: true, force: true }))
+      const worker = fileURLToPath(new URL("./fixtures/metadata-race.mjs", import.meta.url))
+      const { error, stdout, stderr } = await new Promise((resolve) => {
+        execFile(process.execPath, [worker, root, scenario], {
+          env: childEnvironment, timeout: 3000, killSignal: "SIGKILL", maxBuffer: 4096,
+        }, (error, stdout, stderr) => resolve({ error, stdout, stderr }))
+      })
+      // Parent-side process deadline remains effective even if a filesystem
+      // worker blocks; timeoutMs only covers later host requests.
+      assert.equal(error, null)
+      assert.equal(stderr, "")
+      const result = JSON.parse(stdout)
+      assert.equal(result.mutated, scenario !== "normal")
+      assert.equal(result.contentReads, expectedReads)
+      assert.equal(result.descriptorChecks, scenario === "symlink" ? 0 : 1)
+      assert.deepEqual(result.result, {
+        version: 1, registryState: "ready", hosts: [],
+        skipped: [{ code: expectedCode, count: 1 }],
+      })
+    })
+  }
+})
+
 test("a separate process is discovered through real local IPC; private fields are dropped", async (t) => {
   const host = await fixture(t)
   const result = await inspectRegistry(host.options)
