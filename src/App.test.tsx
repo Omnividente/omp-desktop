@@ -3669,6 +3669,128 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each([
+    ["send", "other-tab"],
+    ["discard", "other-tab"],
+    ["send", "overview"],
+    ["discard", "overview"],
+    ["send", "other-project"],
+    ["discard", "other-project"],
+    ["send", "closed-source"],
+    ["discard", "closed-source"],
+    ["send", "new-tab"],
+    ["discard", "new-tab"],
+    ["send", "launch-pending"],
+    ["discard", "launch-pending"],
+    ["send", "away-and-back"],
+    ["discard", "away-and-back"],
+  ] as const)(
+    "keeps newer %s recovery navigation to %s after successful IPC",
+    async (action, navigation) => {
+      const initial = config("Initial")
+      const alternate = config("Alternate").models[0]
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, alternate],
+      })
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        workspaces: [
+          ...bootstrap.workspaces,
+          { ...bootstrap.workspaces[0], key: "other", path: "C:/fixture/other", name: "Other" },
+        ],
+      })
+      await mountAndResume()
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({
+        ...started,
+        terminalId: "terminal-recovery-other",
+        processId: 102,
+      })
+      await act(async () => element(".new-tab-button").click())
+      const tabButtons = () =>
+        container.querySelectorAll<HTMLButtonElement>(".terminal-tab > button:first-child")
+      await act(async () => tabButtons()[0].click())
+      const recovery = {
+        terminalId: started.terminalId,
+        generation: 3,
+        token: "synthetic-navigation-recovery",
+        byteCount: 25,
+        state: "pending" as const,
+      }
+      vi.mocked(api.switchTerminal).mockRejectedValue({
+        code: "terminal_switch_input_recovery",
+        message: "Preserved draft",
+        recovery,
+      })
+      await act(async () => {
+        const selector = element<HTMLSelectElement>(".session-model-select")
+        selector.value = alternate.selector
+        selector.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      const pending = deferred<void>()
+      const operation =
+        action === "send" ? api.sendSwitchInputRecovery : api.discardSwitchInputRecovery
+      vi.mocked(operation).mockReturnValueOnce(pending.promise)
+      const recoveryButtons = element(
+        ".switch-input-recovery-actions",
+      ).querySelectorAll<HTMLButtonElement>("button")
+      await act(async () => recoveryButtons[action === "send" ? 0 : 1].click())
+      expect(operation).toHaveBeenCalledExactlyOnceWith(
+        started.terminalId,
+        recovery.generation,
+        recovery.token,
+      )
+      const terminal = element<HTMLElement>(`[data-terminal-id="${started.terminalId}"]`)
+      const launch = deferred<TerminalStarted>()
+      if (navigation === "other-tab" || navigation === "away-and-back") {
+        await act(async () => tabButtons()[1].click())
+        if (navigation === "away-and-back") await act(async () => tabButtons()[0].click())
+      } else if (navigation === "overview") {
+        await act(async () => element(".workspace-overview-button").click())
+      } else if (navigation === "other-project") {
+        const other = Array.from(container.querySelectorAll<HTMLButtonElement>(".project-item")).find(
+          (button) => button.textContent?.includes("Other"),
+        )!
+        await act(async () => other.click())
+      } else if (navigation === "closed-source") {
+        await act(async () => element(".terminal-tab.is-active .tab-close").click())
+      } else {
+        vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+        await act(async () => element(".new-tab-button").click())
+        if (navigation === "new-tab") {
+          await act(async () =>
+            launch.resolve({ ...started, terminalId: "terminal-recovery-new", processId: 103 }),
+          )
+        }
+      }
+      const activePane = container.querySelector(".terminal-pane.is-active")
+      const selectedSession = container.querySelector(".session-item.is-selected")
+      const focusSequence = terminal.dataset.focusSequence
+      await act(async () => pending.resolve(undefined))
+      expect(container.querySelector(".terminal-pane.is-active")).toBe(activePane)
+      expect(container.querySelector(".session-item.is-selected")).toBe(selectedSession)
+      expect(terminal.dataset.focusSequence).toBe(focusSequence)
+      expect(operation).toHaveBeenCalledTimes(1)
+      if (navigation === "launch-pending") {
+        await act(async () =>
+          launch.resolve({ ...started, terminalId: "terminal-recovery-new", processId: 103 }),
+        )
+        expect(
+          element<HTMLElement>('[data-terminal-id="terminal-recovery-new"]').dataset.active,
+        ).toBe("true")
+      }
+      if (navigation === "overview") {
+        expect(container.querySelector(".workspace-home")).not.toBeNull()
+      }
+      if (navigation === "closed-source") {
+        expect(container.contains(terminal)).toBe(false)
+      } else {
+        await act(async () => tabButtons()[0].click())
+        expect(container.querySelector(".switch-input-recovery")).toBeNull()
+      }
+    },
+  )
+
   it("lets the user discard preserved input after an unstructured send failure without offering a duplicate send", async () => {
     const initial = config("Initial")
     const alternate = config("Alternate").models[0]
