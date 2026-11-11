@@ -141,6 +141,8 @@ export const UI_TEXT = {
     desktopUpdateRelaunch: "Перезапустить Desktop",
     desktopUpdateCheck: "Проверить обновления OMP Desktop",
     desktopUpdateCurrent: "Установлена актуальная версия OMP Desktop",
+    desktopUpdateInstallUncertain:
+      "Исход установки Desktop неизвестен. Повторная установка заблокирована. Сохраните работу, перезапустите приложение и проверьте версию.",
     desktopUpdatePrereleases: "Предлагать предварительные версии",
     desktopUpdatePrereleasesHelp:
       "После сохранения будут предлагаться стабильные и предварительные версии Desktop. Установка — только по вашей команде; более старые версии не устанавливаются.",
@@ -924,6 +926,8 @@ export const UI_TEXT = {
     desktopUpdateRelaunch: "Restart Desktop",
     desktopUpdateCheck: "Check for OMP Desktop updates",
     desktopUpdateCurrent: "OMP Desktop is up to date",
+    desktopUpdateInstallUncertain:
+      "The Desktop installation outcome is unknown. Another installation is blocked. Save your work, restart the app, and check the version.",
     desktopUpdatePrereleases: "Offer prerelease versions",
     desktopUpdatePrereleasesHelp:
       "After saving, Desktop will offer stable and prerelease versions. Installation requires your explicit action; older versions are never installed.",
