@@ -924,8 +924,8 @@ export function SettingsPanel({
     customProviderKey.trim() !== ""
   const { hasChanges, providerEnvChanged, ompConfigChanged } = useMemo(() => {
     const generalChanged =
-      (executable.trim() || null) !== settings.ompExecutable ||
-      (sessionRoot.trim() || null) !== settings.sessionRoot ||
+      (executable.trim() ? executable : null) !== settings.ompExecutable ||
+      (sessionRoot.trim() ? sessionRoot : null) !== settings.sessionRoot ||
       language !== settings.language ||
       desktopTheme !== (settings.desktopTheme ?? "dark") ||
       desktopUpdatePrereleases !== settings.desktopUpdatePrereleases ||
@@ -1085,8 +1085,8 @@ export function SettingsPanel({
       submitted = true
       const result = await saveSettingsBundle({
         update: {
-          ompExecutable: executable.trim() || null,
-          sessionRoot: sessionRoot.trim() || null,
+          ompExecutable: executable.trim() ? executable : null,
+          sessionRoot: sessionRoot.trim() ? sessionRoot : null,
           language,
           desktopTheme,
           desktopUpdatePrereleases,

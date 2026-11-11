@@ -7,14 +7,14 @@ import { SettingsPanel } from "./SettingsPanel"
 import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSavePayload } from "./types"
 import type * as Api from "./api"
 
-const { confirmMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } = vi.hoisted(
-  () => ({
+const { confirmMock, openMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } =
+  vi.hoisted(() => ({
     confirmMock: vi.fn(),
+    openMock: vi.fn(),
     loadOmpConfigMock: vi.fn(),
     refreshOmpConfigMock: vi.fn(),
     saveSettingsBundleMock: vi.fn(),
-  }),
-)
+  }))
 
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof Api>()),
@@ -27,7 +27,7 @@ vi.mock("./api", async (importOriginal) => ({
     .mockRejectedValue(new Error("Synthetic policy unavailable")),
 }))
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmMock, open: vi.fn() }))
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmMock, open: openMock }))
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -683,6 +683,7 @@ describe("SettingsPanel configuration generations", () => {
     loadOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
     refreshOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
     saveSettingsBundleMock.mockReset()
+    openMock.mockReset()
     onError = vi.fn()
     onSaved = vi.fn()
     container = document.createElement("div")
@@ -694,6 +695,113 @@ describe("SettingsPanel configuration generations", () => {
     act(() => root.unmount())
     container.remove()
   })
+
+  it.each([" ", "\u00a0"])(
+    "keeps literal saved paths clean and preserves them during an unrelated save (%j)",
+    async (suffix) => {
+      const literalSettings = {
+        ...settings,
+        ompExecutable: `/synthetic/omp${suffix}`,
+        sessionRoot: `/synthetic/history${suffix}`,
+      }
+      await renderPanel(runtime, literalSettings, false, ompConfig)
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      changeField("#language-select", "en")
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(ompConfig, runtime, { ...literalSettings, language: "en" }),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            ompExecutable: literalSettings.ompExecutable,
+            sessionRoot: literalSettings.sessionRoot,
+            language: "en",
+          }),
+        }),
+      )
+    },
+  )
+
+  it.each([
+    ["omp-executable", "ompExecutable", "/synthetic/omp"],
+    ["session-root", "sessionRoot", "/synthetic/history"],
+  ] as const)("recognizes and saves an exact typed %s path", async (id, field, path) => {
+    const initial = { ...settings, [field]: path }
+    const literal = `${path} `
+    await renderPanel(runtime, initial, false, ompConfig)
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    expect(save.disabled).toBe(true)
+    changeField(`#${id}`, literal)
+    expect(save.disabled).toBe(false)
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult(ompConfig, runtime, { ...initial, [field]: literal }),
+    )
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].update[field]).toBe(literal)
+  })
+
+  it.each([
+    ["omp-executable", "ompExecutable", "/synthetic/omp\u00a0", false],
+    ["session-root", "sessionRoot", "/synthetic/history\u00a0", true],
+  ] as const)("preserves the exact %s picker result through Save", async (id, field, path, dir) => {
+    const initial = { ...settings, [field]: path.trim() }
+    openMock.mockResolvedValueOnce(path)
+    await renderPanel(runtime, initial, false, ompConfig)
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>(`#${id}`)!
+        .parentElement!.querySelector<HTMLButtonElement>("button")!
+        .click()
+    })
+    expect(openMock).toHaveBeenLastCalledWith(expect.objectContaining({ directory: dir }))
+    expect(container.querySelector<HTMLInputElement>(`#${id}`)!.value).toBe(path)
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    expect(save.disabled).toBe(false)
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult(ompConfig, runtime, { ...initial, [field]: path }),
+    )
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].update[field]).toBe(path)
+  })
+
+  it.each(["omp-executable", "session-root"])(
+    "protects a whitespace-only suffix edit in %s from accidental dismissal",
+    async (id) => {
+      const initial = { ...settings, ompExecutable: "/synthetic/omp", sessionRoot: "/history" }
+      await renderPanel(runtime, initial, false, ompConfig)
+      const input = container.querySelector<HTMLInputElement>(`#${id}`)!
+      changeField(`#${id}`, `${input.value} `)
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(".settings-header .icon-button")!.click()
+      })
+      const confirmation = container.querySelector<HTMLElement>('[role="alertdialog"]')!
+      expect(confirmation).not.toBeNull()
+      act(() => confirmation.querySelector<HTMLButtonElement>(".primary")!.click())
+      expect(container.querySelector('[role="alertdialog"]')).toBeNull()
+      expect(input.value.endsWith(" ")).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["", " ", "\t\u00a0"])(
+    "continues to reset empty or whitespace-only path fields (%j)",
+    async (blank) => {
+      const initial = { ...settings, ompExecutable: "/synthetic/omp", sessionRoot: "/history" }
+      await renderPanel(runtime, initial, false, ompConfig)
+      changeField("#omp-executable", blank)
+      changeField("#session-root", blank)
+      saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click()
+      })
+      expect(saveSettingsBundleMock.mock.lastCall![0].update).toMatchObject({
+        ompExecutable: null,
+        sessionRoot: null,
+      })
+    },
+  )
 
   it("saves only the submitted Desktop theme and keeps a later theme draft with a sticky acknowledgement", async () => {
     const pending = deferred<SettingsSavePayload>()
