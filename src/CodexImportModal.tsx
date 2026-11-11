@@ -175,8 +175,7 @@ export function CodexImportModal({
             <p className="field-help" role="status">
               {t(language, "codexSearchCount")
                 .replace("{visible}", String(visibleSessions.length))
-                .replace("{total}", String(sessions.length))}
-              {" "}
+                .replace("{total}", String(sessions.length))}{" "}
               {t(language, "codexSelectionCount")
                 .replace("{selected}", String(selectedCount))
                 .replace("{hidden}", String(selectedCount - visibleSelectedCount))}
