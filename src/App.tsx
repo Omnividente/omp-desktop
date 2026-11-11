@@ -257,6 +257,9 @@ function App() {
   const workspaceSaveRetryPendingRef = useRef(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const sessionSelectionRequestRef = useRef(0)
+  const pendingLaunchDiscoveriesRef = useRef(
+    new Set<{ terminalId: string | null; superseded: boolean }>(),
+  )
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
@@ -267,6 +270,10 @@ function App() {
     if (unpublished.size === 0) return
     // A spawned process remains guarded until its tab reaches the committed tree.
     for (const tab of tabs) unpublished.delete(tab.id)
+    for (const pending of pendingLaunchDiscoveriesRef.current) {
+      if (pending.terminalId && tabs.some((tab) => tab.id === pending.terminalId))
+        pendingLaunchDiscoveriesRef.current.delete(pending)
+    }
   }, [tabs])
   const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
     createRuntimeIncidentState(Date.now()),
@@ -1067,9 +1074,21 @@ function App() {
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
 
-      const sessionSelectionRequest = ++sessionSelectionRequestRef.current
-      setSelectedSessionId(session.id)
-      setSearch("")
+      // Early discovery must not reclaim a tab choice made while start was pending.
+      const supersededLaunch =
+        !tabsRef.current.some((tab) => tab.id === event.terminalId) &&
+        [...pendingLaunchDiscoveriesRef.current].some(
+          (pending) =>
+            pending.superseded &&
+            (pending.terminalId === null || pending.terminalId === event.terminalId),
+        )
+      const sessionSelectionRequest = supersededLaunch
+        ? null
+        : ++sessionSelectionRequestRef.current
+      if (sessionSelectionRequest !== null) {
+        setSelectedSessionId(session.id)
+        setSearch("")
+      }
       setTabs((current) =>
         current.map((tab) =>
           tab.id === event.terminalId
@@ -1099,6 +1118,7 @@ function App() {
           if (latest && latest.id !== session.id) return
           applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
           if (
+            sessionSelectionRequest !== null &&
             sessionSelectionRequest === sessionSelectionRequestRef.current &&
             workspaceSelectionRequest === workspaceSelectionRequestRef.current
           ) {
@@ -1414,6 +1434,7 @@ function App() {
     (tabId: string) => {
       const target = tabs.find((tab) => tab.id === tabId)
       if (!target) return
+      for (const pending of pendingLaunchDiscoveriesRef.current) pending.superseded = true
       ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
       if (target.sessionId) {
@@ -1582,6 +1603,8 @@ function App() {
       const launchKey = session?.id ?? "new"
       launchingRef.current = true
       setLaunching(launchKey)
+      const pendingDiscovery = { terminalId: null as string | null, superseded: false }
+      pendingLaunchDiscoveriesRef.current.add(pendingDiscovery)
       try {
         const started = await runWithSessionLeaseReclaim(
           lang,
@@ -1631,12 +1654,15 @@ function App() {
           success: null,
         }
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
+        pendingDiscovery.terminalId = tab.id
         unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, tab])
         setActiveTabId(tab.id)
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
+        if (pendingDiscovery.terminalId === null)
+          pendingLaunchDiscoveriesRef.current.delete(pendingDiscovery)
         launchingRef.current = false
         setLaunching(null)
       }

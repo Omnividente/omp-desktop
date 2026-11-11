@@ -486,6 +486,145 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
   })
 
+  it.each([
+    ["other", "resolve"],
+    ["other", "reject"],
+    ["current", "resolve"],
+    ["current", "reject"],
+  ] as const)(
+    "keeps the newer %s tab selection and search through early discovery and bootstrap %s",
+    async (choice, settlement) => {
+      const secondSession = {
+        ...bootstrap.sessions[0],
+        id: "second-session",
+        title: "Fixture second",
+        filePath: "C:/fixture/sessions/second.jsonl",
+      }
+      const projects = { ...bootstrap, sessions: [...bootstrap.sessions, secondSession] }
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      await mountAndResume()
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({
+        ...started,
+        terminalId: "terminal-2",
+        processId: 102,
+      })
+      await act(async () => element(".new-tab-button").click())
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: "terminal-2", session: secondSession },
+        }),
+      )
+      const pending = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+      await act(async () => element(".new-tab-button").click())
+      const tabSelector = ".terminal-tab > button:first-child"
+      const chosenTab = container.querySelectorAll<HTMLButtonElement>(tabSelector)[
+        choice === "current" ? 1 : 0
+      ]
+      await act(async () => chosenTab.click())
+      const chosenSession = choice === "current" ? secondSession : projects.sessions[0]
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          "Fixture",
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      const discovered = {
+        ...projects.sessions[0],
+        id: "early-session",
+        title: "Fixture early discovery",
+        filePath: "C:/fixture/sessions/early.jsonl",
+      }
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 2,
+          payload: { terminalId: "terminal-3", session: discovered },
+        }),
+      )
+      const expectSelection = () => {
+        expect(search.value).toBe("Fixture")
+        expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+          chosenSession.title,
+        )
+      }
+      expectSelection()
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+      expect(element(".terminal-tab.is-active").textContent).toContain(chosenSession.title)
+      await act(async () =>
+        pending.resolve({ ...started, terminalId: "terminal-3", processId: 103 }),
+      )
+      await act(async () => {
+        if (settlement === "resolve") refresh.resolve(projects)
+        else refresh.reject(new Error("Synthetic discovery refresh failure"))
+      })
+      expectSelection()
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(3)
+      expect(container.querySelectorAll(".terminal-tab")[2].textContent).toContain(discovered.title)
+      expect(element('.session-select[aria-label="Fixture early discovery"]')).toBeTruthy()
+      if (settlement === "reject") {
+        expect(container.querySelector(".error-toast")?.textContent).toContain(
+          "Synthetic discovery refresh failure",
+        )
+      }
+      await act(async () => container.querySelectorAll<HTMLButtonElement>(tabSelector)[2].click())
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        discovered.title,
+      )
+      expect(api.startTerminal).toHaveBeenCalledTimes(3)
+    },
+  )
+
+  it.each(["normal", "after-failed-launch"] as const)(
+    "still selects early discovery without a newer choice (%s)",
+    async (scenario) => {
+      await mountAndResume()
+      if (scenario === "after-failed-launch") {
+        const failed = deferred<TerminalStarted>()
+        vi.mocked(api.startTerminal).mockReturnValueOnce(failed.promise)
+        await act(async () => element(".new-tab-button").click())
+        await act(async () => element(".terminal-tab > button:first-child").click())
+        await act(async () => failed.reject(new Error("Synthetic start failure")))
+      }
+      const pending = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+      await act(async () => element(".new-tab-button").click())
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtySessionEvent>
+      const discovered = {
+        ...bootstrap.sessions[0],
+        id: "early-session",
+        title: "Early synthetic session",
+        filePath: "C:/fixture/sessions/early.jsonl",
+      }
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: "terminal-2", session: discovered },
+        }),
+      )
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        discovered.title,
+      )
+      await act(async () =>
+        pending.resolve({ ...started, terminalId: "terminal-2", processId: 102 }),
+      )
+      expect(element('[data-terminal-id="terminal-2"]').getAttribute("data-active")).toBe("true")
+      expect(element(".terminal-tab.is-active").textContent).toContain(discovered.title)
+    },
+  )
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
