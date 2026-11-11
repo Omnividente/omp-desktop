@@ -3669,6 +3669,68 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each(["error", "string"] as const)(
+    "reports a rejected recovery confirmation (%s) without marking the input as sent",
+    async (failureKind) => {
+      const initial = config("Initial")
+      const alternate = config("Alternate").models[0]
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, alternate],
+      })
+      const recovery = {
+        terminalId: started.terminalId,
+        generation: 3,
+        token: "synthetic-confirmation-recovery",
+        byteCount: 25,
+        state: "pending" as const,
+      }
+      vi.mocked(api.switchTerminal).mockRejectedValue({
+        code: "terminal_switch_input_recovery",
+        message: "Preserved draft",
+        recovery,
+      })
+      const confirmation = deferred<boolean>()
+      vi.mocked(confirm).mockReturnValueOnce(confirmation.promise)
+      await mountAndResume()
+      await act(async () => {
+        const selector = element<HTMLSelectElement>(".session-model-select")
+        selector.value = alternate.selector
+        selector.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      const buttons = () =>
+        element(".switch-input-recovery-actions").querySelectorAll<HTMLButtonElement>("button")
+      const focusSequence = element<HTMLElement>("[data-terminal-id]").dataset.focusSequence
+      await act(async () => buttons()[0].click())
+      expect(api.sendSwitchInputRecovery).not.toHaveBeenCalled()
+      const message = "Synthetic recovery confirmation unavailable"
+      await act(async () =>
+        confirmation.reject(failureKind === "error" ? new Error(message) : message),
+      )
+      expect(container.querySelector(".error-toast")?.textContent).toContain(message)
+      expect(container.querySelector(".switch-input-recovery.is-failedSend")).toBeNull()
+      expect(buttons()[0].disabled).toBe(false)
+      expect(buttons()[1].disabled).toBe(false)
+      expect(element<HTMLElement>("[data-terminal-id]").dataset.focusSequence).toBe(focusSequence)
+      expect(api.sendSwitchInputRecovery).not.toHaveBeenCalled()
+      expect(api.discardSwitchInputRecovery).not.toHaveBeenCalled()
+
+      vi.mocked(confirm).mockResolvedValueOnce(false)
+      await act(async () => buttons()[0].click())
+      expect(api.sendSwitchInputRecovery).not.toHaveBeenCalled()
+      expect(buttons()[0].disabled).toBe(false)
+
+      await act(async () => buttons()[0].click())
+      expect(api.sendSwitchInputRecovery).toHaveBeenCalledExactlyOnceWith(
+        started.terminalId,
+        recovery.generation,
+        recovery.token,
+      )
+      expect(api.discardSwitchInputRecovery).not.toHaveBeenCalled()
+      expect(container.querySelector(".switch-input-recovery")).toBeNull()
+    },
+  )
+
   it("lets the user discard preserved input after an unstructured send failure without offering a duplicate send", async () => {
     const initial = config("Initial")
     const alternate = config("Alternate").models[0]
