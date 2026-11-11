@@ -188,9 +188,7 @@ describe("toast identity", () => {
       let state = enqueueToast(createToastState(), toastFor(edgeA), 1_000)
       const now = action === "expire" ? 1_000 + TOAST_TTL_MS : 1_001
       state =
-        action === "expire"
-          ? expireToasts(state, now)
-          : dismissToast(state, state.items[0].id, now)
+        action === "expire" ? expireToasts(state, now) : dismissToast(state, state.items[0].id, now)
 
       expect(state.items).toHaveLength(0)
       expect(enqueueToast(state, toastFor(edgeA), now + 1)).toBe(state)
