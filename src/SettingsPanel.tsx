@@ -11,6 +11,7 @@ import {
   settingsUnavailableDetails,
 } from "./api"
 import { Icon } from "./Icon"
+import { KeyboardShortcuts } from "./KeyboardShortcuts"
 import {
   roleDescription,
   roleLabel,
@@ -1679,6 +1680,10 @@ export function SettingsPanel({
                       </button>
                     </div>
                     <p className="field-help">{t(language, "sessionRootHelp")}</p>
+                  </section>
+
+                  <section className="settings-section">
+                    <KeyboardShortcuts language={language} platform={runtime.platform} />
                   </section>
                 </>
               )}

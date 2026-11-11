@@ -2287,6 +2287,33 @@ button:disabled {
   font-size: 0.85rem;
 }
 
+.keyboard-shortcuts > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.keyboard-shortcuts-list {
+  display: grid;
+  gap: 1rem;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.keyboard-shortcuts-list dt {
+  margin-bottom: 0.25rem;
+}
+
+.keyboard-shortcuts-list dd {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.keyboard-shortcuts-list small {
+  color: var(--text-soft);
+  font-size: inherit;
+}
+
 .agent-definition {
   display: grid;
   gap: 0.35rem;

@@ -177,6 +177,34 @@ describe("SettingsPanel Save state", () => {
     })
   }
 
+  it.each([true, false])(
+    "keeps the shortcut reference read-only when OMP availability is %s",
+    async (ompAvailable) => {
+      await renderRuntime({ ...runtime, ompAvailable })
+      const details = container.querySelector<HTMLDetailsElement>(".keyboard-shortcuts")!
+      const summary = details.querySelector("summary")!
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(details.open).toBe(false)
+      expect(save.disabled).toBe(true)
+      act(() => summary.click())
+      expect(details.open).toBe(true)
+      expect(save.disabled).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+
+      const font = container.querySelector<HTMLSelectElement>("#app-font-size")!
+      act(() => {
+        font.value = "24"
+        font.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      expect(save.disabled).toBe(false)
+      act(() => summary.click())
+      act(() => summary.click())
+      expect(font.value).toBe("24")
+      expect(save.disabled).toBe(false)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    },
+  )
+
   it.each([8, 17, 32])(
     "displays the saved terminal font size %i without substituting another option",
     async (size) => {
