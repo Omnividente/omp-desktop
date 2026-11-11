@@ -250,14 +250,9 @@ export function CodexImportModal({
           <div className="codex-list" ref={listRef} aria-busy={loading}>
             {visibleSessions.length === 0 ? (
               <p className="field-help" role="status">
-                {t(
-                  language,
-                  sessions.length > 0
-                    ? "codexSearchEmpty"
-                    : loading
-                      ? "loading"
-                      : "noCodexSessions",
-                )}
+                {sessions.length > 0
+                  ? t(language, "codexSearchEmpty")
+                  : t(language, loading ? "loading" : "noCodexSessions")}
               </p>
             ) : (
               <div
