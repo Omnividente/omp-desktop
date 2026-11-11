@@ -1009,7 +1009,17 @@ fn import_size_error() -> String {
 }
 
 fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
-    let file = fs::File::open(source)
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A validated regular file can become a FIFO before open. Reach the
+        // descriptor check below without waiting for a FIFO writer.
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(source)
         .map_err(|error| format!("Не удалось открыть {}: {error}", source.display()))?;
     let metadata = file.metadata().map_err(|error| {
         format!(
@@ -6777,6 +6787,103 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("fixture should be removable");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn import_source_rejects_fifo_replacement_without_waiting_for_writer() {
+        use std::ffi::CString;
+        use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+        use std::sync::mpsc;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-fifo-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let source = root.join("source.jsonl");
+        for with_writer in [false, true] {
+            fs::write(&source, b"{\"type\":\"session\",\"id\":\"synthetic\"}\n").unwrap();
+            let validated = validated_external_import_source(source.to_str().unwrap()).unwrap();
+            fs::remove_file(&source).unwrap();
+            let c_path = CString::new(source.as_os_str().as_bytes()).unwrap();
+            // SAFETY: this is a valid NUL-terminated path in our owned test directory.
+            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+            let mut peer = with_writer.then(|| {
+                let mut file = fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&source)
+                    .unwrap();
+                file.write_all(b"{\"type\":\"session\"}\n").unwrap();
+                file
+            });
+            let (sender, receiver) = mpsc::channel();
+            let worker = thread::spawn(move || {
+                sender
+                    .send(super::read_bounded_import_source(&validated))
+                    .unwrap();
+            });
+            // Watchdog for a blocking open, not a filesystem speed assertion.
+            let result = receiver.recv_timeout(Duration::from_secs(5));
+            if result.is_err() && peer.is_none() {
+                // Linux allows RDWR FIFO open without another peer. Release a
+                // regressed blocking reader before joining it and failing.
+                peer = Some(
+                    fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .custom_flags(libc::O_NONBLOCK)
+                        .open(&source)
+                        .unwrap(),
+                );
+            }
+            worker.join().unwrap();
+            drop(peer);
+            fs::remove_file(&source).unwrap();
+            if result.is_err() {
+                fs::remove_dir(&root).unwrap();
+            }
+            assert!(result
+                .expect("import reader waited for a FIFO writer")
+                .unwrap_err()
+                .contains("обычный JSONL-файл"));
+        }
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn import_source_reader_preserves_regular_file_guards() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let source = std::env::temp_dir().join(format!(
+            "omp-desktop-import-reader-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        for bytes in [b"{\"type\":\"session\"}\n".as_slice(), b""] {
+            fs::write(&source, bytes).unwrap();
+            assert_eq!(super::read_bounded_import_source(&source).unwrap(), bytes);
+            assert_eq!(fs::read(&source).unwrap(), bytes);
+        }
+        fs::write(&source, [0xff]).unwrap();
+        assert!(super::read_bounded_import_source(&source)
+            .unwrap_err()
+            .starts_with("[session_import_invalid_encoding]"));
+        assert_eq!(fs::read(&source).unwrap(), [0xff]);
+        let file = fs::File::create(&source).unwrap();
+        file.set_len(MAX_IMPORT_BYTES + 1).unwrap();
+        drop(file);
+        assert!(super::read_bounded_import_source(&source)
+            .unwrap_err()
+            .contains("256 MiB"));
+        fs::remove_file(source).unwrap();
     }
 
     #[test]
