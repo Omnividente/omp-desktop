@@ -4683,6 +4683,86 @@ describe("App lifecycle serialization", () => {
     })
   })
 
+  for (const kind of ["omp", "codex"] as const) {
+    it.each(["failed", "rejected"] as const)(
+      `keeps the displayed ${kind} project aligned with the submitted target through %s`,
+      async (outcome) => {
+        const payload = workspacePayload("A", "B")
+        payload.settings = { ...payload.settings, language: "en", lastWorkspace: "C:/fixture/A" }
+        payload.workspaces = payload.workspaces.map((workspace) => ({
+          ...workspace,
+          name: "Same project name",
+        }))
+        const source = "C:/fixture/source/history.jsonl"
+        const batches: ImportSessionRequest[][] = []
+        const pending = deferred<ImportBatchPayload>()
+        vi.mocked(api.bootstrap).mockResolvedValue(payload)
+        vi.mocked(api.addWorkspace).mockResolvedValue(payload)
+        vi.mocked(open).mockResolvedValue(source)
+        invokeMock.mockImplementation(
+          (command: string, args?: { requests: ImportSessionRequest[] }) => {
+            if (command === "list_codex_sessions")
+              return Promise.resolve([
+                {
+                  id: "synthetic-import",
+                  title: "Same project name",
+                  cwd: "C:/fixture/source",
+                  filePath: source,
+                  createdAt: "2026-01-01",
+                  updatedAt: 1,
+                  model: null,
+                  preview: "",
+                },
+              ])
+            if (command === "import_sessions") {
+              batches.push(args!.requests)
+              return pending.promise
+            }
+            throw new Error(command)
+          },
+        )
+        try {
+          await act(async () => root.render(<App />))
+          const trigger = kind === "omp" ? t("en", "importSession") : "Import from Codex"
+          await act(async () => element(`[title="${trigger}"]`).click())
+          if (kind === "codex")
+            await act(async () => element<HTMLInputElement>(".codex-item input").click())
+          expect(element(".import-project-path").textContent).toBe("C:/fixture/A")
+          expect(batches).toHaveLength(0)
+          await act(async () => requestWorkspace("B"))
+          expect(element(".import-project-path").textContent).toBe("C:/fixture/B")
+          await act(async () => element(".codex-import-panel .primary").click())
+          expect(batches).toEqual([[{ path: source, targetCwd: "C:/fixture/B", mode: "skip" }]])
+          await act(async () => requestWorkspace("A"))
+          expect(element(".import-project-path").textContent).toBe("C:/fixture/B")
+          expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+          expect(batches).toHaveLength(1)
+          await act(async () => {
+            if (outcome === "rejected") pending.reject(new Error("Synthetic import rejection"))
+            else
+              pending.resolve({
+                bootstrap: null,
+                items: [
+                  {
+                    sourcePath: source,
+                    destinationPath: null,
+                    status: "failed",
+                    message: "Synthetic import failure",
+                  },
+                ],
+              })
+          })
+          expect(element(".import-project-path").textContent).toBe("C:/fixture/A")
+          expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(false)
+          expect(batches).toHaveLength(1)
+          expect(api.startTerminal).not.toHaveBeenCalled()
+        } finally {
+          await act(async () => pending.resolve({ bootstrap: null, items: [] }))
+        }
+      },
+    )
+  }
+
   it.each(["en", "ru"] as const)(
     "localizes OMP import failure without losing raw diagnostic in %s UI",
     async (language) => {

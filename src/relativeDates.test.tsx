@@ -200,6 +200,7 @@ describe("relative date calendar presentation", () => {
                   onOpenFolder={vi.fn()}
                 />
                 <CodexImportModal
+                  targetPath="/synthetic/target"
                   language={lang}
                   loading={false}
                   importing={false}

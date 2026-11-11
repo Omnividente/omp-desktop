@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Icon } from "./Icon"
 import { ImportModeSelect } from "./ImportModeSelect"
+import { ImportProject } from "./ImportProject"
 import { t, type Lang } from "./i18n"
 import type { CodexSessionSummary, ImportMode } from "./types"
 import { formatRelative } from "./uiUtils"
@@ -15,6 +16,7 @@ interface CodexImportModalProps {
   loading: boolean
   importing: boolean
   mode: ImportMode
+  targetPath: string | null
   sessions: CodexSessionSummary[]
   selected: Record<string, boolean>
   onClose: () => void
@@ -33,6 +35,7 @@ export function CodexImportModal({
   loading,
   importing,
   mode,
+  targetPath,
   sessions,
   selected,
   onClose,
@@ -147,6 +150,7 @@ export function CodexImportModal({
           </button>
         </header>
         <div className="settings-scroll">
+          <ImportProject language={language} targetPath={targetPath} />
           {loading && sessions.length > 0 && (
             <p className="field-help" role="status">
               {t(language, "loading")}
@@ -291,7 +295,7 @@ export function CodexImportModal({
           </button>
           <button
             className="button primary"
-            disabled={importing || !hasSelection}
+            disabled={importing || !targetPath || !hasSelection}
             onClick={onImport}
             type="button"
           >

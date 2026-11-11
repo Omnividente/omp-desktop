@@ -2956,6 +2956,12 @@ button:disabled {
   flex-direction: column;
 }
 
+.import-project-path {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .import-mode-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);

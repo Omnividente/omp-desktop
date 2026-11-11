@@ -773,6 +773,7 @@ export const UI_TEXT = {
     sessionCopyUnknown:
       "Результат копирования не подтверждён. Проверьте историю проекта перед новой попыткой.",
     importSessionTitle: "Импорт сессии OMP",
+    importProject: "Проект для импортированных сессий",
     importMode: "Если сессия уже импортирована",
     importModeSkip: "Пропустить",
     importModeUpdate: "Обновить",
@@ -1552,6 +1553,7 @@ export const UI_TEXT = {
     sessionCopyUnknown:
       "Copy result was not confirmed. Check the project history before trying again.",
     importSessionTitle: "Import OMP session",
+    importProject: "Project for imported sessions",
     importMode: "If this session was already imported",
     importModeSkip: "Skip",
     importModeUpdate: "Update",
