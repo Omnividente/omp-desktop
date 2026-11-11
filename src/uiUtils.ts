@@ -7,7 +7,7 @@ import type {
   TerminalTab,
 } from "./types"
 
-type SessionIdentity = Pick<SessionSummary, "id" | "filePath">
+type SessionIdentity = Pick<SessionSummary, "id" | "filePath" | "cwd">
 
 export function localeTag(lang: Lang): string {
   return lang === "en" ? "en" : "ru"
@@ -102,8 +102,10 @@ export function tabMatchesSession(
   session: SessionIdentity,
   platform: string,
 ): boolean {
+  // Imported IDs are source-derived and can repeat in different projects.
   return (
-    tab.sessionId === session.id ||
+    (tab.sessionId === session.id &&
+      normalizedPath(tab.cwd, platform) === normalizedPath(session.cwd, platform)) ||
     Boolean(
       tab.sessionPath &&
       normalizedPath(tab.sessionPath, platform) === normalizedPath(session.filePath, platform),
@@ -142,11 +144,14 @@ export function mergeSessionIntoPayload(
   platform: string,
 ): BootstrapPayload {
   const sessionPath = normalizedPath(session.filePath, platform)
+  const sessionCwd = normalizedPath(session.cwd, platform)
   const sessions = [
     session,
     ...payload.sessions.filter(
       (candidate) =>
-        candidate.id !== session.id && normalizedPath(candidate.filePath, platform) !== sessionPath,
+        (candidate.id !== session.id ||
+          normalizedPath(candidate.cwd, platform) !== sessionCwd) &&
+        normalizedPath(candidate.filePath, platform) !== sessionPath,
     ),
   ].sort((left, right) => right.updatedAt - left.updatedAt)
 

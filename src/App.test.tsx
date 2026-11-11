@@ -452,6 +452,98 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   })
 
+  it.each(["resume", "reread"])(
+    "keeps terminal association and catalog entries within their project during %s",
+    async (action) => {
+      const projects = workspacePayload("A", "B")
+      projects.sessions = projects.sessions.map((session) => ({
+        ...session,
+        id: "imported-omp-shared-source",
+      }))
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce({ ...started, cwd: projects.sessions[0].cwd })
+        .mockResolvedValueOnce({
+          ...started,
+          terminalId: "terminal-project-b",
+          cwd: projects.sessions[1].cwd,
+        })
+      await mountAndResume()
+      await act(async () => element('.project-item[aria-label^="B,"]').click())
+      expect(element<HTMLButtonElement>(".session-delete").disabled).toBe(false)
+      const copy = element<HTMLButtonElement>(`[title="${t("ru", "sessionCopyTitle")}"]`)
+      expect(copy.disabled).toBe(false)
+      await act(async () => copy.click())
+      expect(container.querySelector('[aria-labelledby="session-copy-title"]')).not.toBeNull()
+      await act(async () =>
+        element('[aria-labelledby="session-copy-title"] .settings-actions .secondary').click(),
+      )
+
+      const titleSubscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session-title")
+      expect(titleSubscription).toBeDefined()
+      const receiveTitle = titleSubscription![1] as EventCallback<{
+        terminalId: string
+        title: string
+      }>
+      await act(async () =>
+        receiveTitle({
+          event: "pty-session-title",
+          id: 1,
+          payload: { terminalId: started.terminalId, title: "A live title" },
+        }),
+      )
+      expect(element(".session-select strong").textContent).toBe("B session")
+
+      if (action === "reread") {
+        invokeMock.mockImplementation((command: string) => {
+          if (command === "read_session_transcript") {
+            return Promise.resolve({
+              session: projects.sessions[1],
+              entries: [],
+              updatedAt: 1,
+              truncated: false,
+              malformedRecords: 0,
+              incompleteLastRecord: false,
+            })
+          }
+          throw new Error(`Unexpected cross-project fixture command: ${command}`)
+        })
+        await act(async () => element(".session-transcript").click())
+        await act(async () => element(".transcript-reread-button").click())
+      } else {
+        await act(async () => element('[title="Продолжить сессию"]').click())
+      }
+
+      expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      expect(api.startTerminal).toHaveBeenLastCalledWith(
+        projects.sessions[1].cwd,
+        projects.sessions[1].filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(2)
+      expect(element(".terminal-tab.is-active").textContent).toContain("B session")
+      const sessionSubscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")
+      expect(sessionSubscription).toBeDefined()
+      const receiveSession = sessionSubscription![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receiveSession({
+          event: "pty-session",
+          id: 2,
+          payload: { terminalId: "terminal-project-b", session: projects.sessions[1] },
+        }),
+      )
+      await act(async () => element('.project-item[aria-label^="A,"]').click())
+      expect(element(".session-select strong").textContent).toBe("A session")
+    },
+  )
+
   it("returns to a newly launched session from overview and blocks overview while launching", async () => {
     await mountAndResume()
     await act(async () => element(".workspace-overview-button").click())
