@@ -866,7 +866,9 @@ mod tests {
         } else {
             worker.join().unwrap();
         }
-        assert!(result.expect("document probe waited for a FIFO writer").is_err());
+        assert!(result
+            .expect("document probe waited for a FIFO writer")
+            .is_err());
     }
 
     #[cfg(target_os = "linux")]
