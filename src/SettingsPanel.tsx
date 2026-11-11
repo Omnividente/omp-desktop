@@ -347,6 +347,16 @@ function accountRouteStatusLabel(
   return t(language, "accountStatusUnknown")
 }
 
+// Usage timestamps cross a u64 bridge, whose range exceeds JavaScript Date.
+function accountTimestamp(value: number | null | undefined): number | null {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    Number.isFinite(new Date(value).getTime())
+    ? value
+    : null
+}
+
 function formatAccountCountdown(language: Lang, target: number, now: number): string {
   const remainingSeconds = Math.max(0, Math.ceil((target - now) / 1_000))
   if (remainingSeconds === 0) return t(language, "accountCountdownNow")
@@ -747,7 +757,18 @@ export function SettingsPanel({
     () => credentials.filter((credential) => !removedCustomProviders.includes(credential.provider)),
     [credentials, removedCustomProviders],
   )
-  const accounts = useMemo(() => ompConfig?.accounts ?? [], [ompConfig?.accounts])
+  const accounts = useMemo(
+    () =>
+      (ompConfig?.accounts ?? []).map((account) => ({
+        ...account,
+        fetchedAt: accountTimestamp(account.fetchedAt),
+        limits: account.limits.map((limit) => ({
+          ...limit,
+          resetsAt: accountTimestamp(limit.resetsAt),
+        })),
+      })),
+    [ompConfig?.accounts],
+  )
   const accountGroups = useMemo(() => {
     const grouped = new Map<string, OmpAccountUsageInfo[]>()
     for (const account of accounts ?? []) {
@@ -760,10 +781,8 @@ export function SettingsPanel({
       accounts: providerAccounts,
     }))
   }, [accounts])
-  const usageAgeMs =
-    ompConfig?.usageObservedAt === null || ompConfig?.usageObservedAt === undefined
-      ? null
-      : Math.max(0, clockNow - ompConfig.usageObservedAt)
+  const usageObservedAt = accountTimestamp(ompConfig?.usageObservedAt)
+  const usageAgeMs = usageObservedAt === null ? null : Math.max(0, clockNow - usageObservedAt)
   const usageIsStale = usageAgeMs !== null && usageAgeMs > OMP_CONFIG_STALE_MS
   const refreshCooldownSeconds = Math.max(0, Math.ceil((refreshCooldownUntil - clockNow) / 1_000))
 
@@ -2343,13 +2362,13 @@ export function SettingsPanel({
                         className={`provider-account-freshness${usageIsStale ? " is-stale" : ""}`}
                       >
                         <span>
-                          {ompConfig.usageObservedAt === null
+                          {usageObservedAt === null
                             ? t(language, "accountUsageUnknown")
                             : t(language, usageIsStale ? "accountUsageStale" : "accountUsageFresh")}
                         </span>
-                        {ompConfig.usageObservedAt !== null && (
-                          <time dateTime={new Date(ompConfig.usageObservedAt).toISOString()}>
-                            {formatAccountTimestamp(language, ompConfig.usageObservedAt)}
+                        {usageObservedAt !== null && (
+                          <time dateTime={new Date(usageObservedAt).toISOString()}>
+                            {formatAccountTimestamp(language, usageObservedAt)}
                           </time>
                         )}
                       </div>

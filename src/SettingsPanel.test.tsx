@@ -4,6 +4,7 @@ import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
+import { t } from "./i18n"
 import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSavePayload } from "./types"
 import type * as Api from "./api"
 
@@ -467,6 +468,110 @@ describe("SettingsPanel Save state", () => {
 
     expect(save?.disabled).toBe(false)
   })
+
+  function openProviders() {
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+  }
+
+  it.each(
+    (["ru", "en"] as const).flatMap((language) =>
+      (["observed", "fetched", "reset"] as const).map((field) => ({ language, field })),
+    ),
+  )(
+    "keeps Providers usable with an invalid $field timestamp in $language",
+    async ({ language, field }) => {
+      const invalid = 8_640_000_000_000_001
+      const account = ompConfig.accounts[0]
+      const snapshot = {
+        ...ompConfig,
+        usageObservedAt: field === "observed" ? invalid : ompConfig.usageObservedAt,
+        accounts: [
+          {
+            ...account,
+            fetchedAt: field === "fetched" ? invalid : account.fetchedAt,
+            limits: account.limits.map((limit) => ({
+              ...limit,
+              resetsAt: field === "reset" ? invalid : limit.resetsAt,
+            })),
+          },
+        ],
+      }
+      loadOmpConfigMock.mockResolvedValue(snapshot)
+      await renderRuntime(runtime, { ...settings, language })
+      openProviders()
+
+      const card = container.querySelector(".provider-account")!
+      expect(card.textContent).toContain(account.label)
+      expect(card.classList.contains("is-limited")).toBe(true)
+      expect(card.querySelector('[role="meter"]')?.getAttribute("aria-valuenow")).toBe("82")
+      expect(card.querySelector(".is-eligible")).not.toBeNull()
+      if (field === "observed") {
+        const freshness = container.querySelector(".provider-account-freshness")!
+        expect(freshness.textContent).toContain(t(language, "accountUsageUnknown"))
+        expect(freshness.querySelector("time")).toBeNull()
+        expect(freshness.classList.contains("is-stale")).toBe(false)
+      }
+      if (field === "fetched") expect(card.querySelector(".provider-account-fetched-at")).toBeNull()
+      if (field === "reset") {
+        expect(card.querySelector(".provider-account-limit small")?.textContent).toBe(
+          t(language, "accountResetUnknown"),
+        )
+      }
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")?.disabled,
+      ).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+      expect(container.querySelector("#omp-executable")).not.toBeNull()
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(snapshot.accounts[0].limits[0].resetsAt).toBe(field === "reset" ? invalid : null)
+    },
+  )
+
+  it.each(
+    (["ru", "en"] as const).flatMap((language) =>
+      [null, 0, 1_794_442_500_000, 8_640_000_000_000_000].map((timestamp) => ({
+        language,
+        timestamp,
+      })),
+    ),
+  )(
+    "preserves valid and missing account dates: $language / $timestamp",
+    async ({ language, timestamp }) => {
+      const account = ompConfig.accounts[0]
+      loadOmpConfigMock.mockResolvedValue({
+        ...ompConfig,
+        usageObservedAt: timestamp,
+        accounts: [
+          {
+            ...account,
+            fetchedAt: timestamp,
+            limits: [{ ...account.limits[0], resetsAt: timestamp }],
+          },
+        ],
+      })
+      await renderRuntime(runtime, { ...settings, language })
+      openProviders()
+      const freshness = container.querySelector(".provider-account-freshness")!
+      const observed = container.querySelector(".provider-account-fetched-at")
+      const reset = container.querySelector(".provider-account-limit small")!
+      if (timestamp === null) {
+        expect(freshness.textContent).toContain(t(language, "accountUsageUnknown"))
+        expect(freshness.querySelector("time")).toBeNull()
+        expect(observed).toBeNull()
+        expect(reset.textContent).toBe(t(language, "accountResetUnknown"))
+      } else {
+        const date = new Intl.DateTimeFormat(language, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(timestamp)
+        expect(freshness.querySelector("time")?.getAttribute("datetime")).toBe(
+          new Date(timestamp).toISOString(),
+        )
+        expect(observed?.textContent).toContain(date)
+        expect(reset.textContent).toContain(date)
+      }
+    },
+  )
 
   it("keeps a non-reporting account visible beside a healthy sibling", async () => {
     const healthy = ompConfig.accounts[0]
