@@ -1051,6 +1051,9 @@ export function SettingsPanel({
       if (customProviderStarted && !customProviderReady) {
         throw new Error(t(language, "customProviderFieldsRequired"))
       }
+      if (customProviderReady && (!runtime.ompAvailable || ompConfig === null)) {
+        throw new Error(t(language, "customProviderConfigRequired"))
+      }
       const includeOmpConfig =
         runtime.ompAvailable &&
         ompConfig !== null &&

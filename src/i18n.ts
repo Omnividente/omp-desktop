@@ -736,6 +736,8 @@ export const UI_TEXT = {
       "Ключ сохраняется защищённым механизмом Desktop. В models.yml записываются только адрес, протокол и имя переменной ключа.",
     customProviderFieldsRequired:
       "Заполните идентификатор провайдера, базовый адрес API и API key.",
+    customProviderConfigRequired:
+      "Для сохранения провайдера нужна загруженная конфигурация OMP. Введённые данные остались в форме. Загрузите конфигурацию и повторите сохранение, либо очистите поля провайдера, чтобы отдельно сохранить настройки Desktop.",
     providerProxyMode: "Прокси / балансировщик аккаунтов",
     providerProxyModeHelp:
       "Удерживает fallback внутри пула выбранного провайдера. Транспорт OpenAI Codex наследуется из настроек OMP: proxy-режим не меняет выбор WebSocket или SSE.",
@@ -1516,6 +1518,8 @@ export const UI_TEXT = {
       "The key uses Desktop's protected credential storage. models.yml receives only the address, protocol, and key variable name.",
     providerProxyMode: "Proxy / account load balancer",
     customProviderFieldsRequired: "Enter the Provider ID, API address, and API key.",
+    customProviderConfigRequired:
+      "Saving a provider requires a loaded OMP configuration. The draft is still in the form. Load the configuration and retry, or clear the provider fields to save Desktop settings separately.",
     providerProxyModeHelp:
       "Keeps fallback inside the selected provider's account pool. OpenAI Codex transport follows OMP settings: proxy mode does not change the choice of WebSocket or SSE.",
     providerKeys: "Keys saved by Desktop",

@@ -1785,6 +1785,106 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
+  it.each(
+    (["ru", "en"] as const).flatMap((language) =>
+      [false, true].map((available) => [language, available] as const),
+    ),
+  )(
+    "keeps an unsent custom provider when OMP config is unavailable (%s, runtime: %s)",
+    async (language, available) => {
+      const unavailable = { ...runtime, ompAvailable: available }
+      loadOmpConfigMock.mockRejectedValue(new Error("Synthetic config unavailable"))
+      await renderPanel(unavailable, { ...settings, language })
+      onError.mockClear()
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      const selectors = [
+        ".custom-provider-form input",
+        '.custom-provider-form input[placeholder="https://gateway.example.com/v1"]',
+        ".custom-provider-form input[type=password]",
+      ]
+      const values = ["synthetic-provider", "https://fixture.example.test/v1", "synthetic-key"]
+      selectors.forEach((selector, index) => changeField(selector, values[index]))
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(onSaved).not.toHaveBeenCalled()
+      expect(onError).toHaveBeenCalledOnce()
+      expect(container.querySelector(".settings-save-error")?.textContent).toBe(
+        onError.mock.lastCall![0],
+      )
+      expect(container.querySelector(".settings-save-status")?.textContent).toBe("")
+      expect(
+        selectors.map((selector) => container.querySelector<HTMLInputElement>(selector)!.value),
+      ).toEqual(values)
+      expect(container.textContent).not.toContain(values[2])
+      expect(save.disabled).toBe(false)
+
+      if (available) {
+        // A later successful load does not submit the preserved draft by itself.
+        await act(async () =>
+          container.querySelector<HTMLButtonElement>(".runtime-card button")!.click(),
+        )
+        expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+        saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+        await act(async () => save.click())
+        expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.customProviderUpserts).toEqual([
+          {
+            provider: values[0],
+            baseUrl: values[1],
+            api: "openai-completions",
+            apiKey: values[2],
+          },
+        ])
+      } else {
+        // Clearing the provider draft leaves ordinary Desktop recovery available.
+        selectors.forEach((selector) => changeField(selector, ""))
+        act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+        changeExecutable("replacement-omp.exe")
+        saveSettingsBundleMock.mockResolvedValueOnce(saveResult(null, unavailable))
+        await act(async () => save.click())
+        expect(saveSettingsBundleMock.mock.lastCall![0]).toMatchObject({
+          update: { ompExecutable: "replacement-omp.exe" },
+          ompConfig: null,
+        })
+      }
+      expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
+      expect(onSaved).toHaveBeenCalledOnce()
+      expect(container.querySelector(".settings-save-error")).toBeNull()
+    },
+  )
+
+  it("restarts a pending config load without submitting the custom provider draft", async () => {
+    const initial = deferred<OmpConfigSnapshot>()
+    const retry = deferred<OmpConfigSnapshot>()
+    loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(retry.promise)
+    await renderPanel()
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    changeField(".custom-provider-form input", "synthetic-provider")
+    changeField(
+      '.custom-provider-form input[placeholder="https://gateway.example.com/v1"]',
+      "https://fixture.example.test/v1",
+    )
+    changeField(".custom-provider-form input[type=password]", "synthetic-key")
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(loadOmpConfigMock).toHaveBeenCalledTimes(2)
+    await act(async () => initial.reject(new Error("Superseded initial load")))
+    expect(onError).toHaveBeenCalledOnce()
+    expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+    await act(async () => retry.resolve(ompConfig))
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(container.querySelector<HTMLInputElement>(".custom-provider-form input")!.value).toBe(
+      "synthetic-provider",
+    )
+    saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.customProviderUpserts).toHaveLength(1)
+    expect(onSaved).toHaveBeenCalledOnce()
+  })
+
   it("loads the returned runtime when Save makes OMP available", async () => {
     const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
     const fresh = deferred<OmpConfigSnapshot>()
