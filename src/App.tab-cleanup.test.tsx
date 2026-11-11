@@ -20,6 +20,7 @@ vi.mock("./api", async (importOriginal) => ({
   saveWorkspaceSelection: vi.fn(),
   loadOmpConfig: vi.fn(),
   startTerminal: vi.fn(),
+  switchTerminal: vi.fn(),
   checkOmpUpdate: vi.fn(),
   sampleResourceHealth: vi.fn().mockRejectedValue(new Error("Synthetic sample unavailable")),
   desktopUpdateStatus: vi.fn().mockResolvedValue({
@@ -186,6 +187,7 @@ describe("successful terminal tab cleanup", () => {
     })
     vi.mocked(api.saveWorkspaceSelection).mockResolvedValue(undefined)
     vi.mocked(api.loadOmpConfig).mockResolvedValue(config("Initial"))
+    vi.mocked(api.switchTerminal).mockReset()
     vi.mocked(api.checkOmpUpdate).mockResolvedValue({
       hasUpdate: false,
       currentVersion: "18.1.19",
@@ -234,6 +236,76 @@ describe("successful terminal tab cleanup", () => {
       (node) => node.dataset.terminalId,
     )
   }
+  it.each(["successful exit", "failed exit", "closed tab", "recovery first"] as const)(
+    "preserves %s when a model switch reports recovery",
+    async (scenario) => {
+      const initial = config("Initial")
+      const alternate = config("Alternate").models[0]
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, alternate],
+      })
+      let rejectSwitch!: (error: unknown) => void
+      vi.mocked(api.switchTerminal).mockReturnValue(
+        new Promise((_, reject) => {
+          rejectSwitch = reject
+        }),
+      )
+      await launch(1)
+      await act(async () => {
+        const select = container.querySelector<HTMLSelectElement>(".session-model-select")!
+        select.value = alternate.selector
+        select.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      expect(api.switchTerminal).toHaveBeenCalledTimes(1)
+      expect(container.querySelector<HTMLSelectElement>(".session-model-select")!.disabled).toBe(
+        true,
+      )
+      const reject = () =>
+        rejectSwitch({
+          code: "terminal_switch_input_recovery",
+          message: "Synthetic preserved input",
+          recovery: {
+            terminalId: "terminal-1",
+            generation: 3,
+            token: "synthetic-recovery-token",
+            byteCount: 25,
+            state: "pending",
+          },
+        })
+      if (scenario === "recovery first") {
+        await act(async () => reject())
+        const buttons = container.querySelectorAll<HTMLButtonElement>(
+          ".switch-input-recovery-actions button",
+        )
+        expect(buttons).toHaveLength(2)
+        expect(buttons[0].disabled).toBe(false)
+        expect(buttons[1].disabled).toBe(false)
+        expect(cleanup().disabled).toBe(true)
+      }
+      await exit(1, scenario !== "failed exit")
+      if (scenario === "closed tab") {
+        await act(async () => cleanup().click())
+        expect(terminalIds()).toEqual([])
+      }
+      if (scenario !== "recovery first") await act(async () => reject())
+      expect(container.querySelector(".switch-input-recovery")).toBeNull()
+      if (scenario === "closed tab") {
+        expect(terminalIds()).toEqual([])
+      } else if (scenario === "failed exit") {
+        expect(cleanup().disabled).toBe(true)
+        expect(terminalIds()).toEqual(["terminal-1"])
+      } else {
+        expect(cleanup().disabled).toBe(false)
+        expect(cleanup().textContent).toBe("1")
+        await act(async () => cleanup().click())
+        expect(terminalIds()).toEqual([])
+      }
+      expect(api.switchTerminal).toHaveBeenCalledTimes(1)
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      expect(confirm).not.toHaveBeenCalled()
+    },
+  )
   it("closes successful exits together while retaining running and failed terminals", async () => {
     await launch(4)
     expect(cleanup().disabled).toBe(true)

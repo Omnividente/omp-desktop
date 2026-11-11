@@ -1929,7 +1929,7 @@ function App() {
         const recovery = switchInputRecoveryDetails(error)
         setTabs((current) =>
           current.map((candidate) =>
-            candidate.id === terminalId
+            candidate.id === terminalId && candidate.status === "running"
               ? { ...candidate, switching: false, switchRecovery: recovery }
               : candidate,
           ),
