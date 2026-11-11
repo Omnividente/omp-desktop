@@ -5478,6 +5478,48 @@ body:has([aria-modal="true"]) .notification-stack > .update-toast {
   background: var(--chrome-surface, #111412);
 }
 
+.incident-search-controls {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.incident-search {
+  display: flex;
+  flex: 1 1 240px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-soft);
+  font-size: 0.6875rem;
+}
+
+.incident-search input {
+  min-width: 0;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--chrome-border, #2d342f);
+  border-radius: 6px;
+  color: var(--chrome-text, #eef2ef);
+  background: var(--chrome-surface, #0e110f);
+}
+
+.incident-search-help {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.6875rem;
+}
+
+.incident-search-help span {
+  display: block;
+  margin-top: 4px;
+}
+
 .incident-terminal-filter {
   display: flex;
   flex: 1 1 200px;

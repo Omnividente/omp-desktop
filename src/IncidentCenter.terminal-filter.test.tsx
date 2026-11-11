@@ -372,4 +372,181 @@ describe("Incident Center terminal filter", () => {
     expect(statusButton("active").getAttribute("aria-pressed")).toBe("true")
     expect(visibleReasons()).toEqual(["Synthetic reason 1"])
   })
+  function searchInput() {
+    return container.querySelector<HTMLInputElement>('.incident-search input[type="search"]')!
+  }
+  async function searchFor(value: string) {
+    const input = searchInput()
+    await act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+  function clearSearchButton() {
+    return container.querySelector<HTMLButtonElement>(".incident-search-controls button")!
+  }
+
+  it.each(["en", "ru"] as const)(
+    "labels the retained search and distinguishes no matches from no history (%s)",
+    async (language) => {
+      await render([incident(1, "a")], [], language)
+      const input = searchInput()
+      expect(input.labels?.[0]?.textContent).toContain(t(language, "incidentSearchLabel"))
+      expect(document.getElementById(input.getAttribute("aria-describedby")!)?.textContent).toBe(
+        t(language, "incidentSearchHelp"),
+      )
+      expect(clearSearchButton().disabled).toBe(true)
+      await searchFor("missing")
+      expect(visibleReasons()).toEqual([])
+      expect(container.querySelector(".incident-empty")?.textContent).toContain(
+        t(language, "incidentNoSearchResults"),
+      )
+      expect(container.querySelector(".incident-search-help [role=status]")?.textContent).toBe(
+        t(language, "incidentSearchCount").replace("{count}", "0"),
+      )
+      await render([], [], language)
+      expect(input.value).toBe("missing")
+      expect(container.querySelector(".incident-empty")?.textContent).toContain(
+        t(language, "incidentNoIncidents"),
+      )
+    },
+  )
+
+  it("finds diagnostic text in 100 retained records without changing their order or counts", async () => {
+    const incidents = Array.from({ length: 100 }, (_, index) => ({
+      ...incident(index + 1, index % 2 ? "a" : "b", index % 4 === 0),
+      reason: index % 10 === 0 ? `Quota [429] ${index}` : `Other reason ${index}`,
+    }))
+    const before = structuredClone(incidents)
+    incidents.forEach(Object.freeze)
+    Object.freeze(incidents)
+    await render(incidents)
+    await allStatuses()
+    const counters = container.querySelector(".incident-filter")?.textContent
+    await searchFor(" [429] ")
+    expect(visibleReasons()).toEqual(
+      incidents
+        .filter((entry) => entry.reason?.includes("[429]"))
+        .reverse()
+        .map((entry) => entry.reason),
+    )
+    expect(container.querySelector(".incident-filter")?.textContent).toBe(counters)
+    expect(incidents).toEqual(before)
+    expect(onClearResolved).not.toHaveBeenCalled()
+    expect(onFocusTerminal).not.toHaveBeenCalled()
+    expect(saveTerminalCapture).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("intersects search with exact terminal and all status views", async () => {
+    await render([
+      { ...incident(1, "a"), reason: "Needle one" },
+      { ...incident(2, "a", true), reason: "Needle two" },
+      { ...incident(3, "b"), reason: "Needle three" },
+      { ...incident(4, "a"), reason: "Unrelated four" },
+    ])
+    await searchFor("needle")
+    await choose("a")
+    expect(visibleReasons()).toEqual(["Needle one"])
+    await act(() => statusButton("resolved").click())
+    expect(visibleReasons()).toEqual(["Needle two"])
+    await allStatuses()
+    expect(visibleReasons()).toEqual(["Needle two", "Needle one"])
+    await choose("")
+    expect(visibleReasons()).toEqual(["Needle three", "Needle two", "Needle one"])
+  })
+
+  it("uses current titles, recorded titles after closure, role and full fallback diagnostic text", async () => {
+    const entry = {
+      ...incident(1, "a"),
+      terminalLabel: "Recorded Café",
+      kind: "fallback" as const,
+      role: "reviewer",
+      fallbackFrom: "provider/primary",
+      fallbackTo: "provider/backup",
+      reason: `${"prefix ".repeat(40)}tail-marker`,
+    }
+    await render([entry], [tab("a", "Current Cafe\u0301")])
+    for (const query of ["CURRENT CAFÉ", "reviewer", "primary", "backup", "tail-marker"]) {
+      await searchFor(query)
+      expect(visibleReasons()).toEqual([entry.reason])
+    }
+    await searchFor("recorded")
+    expect(visibleReasons()).toEqual([])
+    await render([entry])
+    expect(visibleReasons()).toEqual([entry.reason])
+  })
+
+  it("preserves the query on updates and locale changes without clearing hidden resolved records", async () => {
+    const initial = [incident(1, "a"), incident(2, "b", true)]
+    await render(initial)
+    await searchFor("new reason")
+    searchInput().focus()
+    const next = [...initial, { ...incident(3, "a"), reason: "New reason" }]
+    await render(next, [], "ru")
+    expect(searchInput().value).toBe("new reason")
+    expect(document.activeElement).toBe(searchInput())
+    expect(visibleReasons()).toEqual(["New reason"])
+    const clear = container.querySelector<HTMLButtonElement>(".incident-clear-button")!
+    expect(clear.disabled).toBe(false)
+    await act(() => clear.click())
+    expect(onClearResolved).toHaveBeenCalledOnce()
+    expect(onClearResolved).toHaveBeenCalledWith()
+    await render(next.filter((entry) => entry.status !== "resolved"), [], "ru")
+    expect(searchInput().value).toBe("new reason")
+    expect(visibleReasons()).toEqual(["New reason"])
+  })
+
+  it("clears only search, restores its input focus and preserves the other filters", async () => {
+    await render([incident(1, "a", true), incident(2, "b", true), incident(3, "a")])
+    await choose("a")
+    await act(() => statusButton("resolved").click())
+    await searchFor("missing")
+    await act(() => clearSearchButton().click())
+    expect(searchInput().value).toBe("")
+    expect(document.activeElement).toBe(searchInput())
+    expect(select().value).toBe("a")
+    expect(statusButton("resolved").getAttribute("aria-pressed")).toBe("true")
+    expect(visibleReasons()).toEqual(["Synthetic reason 1"])
+    expect(clearSearchButton().disabled).toBe(true)
+    expect(onClearResolved).not.toHaveBeenCalled()
+    await searchFor("   ")
+    expect(visibleReasons()).toEqual(["Synthetic reason 1"])
+    expect(clearSearchButton().disabled).toBe(false)
+  })
+
+  it.each([{ isComposing: true }, { keyCode: 229 }])(
+    "leaves composition-marked Escape to the search input: %j",
+    async (composition) => {
+      await render([incident(1, "a")])
+      await searchFor("Synthetic")
+      const input = searchInput()
+      input.focus()
+      const event = new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+        ...composition,
+      })
+      await act(() => input.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(onClose).not.toHaveBeenCalled()
+      expect(input.value).toBe("Synthetic")
+    },
+  )
+
+  it("keeps ordinary Escape dismissal and resets the query after remount", async () => {
+    await render([incident(1, "a")])
+    await searchFor("missing")
+    await act(() =>
+      searchInput().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    )
+    expect(onClose).toHaveBeenCalledOnce()
+    await act(() => root.render(null))
+    await render([incident(1, "a")])
+    expect(searchInput().value).toBe("")
+    expect(visibleReasons()).toEqual(["Synthetic reason 1"])
+  })
 })

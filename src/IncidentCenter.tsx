@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react"
 import { errorMessage, saveTerminalCapture } from "./api"
 import { Icon } from "./Icon"
+import { matchesIncidentSearch } from "./incidentSearch"
 import { t, type Lang } from "./i18n"
 import {
   runtimeIncidentsLatestFirst,
@@ -37,6 +38,10 @@ export function IncidentCenter({
   onFocusTerminal,
 }: IncidentCenterProps) {
   const captureHelpId = useId()
+  const searchHelpId = useId()
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [search, setSearch] = useState("")
+  const hasSearch = search.trim().length > 0
   const [filter, setFilter] = useState<IncidentFilter>("active")
   const [terminalFilter, setTerminalFilter] = useState("")
   const [captures, setCaptures] = useState<Record<string, CaptureState>>({})
@@ -66,9 +71,10 @@ export function IncidentCenter({
       latestFirst.filter(
         (incident) =>
           (filter === "all" || incident.status === filter) &&
-          (!selectedTerminal || incident.terminalId === selectedTerminal),
+          (!selectedTerminal || incident.terminalId === selectedTerminal) &&
+          matchesIncidentSearch(incident, tabById.get(incident.terminalId)?.label, search),
       ),
-    [filter, latestFirst, selectedTerminal],
+    [filter, latestFirst, selectedTerminal, tabById, search],
   )
   const resolvedCount = incidents.filter((incident) => incident.status === "resolved").length
   const activeCount = incidents.filter((incident) => incident.status === "active").length
@@ -108,6 +114,7 @@ export function IncidentCenter({
     initialFocusRef.current?.focus()
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return
       if (event.key === "Escape") {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -212,6 +219,39 @@ export function IncidentCenter({
         </p>
 
         <div className="incident-center-toolbar">
+          <div className="incident-search-controls">
+            <label className="incident-search">
+              <span>{t(language, "incidentSearchLabel")}</span>
+              <input
+                aria-describedby={searchHelpId}
+                autoComplete="off"
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                ref={searchRef}
+                spellCheck={false}
+                type="search"
+                value={search}
+              />
+            </label>
+            <button
+              className="button secondary"
+              disabled={!search}
+              onClick={() => {
+                setSearch("")
+                searchRef.current?.focus()
+              }}
+              type="button"
+            >
+              {t(language, "incidentSearchClear")}
+            </button>
+          </div>
+          <p className="incident-search-help" id={searchHelpId}>
+            {t(language, "incidentSearchHelp")}
+            {hasSearch && (
+              <span aria-atomic="true" role="status">
+                {t(language, "incidentSearchCount").replace("{count}", String(visibleIncidents.length))}
+              </span>
+            )}
+          </p>
           <div
             aria-label={t(language, "incidentFilterLabel")}
             className="incident-filter"
@@ -279,13 +319,15 @@ export function IncidentCenter({
                   language,
                   incidents.length === 0
                     ? "incidentNoIncidents"
-                    : filter === "resolved"
-                      ? selectedTerminal
-                        ? "incidentNoResolvedForTerminal"
-                        : "incidentNoResolvedIncidents"
-                      : selectedTerminal
-                        ? "incidentNoActiveForTerminal"
-                        : "incidentNoActiveIncidents",
+                    : hasSearch
+                      ? "incidentNoSearchResults"
+                      : filter === "resolved"
+                        ? selectedTerminal
+                          ? "incidentNoResolvedForTerminal"
+                          : "incidentNoResolvedIncidents"
+                        : selectedTerminal
+                          ? "incidentNoActiveForTerminal"
+                          : "incidentNoActiveIncidents",
                 )}
               </strong>
             </div>
