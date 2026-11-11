@@ -319,7 +319,8 @@ function App() {
     request: number
     active: number | null
   }>({ request: 0, active: null })
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
+  // Imported session IDs can repeat across projects; a rename belongs to one file.
+  const [renamingSessionPath, setRenamingSessionPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const sessionRenameRequestRef = useRef(0)
   const sessionRenamePendingRef = useRef<number | null>(null)
@@ -2251,7 +2252,7 @@ function App() {
   const startRenameSession = useCallback((session: SessionSummary) => {
     ++sessionRenameRequestRef.current
     setRenameValue(session.title)
-    setRenamingSessionId(session.id)
+    setRenamingSessionPath(session.filePath)
   }, [])
 
   const changeRenameValue = useCallback((value: string) => {
@@ -2268,24 +2269,24 @@ function App() {
 
   const submitRenameSession = useCallback(
     async (session: SessionSummary) => {
-      if (renamingSessionId !== session.id) return
+      if (renamingSessionPath !== session.filePath) return
       const request = sessionRenameRequestRef.current
       if (sessionRenamePendingRef.current === request) return
       const trimmed = renameValue.trim()
       if (!trimmed) {
-        setRenamingSessionId(null)
+        setRenamingSessionPath(null)
         return
       }
       sessionRenamePendingRef.current = request
       try {
         if (await updateSessionTitlePin(session, trimmed)) {
-          if (request === sessionRenameRequestRef.current) setRenamingSessionId(null)
+          if (request === sessionRenameRequestRef.current) setRenamingSessionPath(null)
         }
       } finally {
         if (sessionRenamePendingRef.current === request) sessionRenamePendingRef.current = null
       }
     },
-    [renameValue, renamingSessionId, updateSessionTitlePin],
+    [renameValue, renamingSessionPath, updateSessionTitlePin],
   )
 
   const toggleTabTitlePin = useCallback(
@@ -2307,7 +2308,7 @@ function App() {
       } else if (event.key === "Escape") {
         event.preventDefault()
         ++sessionRenameRequestRef.current
-        setRenamingSessionId(null)
+        setRenamingSessionPath(null)
       }
     },
     [submitRenameSession],
@@ -2695,7 +2696,9 @@ function App() {
             onToggleTitlePin: toggleSessionTitlePin,
             platform: payload.runtime.platform,
             renameValue,
-            renamingSessionId,
+            renamingSessionId:
+              workspaceSessions.find((session) => session.filePath === renamingSessionPath)?.id ??
+              null,
             search,
             selectedSessionId,
             selectedWorkspaceName: selectedWorkspace?.name ?? null,

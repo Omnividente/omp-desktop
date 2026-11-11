@@ -2214,6 +2214,114 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).not.toHaveBeenCalled()
   })
 
+  function changeSessionRename(value: string) {
+    const input = element<HTMLInputElement>(".session-rename")
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    return input
+  }
+
+  it.each([true, false])(
+    "keeps a failed rename attached to its file across projects (same ID: %s)",
+    async (sameId) => {
+      const initial = workspacePayload("A", "B")
+      if (sameId) initial.sessions[1].id = initial.sessions[0].id
+      const [first, second] = initial.sessions
+      vi.mocked(api.bootstrap).mockResolvedValue(initial)
+      invokeMock.mockRejectedValueOnce(new Error("Synthetic title save failure"))
+      await act(async () => root.render(<App />))
+      await act(async () =>
+        element(`[title="${t(initial.settings.language, "editFixedTitle")}"]`).click(),
+      )
+      act(() => changeSessionRename("Only for A"))
+      const input = element<HTMLInputElement>(".session-rename")
+      await act(async () =>
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      )
+      expect(input.value).toBe("Only for A")
+      expect(container.textContent).toContain("Synthetic title save failure")
+      await act(async () => {
+        const project = element('.project-item[aria-label^="B,"]')
+        project.focus()
+        project.click()
+      })
+      expect(container.querySelector(".session-rename")).toBeNull()
+      expect(element(".session-select strong").textContent).toBe(second.title)
+      expect(invokeMock).toHaveBeenCalledExactlyOnceWith(
+        "set_session_title_pin",
+        { path: first.filePath, title: "Only for A" },
+        undefined,
+      )
+
+      await act(async () => element('.project-item[aria-label^="A,"]').click())
+      const retry = element<HTMLInputElement>(".session-rename")
+      expect(retry.value).toBe("Only for A")
+      invokeMock.mockResolvedValue({
+        ...initial,
+        sessions: [{ ...first, title: "Only for A", pinnedTitle: "Only for A" }, second],
+      })
+      await act(async () =>
+        retry.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      )
+      expect(container.querySelector(".session-rename")).toBeNull()
+      expect(invokeMock.mock.calls).toEqual([
+        ["set_session_title_pin", { path: first.filePath, title: "Only for A" }, undefined],
+        ["set_session_title_pin", { path: first.filePath, title: "Only for A" }, undefined],
+      ])
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps equal-ID project renames separate while an earlier blur save is pending", async () => {
+    const initial = workspacePayload("A", "B")
+    initial.sessions[1].id = initial.sessions[0].id
+    const [first, second] = initial.sessions
+    const pending = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockResolvedValue(initial)
+    invokeMock.mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      element(`[title="${t(initial.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    act(() => changeSessionRename("Saved A"))
+    await act(async () => {
+      const project = element('.project-item[aria-label^="B,"]')
+      project.focus()
+      project.click()
+    })
+    expect(container.querySelector(".session-rename")).toBeNull()
+    expect(invokeMock).toHaveBeenCalledExactlyOnceWith(
+      "set_session_title_pin",
+      { path: first.filePath, title: "Saved A" },
+      undefined,
+    )
+    await act(async () =>
+      element(`[title="${t(initial.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    expect(element<HTMLInputElement>(".session-rename").value).toBe(second.title)
+    act(() => changeSessionRename("Draft B"))
+    const nextInput = element<HTMLInputElement>(".session-rename")
+    const savedFirst = { ...first, title: "Saved A", pinnedTitle: "Saved A" }
+    await act(async () => pending.resolve({ ...initial, sessions: [savedFirst, second] }))
+    expect(element<HTMLInputElement>(".session-rename")).toBe(nextInput)
+    expect(nextInput.value).toBe("Draft B")
+    expect(document.activeElement).toBe(nextInput)
+    expect(invokeMock).toHaveBeenCalledTimes(1)
+    invokeMock.mockResolvedValue({
+      ...initial,
+      sessions: [savedFirst, { ...second, title: "Draft B", pinnedTitle: "Draft B" }],
+    })
+    await act(async () =>
+      nextInput.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(container.querySelector(".session-rename")).toBeNull()
+    expect(invokeMock.mock.calls).toEqual([
+      ["set_session_title_pin", { path: first.filePath, title: "Saved A" }, undefined],
+      ["set_session_title_pin", { path: second.filePath, title: "Draft B" }, undefined],
+    ])
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
   it("retains a failed session rename for retry and submits an unchanged pending draft only once", async () => {
     const pending = deferred<BootstrapPayload>()
     invokeMock.mockReturnValue(pending.promise)
