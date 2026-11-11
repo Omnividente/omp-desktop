@@ -3748,9 +3748,9 @@ describe("App lifecycle serialization", () => {
       } else if (navigation === "overview") {
         await act(async () => element(".workspace-overview-button").click())
       } else if (navigation === "other-project") {
-        const other = Array.from(container.querySelectorAll<HTMLButtonElement>(".project-item")).find(
-          (button) => button.textContent?.includes("Other"),
-        )!
+        const other = Array.from(
+          container.querySelectorAll<HTMLButtonElement>(".project-item"),
+        ).find((button) => button.textContent?.includes("Other"))!
         await act(async () => other.click())
       } else if (navigation === "closed-source") {
         await act(async () => element(".terminal-tab.is-active .tab-close").click())
