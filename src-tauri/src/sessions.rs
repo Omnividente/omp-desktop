@@ -5534,7 +5534,10 @@ mod tests {
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
             .collect::<BTreeSet<_>>();
-        for tail in ["{malformed-answer}\n", "{\"type\":\"response_item\",\"payload\":"] {
+        for tail in [
+            "{malformed-answer}\n",
+            "{\"type\":\"response_item\",\"payload\":",
+        ] {
             let corrupt = format!("{header}\n{tail}");
             fs::write(&source, &corrupt).unwrap();
             for mode in [ImportMode::Update, ImportMode::Skip, ImportMode::Copy] {
@@ -5564,7 +5567,10 @@ mod tests {
         request.mode = ImportMode::Update;
         let retried = import_session(&request, &session_root).unwrap();
         assert_eq!(retried.status, ImportItemStatus::Updated);
-        assert_eq!(retried.destination_path.as_deref(), Some(destination.as_str()));
+        assert_eq!(
+            retried.destination_path.as_deref(),
+            Some(destination.as_str())
+        );
         let transcript = read_session_transcript(&destination, &session_root).unwrap();
         assert!(transcript
             .entries
