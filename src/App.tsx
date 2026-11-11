@@ -856,7 +856,10 @@ function App() {
     const activeElement = document.activeElement
     if (!(activeElement instanceof HTMLElement)) return
     const rail = activeElement.closest<HTMLElement>(".project-rail")
-    if (!rail || !activeElement.closest(".project-actions, .project-sessions, .open-project-button"))
+    if (
+      !rail ||
+      !activeElement.closest(".project-actions, .project-sessions, .open-project-button")
+    )
       return
     rail.querySelector<HTMLButtonElement>(".rail-open-folder")?.focus()
   }, [])
