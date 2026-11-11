@@ -294,3 +294,27 @@ it("uses retained loaded answers after a failed refresh without hiding the warni
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Synthetic read failed")
   expect(readSessionAnswers).toHaveBeenCalledTimes(2)
 })
+
+it("keeps drafts and answer navigation usable after a Markdown failure", async () => {
+  const source = "> ".repeat(8000) + "synthetic answer"
+  vi.mocked(readSessionAnswers).mockResolvedValue(
+    transcript(tab.sessionPath!, "# Earlier answer", source),
+  )
+  await render()
+  expect(container.querySelector(".markdown-source")?.textContent).toBe(source)
+  expect(container.textContent).toContain(t("en", "markdownFormattingFailed"))
+  const input = container.querySelector("input")!
+  input.focus()
+  expect(input.value).toBe("Unsent draft")
+  await act(async () => button("Previous answer").click())
+  expect(container.querySelector("h1")?.textContent).toBe("Earlier answer")
+  expect(container.textContent).not.toContain(t("en", "markdownFormattingFailed"))
+  await act(async () => button("Latest loaded answer").click())
+  expect(container.querySelector(".markdown-source")?.textContent).toBe(source)
+  await act(async () => button("Collapse answer").click())
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
+  expect(container.querySelector("input")).toBe(input)
+  expect(input.value).toBe("Unsent draft")
+  expect(readSessionAnswers).toHaveBeenCalledTimes(1)
+  expect(onError).not.toHaveBeenCalled()
+})

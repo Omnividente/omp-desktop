@@ -1408,3 +1408,33 @@ it.each([
     expect(writeText).toHaveBeenCalledTimes(1)
   },
 )
+
+it("preserves reader actions after an offscreen Markdown failure", async () => {
+  const source = "> ".repeat(8000) + "UNIQUE_FALLBACK_NEEDLE"
+  const entries = transcript.entries.map((entry, index) =>
+    index === 120 ? { ...entry, text: source, dialogueText: source } : entry,
+  )
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries })
+  await click("Reread file")
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(container.querySelector('[data-virtual-index="120"]')).toBeNull()
+  await searchFor("UNIQUE_FALLBACK_NEEDLE")
+  expect(currentOccurrence()?.textContent).toBe("UNIQUE_FALLBACK_NEEDLE")
+  expect(container.querySelector(".markdown-source")?.textContent).toBe(source)
+  const failedEntry = container.querySelector<HTMLElement>('[data-virtual-index="120"]')!
+  const copyText = failedEntry.querySelector<HTMLButtonElement>('[aria-label="Copy text"]')!
+  const copyMarkdown = failedEntry.querySelector<HTMLButtonElement>(
+    '[aria-label="Copy Markdown"]',
+  )!
+  await act(async () => copyText.click())
+  expect(writeText).toHaveBeenLastCalledWith(source)
+  await act(async () => copyMarkdown.click())
+  expect(writeText).toHaveBeenLastCalledWith(source)
+  await click("Source")
+  expect(container.querySelector(".markdown-source")?.textContent).toBe(source)
+  await click("Formatted")
+  expect(currentOccurrence()?.textContent).toBe("UNIQUE_FALLBACK_NEEDLE")
+  await click("Close")
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+  expect(container.querySelector("button")?.textContent).toBe("Open transcript")
+})
