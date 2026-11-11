@@ -154,6 +154,53 @@ describe("toast queue bounds and coalescing", () => {
 })
 
 describe("toast identity", () => {
+  // The public custom-model/fallback path preserves literal IDs. Splitting these
+  // edges with a delimiter makes distinct configured transitions share a key.
+  const edgeA = runtimeEvent({
+    kind: "retryFallbackApplied",
+    modelRole: null,
+    fallbackRole: "default",
+    fallbackFrom: "p/a|p/b",
+    fallbackTo: "p/c",
+    model: "p/c",
+  })
+  const edgeB = runtimeEvent({
+    ...edgeA,
+    fallbackFrom: "p/a",
+    fallbackTo: "p/b|p/c",
+    model: "p/b|p/c",
+  })
+
+  it("keeps literal fallback edges separate while coalescing only their exact repeats", () => {
+    let state = enqueueToast(createToastState(), toastFor(edgeA), 1_000)
+    state = enqueueToast(state, toastFor(edgeB), 1_001)
+    state = enqueueToast(state, toastFor(edgeA), 1_002)
+
+    expect(state.items).toHaveLength(2)
+    expect(state.items.map((item) => item.count)).toEqual([2, 1])
+    expect(state.items[0].dedupeKey).not.toBe(state.items[1].dedupeKey)
+    expect(state.items[0].createdAt).toBe(1_000)
+  })
+
+  it.each(["dismiss", "expire"] as const)(
+    "does not mute a different literal fallback edge after %s",
+    (action) => {
+      let state = enqueueToast(createToastState(), toastFor(edgeA), 1_000)
+      const now = action === "expire" ? 1_000 + TOAST_TTL_MS : 1_001
+      state =
+        action === "expire"
+          ? expireToasts(state, now)
+          : dismissToast(state, state.items[0].id, now)
+
+      expect(state.items).toHaveLength(0)
+      expect(enqueueToast(state, toastFor(edgeA), now + 1)).toBe(state)
+      const next = enqueueToast(state, toastFor(edgeB), now + 1)
+      expect(next.items).toHaveLength(1)
+      expect(next.items[0].dedupeKey).toBe(toastFor(edgeB).dedupeKey)
+      expect(next.items[0].count).toBe(1)
+    },
+  )
+
   it("never merges different terminals, roles, or fallback edges", () => {
     const variants = [
       fallbackEvent,
