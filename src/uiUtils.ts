@@ -149,8 +149,7 @@ export function mergeSessionIntoPayload(
     session,
     ...payload.sessions.filter(
       (candidate) =>
-        (candidate.id !== session.id ||
-          normalizedPath(candidate.cwd, platform) !== sessionCwd) &&
+        (candidate.id !== session.id || normalizedPath(candidate.cwd, platform) !== sessionCwd) &&
         normalizedPath(candidate.filePath, platform) !== sessionPath,
     ),
   ].sort((left, right) => right.updatedAt - left.updatedAt)
