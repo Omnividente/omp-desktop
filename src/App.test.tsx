@@ -4901,4 +4901,48 @@ describe("App lifecycle serialization", () => {
     expect(confirm).toHaveBeenCalledTimes(2)
     expect(api.removeWorkspace).not.toHaveBeenCalled()
   })
+
+  it.each(["ru", "en"] as const)(
+    "reports stop-and-close confirmation failures without closing the terminal (%s)",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(`[title="${t(language, "resumeSession")}"]`).click())
+      const tab = element(".terminal-tab.is-active")
+      const pane = element(".terminal-pane.is-active")
+      const close = element<HTMLButtonElement>(".terminal-tab.is-active .tab-close")
+      for (const reason of [
+        new Error("Synthetic close dialog failure"),
+        "Dialog unavailable",
+        undefined,
+      ]) {
+        const pending = deferred<boolean>()
+        vi.mocked(confirm).mockReturnValueOnce(pending.promise)
+        act(() => close.click())
+        expect(element(".terminal-tab.is-active")).toBe(tab)
+        await act(async () => pending.reject(reason))
+        expect(container.textContent).toContain(api.errorMessage(reason, language))
+        expect(element(".terminal-tab.is-active")).toBe(tab)
+        expect(element(".terminal-pane.is-active")).toBe(pane)
+        expect(close.disabled).toBe(false)
+        expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+      }
+      vi.mocked(confirm).mockResolvedValueOnce(false)
+      await act(async () => close.click())
+      expect(element(".terminal-tab.is-active")).toBe(tab)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+      vi.mocked(confirm).mockResolvedValueOnce(true)
+      await act(async () => close.click())
+      expect(confirm).toHaveBeenCalledTimes(5)
+      expect(invokeMock.mock.calls.filter(([command]) => command === "close_terminal")).toEqual([
+        ["close_terminal", { terminalId: started.terminalId }, undefined],
+      ])
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      expect(api.deleteSession).not.toHaveBeenCalled()
+    },
+  )
 })

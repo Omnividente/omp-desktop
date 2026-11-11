@@ -2060,6 +2060,72 @@ describe("SettingsPanel configuration generations", () => {
     ).toEqual(["openai"])
   })
 
+  it.each(["ru", "en"] as const)(
+    "reports provider-removal confirmation failures without changing the draft (%s)",
+    async (language) => {
+      confirmMock.mockReset()
+      const configured = { ...settings, language }
+      const snapshot = {
+        ...ompConfig,
+        proxyProviders: ["codex-lb"],
+        disabledProviders: ["codex-lb"],
+      }
+      await renderPanel(runtime, configured, false, snapshot)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      const remove = container.querySelector<HTMLButtonElement>(".provider-remove-button")!
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      for (const reason of [
+        new Error("Synthetic provider dialog failure"),
+        "Dialog unavailable",
+        undefined,
+      ]) {
+        const pending = deferred<boolean>()
+        confirmMock.mockReturnValueOnce(pending.promise)
+        act(() => remove.click())
+        await act(async () => pending.reject(reason))
+        expect(onError).toHaveBeenLastCalledWith(
+          reason instanceof Error
+            ? reason.message
+            : (reason ?? (language === "en" ? "Unknown error" : "Неизвестная ошибка")),
+        )
+        expect(container.querySelector(".provider-remove-button")).toBe(remove)
+        expect(save.disabled).toBe(true)
+        expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+        expect(onSaved).not.toHaveBeenCalled()
+      }
+      expect(onError).toHaveBeenCalledTimes(3)
+      confirmMock.mockResolvedValueOnce(false)
+      await act(async () => remove.click())
+      expect(container.querySelector(".provider-remove-button")).toBe(remove)
+      expect(save.disabled).toBe(true)
+      confirmMock.mockResolvedValueOnce(true)
+      await act(async () => remove.click())
+      expect(confirmMock).toHaveBeenCalledTimes(5)
+      expect(container.querySelector(".provider-remove-button")).toBeNull()
+      expect(save.disabled).toBe(false)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(
+          {
+            ...snapshot,
+            credentials: snapshot.credentials.filter((item) => item.provider !== "codex-lb"),
+            proxyProviders: [],
+            disabledProviders: [],
+          },
+          runtime,
+          configured,
+        ),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toMatchObject({
+        removedCustomProviders: ["codex-lb"],
+        proxyProviders: [],
+        disabledProviders: [],
+      })
+    },
+  )
+
   it.each([null, 5])("preserves explicit operational reset against baseline %s", async (value) => {
     const snapshot: OmpConfigSnapshot = {
       ...ompConfig,

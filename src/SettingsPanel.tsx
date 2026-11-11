@@ -902,10 +902,16 @@ export function SettingsPanel({
   }
 
   const removeCustomProvider = async (provider: string) => {
-    const accepted = await confirm(
-      t(language, "removeCustomProviderConfirm").replace("{provider}", provider),
-      { title: t(language, "removeCustomProvider"), kind: "warning" },
-    )
+    let accepted: boolean
+    try {
+      accepted = await confirm(
+        t(language, "removeCustomProviderConfirm").replace("{provider}", provider),
+        { title: t(language, "removeCustomProvider"), kind: "warning" },
+      )
+    } catch (error) {
+      onError(errorMessage(error, language))
+      return
+    }
     if (!accepted) return
     setRemovedCustomProviders((current) =>
       current.includes(provider) ? current : [...current, provider],
