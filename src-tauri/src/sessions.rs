@@ -4066,7 +4066,11 @@ mod tests {
         let fixture = CodexHomeFixture::new(&std::env::temp_dir());
         let profile = fixture.0.join("profile");
         let custom = fixture.0.join("custom home 東京");
-        fixture.write_session(&profile.join(".codex"), "default-only", "Default profile title");
+        fixture.write_session(
+            &profile.join(".codex"),
+            "default-only",
+            "Default profile title",
+        );
         fixture.write_session(&custom, "custom-only", "Custom profile title");
         let root = super::codex_sessions_root_from(custom.to_str(), Some(&profile)).unwrap();
         assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
