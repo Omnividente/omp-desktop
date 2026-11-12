@@ -2184,7 +2184,10 @@ mod tests {
         );
         assert_ne!(backup, path);
         assert_eq!(backup.parent(), Some(root.as_path()));
-        assert_eq!(fs::read(&backup).expect("backup should be readable"), original);
+        assert_eq!(
+            fs::read(&backup).expect("backup should be readable"),
+            original
+        );
 
         // Reopen the actual destination; an error does not imply unchanged bytes.
         let persisted = fs::read(&path).expect("published settings should be readable");
