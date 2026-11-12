@@ -151,6 +151,7 @@ export function TerminalWorkspace({
   const stageRef = useRef<HTMLElement>(null)
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
+  const backgroundCloseFocusRef = useRef<{ origin: HTMLButtonElement; index: number } | null>(null)
   const previousTabCountRef = useRef(tabs.length)
   const tabStripRef = useRef<HTMLDivElement>(null)
   const activeHeaderRef = useRef<HTMLDivElement>(null)
@@ -195,6 +196,15 @@ export function TerminalWorkspace({
 
   useEffect(() => {
     const cancelFocusRestoration = (event: Event) => {
+      const pendingClose = backgroundCloseFocusRef.current
+      if (
+        pendingClose &&
+        event.type === "pointerdown" &&
+        event.target instanceof Node &&
+        !pendingClose.origin.contains(event.target)
+      ) {
+        backgroundCloseFocusRef.current = null
+      }
       if (
         !focusOriginRef.current ||
         !(event.target instanceof Node) ||
@@ -213,6 +223,27 @@ export function TerminalWorkspace({
       document.removeEventListener("pointerdown", cancelFocusRestoration)
     }
   }, [])
+
+  useLayoutEffect(() => {
+    const pending = backgroundCloseFocusRef.current
+    if (!pending || pending.origin.isConnected) return
+    backgroundCloseFocusRef.current = null
+    if (
+      tabs.length === 0 ||
+      focusOriginRef.current !== pending.origin ||
+      (document.activeElement !== document.body && document.activeElement !== pending.origin)
+    )
+      return
+    // Closing an inactive tab must not activate another terminal or strand keyboard focus.
+    const headers = tabStripRef.current?.querySelectorAll<HTMLButtonElement>(
+      ".terminal-tab > button:first-child",
+    )
+    const target = headers?.[Math.min(pending.index, headers.length - 1)]
+    target?.focus({ preventScroll: true })
+    if (target?.parentElement && tabStripRef.current) {
+      revealTabHeader(tabStripRef.current, target.parentElement)
+    }
+  }, [tabs])
 
   useLayoutEffect(() => {
     const hadTabs = previousTabCountRef.current > 0
@@ -413,7 +444,13 @@ export function TerminalWorkspace({
                   <button
                     className="tab-close"
                     disabled={tab.switching || tab.primaryProviderPinPending}
-                    onClick={() => onCloseTab(tab.id)}
+                    onClick={(event) => {
+                      backgroundCloseFocusRef.current =
+                        tab.id !== activeTabId && document.activeElement === event.currentTarget
+                          ? { origin: event.currentTarget, index }
+                          : null
+                      onCloseTab(tab.id)
+                    }}
                     title={
                       tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")
                     }
@@ -565,6 +602,7 @@ export function TerminalWorkspace({
             setTabPickerOpen(false)
             onFocusTerminal(terminalId)
           }}
+          runtimeStatusByTerminal={runtimeStatusByTerminal}
           tabs={tabs}
         />
       )}

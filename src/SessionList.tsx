@@ -121,6 +121,11 @@ export function SessionList({
     [visibleSessions, selectedModel],
   )
   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(() => new Set())
+  const selectionExpansionRef = useRef<{
+    workspace: string | null
+    id: string
+    ancestors: string[]
+  } | null>(null)
   const sessionTree = useMemo(
     () => buildSessionTree(allSessions, platform),
     [allSessions, platform],
@@ -147,6 +152,7 @@ export function SessionList({
   )
 
   useEffect(() => {
+    selectionExpansionRef.current = null
     setExpandedSessionIds(new Set())
     setModelFilter({ workspace: selectedWorkspacePath, model: null })
   }, [selectedWorkspacePath])
@@ -223,8 +229,25 @@ export function SessionList({
   })
 
   useEffect(() => {
-    if (!selectedSessionId) return
+    if (!selectedSessionId) {
+      selectionExpansionRef.current = null
+      return
+    }
     const ancestors = sessionGroupExpansionIds(sessionTree, selectedSessionId)
+    const previous = selectionExpansionRef.current
+    selectionExpansionRef.current = {
+      workspace: selectedWorkspacePath,
+      id: selectedSessionId,
+      ancestors,
+    }
+    // Fresh metadata must not undo a manual collapse of the same selected path.
+    if (
+      previous?.workspace === selectedWorkspacePath &&
+      previous.id === selectedSessionId &&
+      previous.ancestors.length === ancestors.length &&
+      previous.ancestors.every((id, index) => id === ancestors[index])
+    )
+      return
     if (ancestors.length === 0) return
     setExpandedSessionIds((current) => {
       const next = new Set(current)
@@ -236,7 +259,7 @@ export function SessionList({
       }
       return changed ? next : current
     })
-  }, [selectedSessionId, sessionTree])
+  }, [selectedSessionId, selectedWorkspacePath, sessionTree])
 
   // Session cards are fixed-height in App.css: 55px row + 2px separation.
   const { virtualItems, totalHeight, scrollToIndex } = useVirtualList(flattenedSessions, listRef, {
@@ -496,6 +519,7 @@ export function SessionList({
                     childrenExpanded={vi.item.expanded}
                     depth={vi.item.depth}
                     deleting={deleting}
+                    groupToggleDisabled={filtersActive}
                     lang={lang}
                     launchDisabled={launchDisabled}
                     hasChildren={vi.item.hasChildren}

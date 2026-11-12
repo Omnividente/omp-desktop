@@ -63,6 +63,7 @@ export interface MarkdownDocument {
   text: string
   nodes: MarkdownNode[]
   sourceMode: boolean
+  formattingFailed?: boolean
 }
 
 // Decode only character references, never markup. The detached textarea receives
@@ -246,8 +247,19 @@ export function markdownContent(source: string, sourceMode = false): MarkdownDoc
     }
     return nodes
   }
-  const nodes = sourceMode ? [leaf(source)] : blocks(marked.lexer(source, { gfm: true }))
-  return { text: chunks.join(""), nodes, sourceMode }
+  try {
+    const nodes = sourceMode ? [leaf(source)] : blocks(marked.lexer(source, { gfm: true }))
+    return { text: chunks.join(""), nodes, sourceMode }
+  } catch {
+    // One unreadable Markdown structure must not take down the reader or terminal.
+    // Discard partial leaves and offsets; source text stays inert and copyable.
+    return {
+      text: source,
+      nodes: [{ kind: "text", value: source, start: 0 }],
+      sourceMode: true,
+      formattingFailed: true,
+    }
+  }
 }
 
 interface MarkdownContentProps {
@@ -374,9 +386,18 @@ export const MarkdownContent = memo(function MarkdownContent({
         rendered
       )
     })
-  return content.sourceMode ? (
-    <pre className="markdown-content markdown-source">{render(content.nodes)}</pre>
-  ) : (
-    <div className="markdown-content">{render(content.nodes)}</div>
+  return (
+    <>
+      {content.formattingFailed && (
+        <p className="field-help" role="status">
+          {t(lang, "markdownFormattingFailed")}
+        </p>
+      )}
+      {content.sourceMode ? (
+        <pre className="markdown-content markdown-source">{render(content.nodes)}</pre>
+      ) : (
+        <div className="markdown-content">{render(content.nodes)}</div>
+      )}
+    </>
   )
 })

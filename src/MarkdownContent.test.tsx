@@ -2,6 +2,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { marked } from "marked"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { MarkdownContent, markdownContent } from "./MarkdownContent"
 import { SEARCH_HIGHLIGHT_LIMIT, TranscriptSearch } from "./transcriptSearch"
@@ -25,6 +26,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 it("copies the literal fenced prompt, preserving whitespace without copying fences or activating its links", async () => {
@@ -309,4 +311,75 @@ it.each([
     root.render(<MarkdownContent content={content} lang="en" onOpen={vi.fn()} onError={vi.fn()} />),
   )
   expect(container.querySelector("pre code")?.textContent).toBe(expected)
+})
+
+it.each(["en", "ru"] as const)(
+  "keeps deeply nested Markdown readable and searchable after a parser failure (%s)",
+  (lang) => {
+    const source = "> ".repeat(8000) + "needle <script>inert</script> https://example.test"
+    const content = markdownContent(source)
+    expect(content.formattingFailed).toBe(true)
+    expect(content.sourceMode).toBe(true)
+    expect(content.text).toBe(source)
+    const search = new TranscriptSearch([content], "needle")
+    expect(search.count).toBe(1)
+    act(() =>
+      root.render(
+        <MarkdownContent
+          content={content}
+          lang={lang}
+          onOpen={vi.fn()}
+          onError={vi.fn()}
+          matches={search.matchesForEntry(0, 0)}
+          currentMatch={0}
+        />,
+      ),
+    )
+    expect(container.querySelector(".markdown-source")?.textContent).toBe(source)
+    expect(container.querySelector("mark.is-current")?.textContent).toBe("needle")
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      t(lang, "markdownFormattingFailed"),
+    )
+    expect(container.querySelector("script, a, img")).toBeNull()
+    act(() =>
+      root.render(
+        <MarkdownContent
+          content={markdownContent("**ordinary**")}
+          lang={lang}
+          onOpen={vi.fn()}
+          onError={vi.fn()}
+        />,
+      ),
+    )
+    expect(container.querySelector("strong")?.textContent).toBe("ordinary")
+    expect(container.querySelector('[role="status"]')).toBeNull()
+  },
+)
+
+it("discards partial leaves and offsets if Markdown node conversion fails", () => {
+  const tokens = marked.lexer("already parsed\n\n**later**")
+  Object.defineProperty(tokens[1], "type", {
+    get: () => {
+      throw new Error("Synthetic conversion failure")
+    },
+  })
+  vi.spyOn(marked, "lexer").mockReturnValueOnce(tokens)
+  const source = "source stays complete"
+  expect(markdownContent(source)).toEqual({
+    text: source,
+    nodes: [{ kind: "text", value: source, start: 0 }],
+    sourceMode: true,
+    formattingFailed: true,
+  })
+})
+
+it("does not parse explicit source mode or mark ordinary Markdown as a fallback", () => {
+  const lexer = vi.spyOn(marked, "lexer")
+  const source = "> ".repeat(8000) + "literal"
+  const raw = markdownContent(source, true)
+  expect(lexer).not.toHaveBeenCalled()
+  expect(raw.text).toBe(source)
+  expect(raw.formattingFailed).toBeUndefined()
+  expect(markdownContent("**ordinary**").formattingFailed).toBeUndefined()
+  expect(lexer).toHaveBeenCalledTimes(1)
 })

@@ -16,7 +16,26 @@ export class TranscriptSearch {
     // Prefix counts also map global match indices to entries with no matches.
     this.entryStarts = new Float64Array(contents.length + 1)
     let count = 0
-    if (query) {
+    // Short, case-sensitive ASCII literals cannot match inside a surrogate pair.
+    // Keep other queries on the original Unicode regex path, including its errors.
+    if (matchCase && query.length > 0 && query.length <= 256 && /^[\x00-\x7f]+$/.test(query)) {
+      for (let entryIndex = 0; entryIndex < contents.length; entryIndex++) {
+        const text = contents[entryIndex].text
+        let next = 0
+        let start: number
+        while ((start = text.indexOf(query, next)) !== -1) {
+          const end = start + query.length
+          const offset = (count % MATCHES_PER_CHUNK) * 2
+          if (offset === 0) this.positions.push(new Uint32Array(MATCHES_PER_CHUNK * 2))
+          const chunk = this.positions[this.positions.length - 1]
+          chunk[offset] = start
+          chunk[offset + 1] = end
+          count++
+          next = end
+        }
+        this.entryStarts[entryIndex + 1] = count
+      }
+    } else if (query) {
       const pattern = new RegExp(
         query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
         matchCase ? "gu" : "giu",
@@ -72,5 +91,19 @@ export class TranscriptSearch {
       matches[index - first] = { start: chunk[offset], end: chunk[offset + 1], index }
     }
     return matches
+  }
+}
+
+/** A literal query may exceed the engine's regex compiler limits, including at exec time. */
+export function tryCreateTranscriptSearch(
+  contents: readonly { text: string }[],
+  query: string,
+  matchCase = false,
+): TranscriptSearch | null {
+  try {
+    return new TranscriptSearch(contents, query, matchCase)
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+    return null
   }
 }

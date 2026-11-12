@@ -5,9 +5,18 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { Terminal } from "@xterm/xterm"
 import { TerminalView } from "./TerminalView"
 import { openContentLink } from "./api"
-import type { TerminalTab } from "./types"
+import { forgetTerminalContinuity } from "./terminalContinuity"
+import type { PtyOutputEvent, TerminalTab } from "./types"
 
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
+const terminalEvents = vi.hoisted(() => ({
+  output: null as ((event: { payload: PtyOutputEvent }) => void) | null,
+}))
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, callback: (event: { payload: PtyOutputEvent }) => void) => {
+    if (name.startsWith("pty-output:")) terminalEvents.output = callback
+    return () => undefined
+  }),
+}))
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn() }))
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
@@ -68,6 +77,8 @@ let terminal: Terminal
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  terminalEvents.output = null
+  forgetTerminalContinuity(tab.id)
   // jsdom supplies events but not layout; keep xterm's real linkifier and selection service.
   vi.stubGlobal(
     "ResizeObserver",
@@ -176,4 +187,99 @@ it.each([
   expect(openContentLink).toHaveBeenCalledTimes(1)
   mouse("mousemove", 355)
   expect(terminal.getSelection()).toBe(selected)
+})
+
+it.each(["http://[::1]", "https://[2001:db8::1]"])(
+  "opens the complete bare IPv6 authority %s before sentence punctuation",
+  async (uri) => {
+    await act(
+      async () =>
+        new Promise<void>((resolve) => terminal.write(`${uri}. trailing text\r\n`, resolve)),
+    )
+    mouse("mousemove", 25)
+    await vi.waitFor(() =>
+      expect(container.querySelector(".terminal-link-preview")?.textContent).toBe(uri),
+    )
+    mouse("mousedown", 25, 1)
+    mouse("mouseup", 25)
+    expect(openContentLink).toHaveBeenCalledExactlyOnceWith(uri, tab.sessionPath)
+  },
+)
+
+it.each(["https://example.test/report", "local://report.md"])(
+  "opens %s without surrounding asterisk delimiters",
+  async (uri) => {
+    await act(
+      async () =>
+        new Promise<void>((resolve) => terminal.write(`**${uri}** trailing text\r\n`, resolve)),
+    )
+    mouse("mousemove", 45)
+    await vi.waitFor(() =>
+      expect(container.querySelector(".terminal-link-preview")?.textContent).toBe(uri),
+    )
+    mouse("mousedown", 45, 1)
+    mouse("mouseup", 45)
+    expect(openContentLink).toHaveBeenCalledExactlyOnceWith(uri, tab.sessionPath)
+  },
+)
+
+async function output(data: string, seq: number) {
+  expect(terminalEvents.output).not.toBeNull()
+  await act(
+    async () =>
+      new Promise<void>((resolve) => {
+        const parsed = terminal.onWriteParsed(() => {
+          parsed.dispose()
+          resolve()
+        })
+        terminalEvents.output!({
+          payload: { terminalId: tab.id, generation: 1, seq, data: btoa(data) },
+        })
+      }),
+  )
+}
+
+function scrollIntoHistory() {
+  act(() => {
+    container
+      .querySelector(".terminal-host")!
+      .dispatchEvent(new WheelEvent("wheel", { bubbles: true }))
+    terminal.scrollLines(-10)
+  })
+}
+
+it.each([47, 1047, 1049])(
+  "preserves normal history after alternate-screen mode %i",
+  async (mode) => {
+    await output("synthetic history\r\n".repeat(80), 1)
+    scrollIntoHistory()
+    const before = terminal.buffer.active.viewportY
+    expect(before).toBe(terminal.buffer.active.baseY - 10)
+    expect(container.querySelector(".terminal-scroll-bottom")).not.toBeNull()
+
+    await output(`\x1b[?${mode}hfullscreen`, 2)
+    expect(terminal.buffer.active.type).toBe("alternate")
+    expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
+
+    await output(`\x1b[?${mode}l`, 3)
+    expect(terminal.buffer.active.type).toBe("normal")
+    expect(terminal.buffer.active.viewportY).toBe(before)
+    expect(container.querySelector(".terminal-scroll-bottom")).not.toBeNull()
+
+    await output("later normal output\r\n", 4)
+    expect(terminal.buffer.active.viewportY).toBe(before)
+  },
+)
+
+it("resumes live follow after explicitly returning from history to the bottom", async () => {
+  await output("synthetic history\r\n".repeat(80), 1)
+  scrollIntoHistory()
+  await output("\x1b[?1049hfullscreen", 2)
+  await output("\x1b[?1049l", 3)
+  const jump = container.querySelector<HTMLButtonElement>(".terminal-scroll-bottom")!
+  expect(jump).not.toBeNull()
+  act(() => jump.click())
+  await output("later normal output\r\n", 4)
+  expect(terminal.buffer.active.viewportY).toBe(terminal.buffer.active.baseY)
+  expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
 })
