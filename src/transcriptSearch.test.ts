@@ -41,7 +41,6 @@ it("keeps nonoverlapping ASCII matches exact across chunks and bounded windows",
   expect(search.matchesForEntry(2, 5000)).toEqual([{ start: 0, end: 2, index: 5000 }])
 })
 
-
 it("optionally distinguishes code identifiers while keeping literal UTF-16 match spans", () => {
   const contents = [{ text: "😀PATH path Path PATH.* path.*" }]
   const search = new TranscriptSearch(contents, "PATH", true)

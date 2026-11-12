@@ -1307,8 +1307,11 @@ function App() {
   }, [updateReminderAllowed])
 
   useEffect(() => {
-    if (!payload?.runtime.ompAvailable) {
+    const invalidateCheck = () => {
       ++updateCheckRequestRef.current
+    }
+    if (!payload?.runtime.ompAvailable) {
+      invalidateCheck()
       setUpdateInfo(null)
       changeUpdateSource(null)
       setUpdateNoticeVisible(false)
@@ -1324,7 +1327,7 @@ function App() {
     }
     document.addEventListener("visibilitychange", handleVisibility)
     return () => {
-      ++updateCheckRequestRef.current
+      invalidateCheck()
       window.clearInterval(interval)
       document.removeEventListener("visibilitychange", handleVisibility)
     }
