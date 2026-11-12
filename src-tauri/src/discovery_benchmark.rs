@@ -81,10 +81,7 @@ fn synthetic_pin_keys() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let root = env::temp_dir().join(format!(
-        "omp-pin-profile-{}-{nonce}",
-        std::process::id()
-    ));
+    let root = env::temp_dir().join(format!("omp-pin-profile-{}-{nonce}", std::process::id()));
     fs::create_dir(&root).unwrap();
     let _fixture = Fixture {
         root: root.clone(),
