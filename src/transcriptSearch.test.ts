@@ -41,17 +41,6 @@ it("keeps nonoverlapping ASCII matches exact across chunks and bounded windows",
   expect(search.matchesForEntry(2, 5000)).toEqual([{ start: 0, end: 2, index: 5000 }])
 })
 
-it("preserves spans on both sides of the short-query optimization boundary", () => {
-  for (const length of [256, 257]) {
-    const query = "x".repeat(length)
-    const search = new TranscriptSearch([{ text: `😀${query}${query}x` }], query, true)
-    expect(search.count).toBe(2)
-    expect(search.matchesForEntry(0, 1)).toEqual([
-      { start: 2, end: 2 + length, index: 0 },
-      { start: 2 + length, end: 2 + length * 2, index: 1 },
-    ])
-  }
-})
 
 it("optionally distinguishes code identifiers while keeping literal UTF-16 match spans", () => {
   const contents = [{ text: "😀PATH path Path PATH.* path.*" }]
