@@ -326,6 +326,33 @@ describe("release asset verification", () => {
       checksumFor(fixture.windowsInstallers, fixture.assets),
     )
   })
+  for (const [targetKey, sourceKey] of [["appImage", "nsis"], ["nsis", "appImage"]]) {
+    it(`rejects a signed ${sourceKey} installer assigned to the ${targetKey} OS target`, async () => {
+      const fixture = await releaseFixture()
+      const target = fixture.assets[targetKey].platform
+      const source = fixture.assets[sourceKey].platform
+      // Keep every package covered: a coverage failure must not mask the OS mismatch.
+      fixture.updater.platforms[`${target}-backup`] = fixture.updater.platforms[target]
+      fixture.updater.platforms[target] = fixture.updater.platforms[source]
+      await writeFile(join(fixture.directory, "latest.json"), JSON.stringify(fixture.updater))
+
+      await assert.rejects(verifyReleaseAssets(fixture), /target platform does not match installer/)
+    })
+  }
+
+  it("accepts correctly mapped generic OS targets alongside package-specific targets", async () => {
+    const fixture = await releaseFixture()
+    fixture.updater.platforms["linux-x86_64"] =
+      fixture.updater.platforms[fixture.assets.appImage.platform]
+    fixture.updater.platforms["windows-x86_64"] =
+      fixture.updater.platforms[fixture.assets.nsis.platform]
+    await writeFile(join(fixture.directory, "latest.json"), JSON.stringify(fixture.updater))
+
+    const summary = await verifyReleaseAssets(fixture)
+    assert.equal(summary.verifiedSignatures, 5)
+    assert.equal(summary.updaterTargets, 7)
+  })
+
   it("rejects a latest.json asset uploaded with the wrong media type", async () => {
     const fixture = await releaseFixture()
     const updaterAsset = fixture.releaseMetadata.assets.find(
