@@ -2144,6 +2144,64 @@ mod tests {
     }
 
     #[test]
+    fn defaults_error_after_publication_preserves_backup_and_readable_settings() {
+        let root = settings_fixture("defaults-post-publication");
+        let path = root.join("settings.json");
+        let original = b"original invalid settings\r\n\0";
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+        fs::write(&path, original).expect("source fixture should be writable");
+        let mut writes = 0;
+
+        let error = start_with_defaults_at_with(&path, |destination, contents| {
+            writes += 1;
+            crate::sessions::atomic_write_private_file(destination, contents)?;
+            if destination == path {
+                // Model the error outcome after replacement, not a real OS sync failure.
+                Err("injected directory sync failure after replacement".to_owned())
+            } else {
+                Ok(())
+            }
+        })
+        .err()
+        .expect("publication followed by an error must not report success");
+        assert_eq!(writes, 2);
+        let details: serde_json::Value = serde_json::from_str(
+            error
+                .strip_prefix("[settings_unavailable] ")
+                .expect("failure should retain structured diagnostics"),
+        )
+        .expect("diagnostics should be valid JSON");
+        assert_eq!(details["failureStage"], "defaults_write");
+        assert_eq!(details["settingsPath"], path.to_string_lossy().as_ref());
+        assert_eq!(
+            details["reason"],
+            "injected directory sync failure after replacement"
+        );
+        let backup = PathBuf::from(
+            details["backupPath"]
+                .as_str()
+                .expect("failure should identify the completed backup"),
+        );
+        assert_ne!(backup, path);
+        assert_eq!(backup.parent(), Some(root.as_path()));
+        assert_eq!(fs::read(&backup).expect("backup should be readable"), original);
+
+        // Reopen the actual destination; an error does not imply unchanged bytes.
+        let persisted = fs::read(&path).expect("published settings should be readable");
+        assert_ne!(persisted, original);
+        let settings: AppSettings =
+            serde_json::from_slice(&persisted).expect("published settings should be valid");
+        assert!(settings.settings_warning.is_none());
+        assert_eq!(
+            persisted,
+            super::persisted_settings_bytes(&AppSettings::default())
+                .expect("expected defaults should serialize")
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 2);
+        fs::remove_dir_all(root).expect("fixture directory should be removable");
+    }
+
+    #[test]
     fn failed_defaults_write_keeps_source_and_completed_backup() {
         let root = settings_fixture("failed-defaults-write");
         let path = root.join("settings.json");
