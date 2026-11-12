@@ -792,12 +792,12 @@ pub(crate) fn windows_private_acl_summary(
 }
 
 #[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> io::Result<()> {
+pub(crate) fn sync_parent_directory(parent: &Path) -> io::Result<()> {
     fs::File::open(parent)?.sync_all()
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
+pub(crate) fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
@@ -872,7 +872,11 @@ pub fn validated_session_file(path: &str, session_root: &Path) -> Result<PathBuf
     Ok(file)
 }
 
-pub fn delete_session(path: &str, session_root: &Path, lease: &SessionLease) -> Result<(), String> {
+pub(crate) fn delete_session(
+    path: &str,
+    session_root: &Path,
+    lease: &SessionLease,
+) -> Result<crate::session_deletion::DeleteOutcome, String> {
     let _import_guard = IMPORT_TRANSACTION_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -896,26 +900,7 @@ pub fn delete_session(path: &str, session_root: &Path, lease: &SessionLease) -> 
         ));
     }
 
-    let artifact_dir = file.with_extension("");
-    if let Ok(metadata) = fs::symlink_metadata(&artifact_dir) {
-        if metadata.file_type().is_symlink() {
-            fs::remove_file(&artifact_dir).map_err(|error| {
-                format!(
-                    "Не удалось удалить ссылку на артефакты {}: {error}",
-                    artifact_dir.display()
-                )
-            })?;
-        } else if metadata.is_dir() {
-            fs::remove_dir_all(&artifact_dir).map_err(|error| {
-                format!(
-                    "Не удалось удалить артефакты {}: {error}",
-                    artifact_dir.display()
-                )
-            })?;
-        }
-    }
-    fs::remove_file(&file)
-        .map_err(|error| format!("Не удалось удалить сессию {}: {error}", file.display()))
+    crate::session_deletion::delete(&file)
 }
 
 pub fn import_sessions(
@@ -2587,6 +2572,7 @@ fn recover_imports_in_directory(
     active_paths: &HashSet<String>,
     held_lease: Option<&SessionLease>,
 ) {
+    crate::session_deletion::recover_directory(directory, warnings, blocked, held_lease);
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return,
@@ -2613,6 +2599,9 @@ fn recover_imports_in_directory(
         let Some(destination) = transaction_destination(&marker) else {
             continue;
         };
+        if blocked.contains(&destination) {
+            continue;
+        }
         let recovery = ensure_import_inactive(&destination, active_paths)
             .and_then(|()| recover_import_transaction(&marker, held_lease));
         if let Err(message) = recovery {
@@ -2956,6 +2945,14 @@ struct SessionScan {
     warnings: Vec<SessionScanWarning>,
 }
 
+#[cfg(test)]
+pub(crate) fn scan_deletion_fixture(
+    root: &Path,
+) -> Result<(Vec<SessionSummary>, Vec<SessionScanWarning>), String> {
+    let scan = scan_sessions(root)?;
+    Ok((scan.sessions, scan.warnings))
+}
+
 fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
     match fs::metadata(root) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -2981,6 +2978,7 @@ fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
 
     let mut scan = SessionScan::default();
     let mut blocked = HashSet::new();
+    crate::session_deletion::recover_tree(root, 0, &mut scan.warnings, &mut blocked);
     recover_interrupted_imports(root, &mut scan.warnings, &mut blocked);
     let mut files = Vec::new();
     collect_jsonl_files(root, 0, 3, &mut files, &mut scan.warnings)?;
@@ -3077,6 +3075,11 @@ fn collect_jsonl_files(
 
     for (entry, file_type) in entries {
         let path = entry.path();
+        if entry.file_name().to_string_lossy().starts_with(".omp-delete-")
+            && file_type.as_ref().map_or(true, |kind| kind.is_dir())
+        {
+            continue;
+        }
         let is_import_sidecar = entry
             .file_name()
             .to_str()

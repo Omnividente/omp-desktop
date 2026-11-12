@@ -626,7 +626,7 @@ impl PreparedSessionDeletion<'_> {
         &self.key
     }
 
-    pub(crate) fn commit(self) -> Result<(), String> {
+    pub(crate) fn commit(self) -> Result<crate::session_deletion::DeleteOutcome, String> {
         crate::sessions::delete_session(&self.canonical, &self.root, &self._lease)
     }
 }
@@ -755,7 +755,9 @@ impl TerminalState {
     ) -> Result<String, String> {
         let deletion = self.prepare_inactive_session_deletion(path, root, force_session_lease)?;
         let key = deletion.key().to_owned();
-        deletion.commit()?;
+        if let crate::session_deletion::DeleteOutcome::RecoveryRequired(message) = deletion.commit()? {
+            return Err(message);
+        }
         Ok(key)
     }
 }
