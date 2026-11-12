@@ -57,6 +57,7 @@ it("keeps selection fixed during import and restores editing and focus navigatio
     const [selected, setSelected] = useState<Record<string, boolean>>({ [session.filePath]: true })
     return (
       <CodexImportModal
+        targetPath="/synthetic/target"
         language="en"
         loading={false}
         importing={importing}
@@ -185,6 +186,7 @@ it.each([100, 500, 10000])(
     const render = (failures: Record<string, string>) =>
       root.render(
         <CodexImportModal
+          targetPath="/synthetic/target"
           language="en"
           loading={false}
           importing={false}

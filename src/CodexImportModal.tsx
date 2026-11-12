@@ -1,6 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { filterCodexSessions } from "./codexSessionSearch"
 import { Icon } from "./Icon"
 import { ImportModeSelect } from "./ImportModeSelect"
+import { ImportProject } from "./ImportProject"
 import { t, type Lang } from "./i18n"
 import type { CodexSessionSummary, ImportMode } from "./types"
 import { formatRelative } from "./uiUtils"
@@ -15,6 +17,7 @@ interface CodexImportModalProps {
   loading: boolean
   importing: boolean
   mode: ImportMode
+  targetPath: string | null
   sessions: CodexSessionSummary[]
   selected: Record<string, boolean>
   onClose: () => void
@@ -33,6 +36,7 @@ export function CodexImportModal({
   loading,
   importing,
   mode,
+  targetPath,
   sessions,
   selected,
   onClose,
@@ -42,6 +46,10 @@ export function CodexImportModal({
 }: CodexImportModalProps) {
   const panelRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [query, setQuery] = useState("")
+  const previousQuery = useRef(query)
+  const visibleSessions = useMemo(() => filterCodexSessions(sessions, query), [sessions, query])
   const pendingFocusRef = useRef<number | null>(null)
   const reportRef = useRef<HTMLElement>(null)
   const [requestedPage, setRequestedPage] = useState(0)
@@ -68,10 +76,16 @@ export function CodexImportModal({
     if (reportRef.current) reportRef.current.scrollTop = 0
   }, [page])
   const { virtualItems, totalHeight, measureElement, scrollToIndex } = useVirtualList(
-    sessions,
+    visibleSessions,
     listRef,
     { estimatedRowHeight: 86, itemGap: 8, getItemKey: codexSessionKey, measurementKey: sessions },
   )
+  useLayoutEffect(() => {
+    if (previousQuery.current === query) return
+    previousQuery.current = query
+    pendingFocusRef.current = null
+    scrollToIndex(0)
+  }, [query, scrollToIndex])
   useLayoutEffect(() => {
     const index = pendingFocusRef.current
     if (index === null) return
@@ -88,9 +102,9 @@ export function CodexImportModal({
       key === "Home"
         ? 0
         : key === "End"
-          ? sessions.length - 1
+          ? visibleSessions.length - 1
           : currentIndex + (key === "ArrowDown" ? 1 : -1)
-    if (next < 0 || next >= sessions.length) return
+    if (next < 0 || next >= visibleSessions.length) return
     const input = listRef.current?.querySelector<HTMLInputElement>(
       `[data-virtual-index="${next}"] input`,
     )
@@ -103,20 +117,22 @@ export function CodexImportModal({
       scrollToIndex(next)
     }
   }
-  let hasSelection = false
-  for (const path in selected) {
-    if (Object.hasOwn(selected, path) && selected[path]) {
-      hasSelection = true
-      break
-    }
-  }
+  const selectedCount = sessions.filter(
+    (session) => Object.hasOwn(selected, session.filePath) && selected[session.filePath],
+  ).length
+  const visibleSelectedCount = visibleSessions.filter(
+    (session) => Object.hasOwn(selected, session.filePath) && selected[session.filePath],
+  ).length
   const onKeyDown = useModalFocus(panelRef, onClose, { canClose: !importing })
   const close = () => {
     if (!importing) onClose()
   }
 
   const selectAll = () => {
-    onSelectedChange(Object.fromEntries(sessions.map((session) => [session.filePath, true])))
+    onSelectedChange({
+      ...selected,
+      ...Object.fromEntries(visibleSessions.map((session) => [session.filePath, true])),
+    })
   }
 
   return (
@@ -147,6 +163,41 @@ export function CodexImportModal({
           </button>
         </header>
         <div className="settings-scroll">
+          <label className="codex-search">
+            <span>{t(language, "codexSearch")}</span>
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              disabled={importing}
+              placeholder={t(language, "codexSearchPlaceholder")}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <div className="codex-search-status">
+            <p className="field-help" role="status">
+              {t(language, "codexSearchCount")
+                .replace("{visible}", String(visibleSessions.length))
+                .replace("{total}", String(sessions.length))}{" "}
+              {t(language, "codexSelectionCount")
+                .replace("{selected}", String(selectedCount))
+                .replace("{hidden}", String(selectedCount - visibleSelectedCount))}
+            </p>
+            {query && (
+              <button
+                className="button secondary"
+                type="button"
+                disabled={importing}
+                onClick={() => {
+                  setQuery("")
+                  searchRef.current?.focus()
+                }}
+              >
+                {t(language, "codexSearchClear")}
+              </button>
+            )}
+          </div>
+          <ImportProject language={language} targetPath={targetPath} />
           {loading && sessions.length > 0 && (
             <p className="field-help" role="status">
               {t(language, "loading")}
@@ -200,9 +251,11 @@ export function CodexImportModal({
             </section>
           )}
           <div className="codex-list" ref={listRef} aria-busy={loading}>
-            {sessions.length === 0 ? (
+            {visibleSessions.length === 0 ? (
               <p className="field-help" role="status">
-                {t(language, loading ? "loading" : "noCodexSessions")}
+                {sessions.length > 0
+                  ? t(language, "codexSearchEmpty")
+                  : t(language, loading ? "loading" : "noCodexSessions")}
               </p>
             ) : (
               <div
@@ -283,15 +336,23 @@ export function CodexImportModal({
         <footer className="settings-actions">
           <button
             className="button secondary"
-            disabled={loading || importing || sessions.length === 0}
+            disabled={loading || importing || visibleSessions.length === 0}
             onClick={selectAll}
             type="button"
           >
-            {t(language, "selectAll")}
+            {t(language, query.trim() ? "codexSelectMatching" : "selectAll")}
+          </button>
+          <button
+            className="button secondary"
+            disabled={importing || selectedCount === 0}
+            onClick={() => onSelectedChange({})}
+            type="button"
+          >
+            {t(language, "codexClearSelection")}
           </button>
           <button
             className="button primary"
-            disabled={importing || !hasSelection}
+            disabled={importing || !targetPath || selectedCount === 0}
             onClick={onImport}
             type="button"
           >

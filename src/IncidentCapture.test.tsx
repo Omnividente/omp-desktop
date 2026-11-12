@@ -6,7 +6,7 @@ import { IncidentCenter } from "./IncidentCenter"
 import { saveTerminalCapture } from "./api"
 import type { RuntimeIncident } from "./runtimeIncidents"
 import type { TerminalCapture, TerminalTab } from "./types"
-import type { Lang } from "./i18n"
+import { t, type Lang } from "./i18n"
 vi.mock("./api", () => ({
   saveTerminalCapture: vi.fn(),
   errorMessage: (e: Error) => e.message,
@@ -148,3 +148,38 @@ it("retains save failure and enables retry without claiming a capture", async ()
   expect(host.querySelector(".is-failed")).toBeNull()
   expect(host.querySelector(".incident-capture-truncation")?.textContent).toContain("37 bytes")
 })
+
+it.each(["ru", "en"] as const)(
+  "preserves the literal saved capture path in result text (%s)",
+  async (language) => {
+    const paths = [
+      "/synthetic/ordinary/captures/output.bin",
+      "/synthetic/cost$$/captures/output.bin",
+      "/synthetic/name$&/captures/output.bin",
+      "/synthetic/name$`/captures/output.bin",
+      "/synthetic/name$'/captures/output.bin",
+      "/synthetic/{path}/{size}/$1/$<name>/captures/output.bin",
+      "C:\\synthetic\\Журнал 👩🏽‍💻 $& $$ $` $'\\captures\\output.bin",
+    ]
+    act(() => root.render(<Harness language={language} />))
+    for (const path of paths) {
+      const saved = { ...capture(true), path }
+      vi.mocked(saveTerminalCapture).mockResolvedValueOnce(saved)
+      const button = host.querySelector<HTMLButtonElement>(".incident-save-capture")!
+      await act(async () => button.click())
+      const result = host.querySelector(".incident-capture-result")!
+      const expected = t(language, "incidentCaptureSaved")
+        .split("{size}")
+        .join("2.0 MB")
+        .split("{path}")
+        .join(path)
+      expect(result.textContent).toBe(expected)
+      expect(result.getAttribute("title")).toBe(path)
+      expect(saveTerminalCapture).toHaveBeenLastCalledWith("terminal-1")
+      expect(host.querySelector(".incident-capture-truncation")?.textContent).toContain("37")
+      expect(button.disabled).toBe(false)
+      expect(saved.path).toBe(path)
+    }
+    expect(saveTerminalCapture).toHaveBeenCalledTimes(paths.length)
+  },
+)
