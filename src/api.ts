@@ -312,120 +312,214 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
   session_import_refresh_failed: {
     ru: "Результаты импорта получены, но не удалось обновить список сессий.",
     en: "Import results were received, but the session list could not refresh.",
+
+    zh: "导入结果已获取，但会话列表刷新失败。",
   },
   backend_join_failed: {
     ru: "Фоновая операция backend завершилась аварийно",
     en: "The backend background operation failed",
+
+    zh: "backend 后台操作失败",
   },
-  bootstrap_failed: { ru: "Не удалось загрузить данные OMP", en: "Failed to load OMP data" },
+  bootstrap_failed: {
+    ru: "Не удалось загрузить данные OMP",
+    en: "Failed to load OMP data",
+    zh: "加载 OMP 数据失败",
+  },
   settings_unavailable: {
     ru: "Настройки OMP Desktop недоступны",
     en: "OMP Desktop settings are unavailable",
+
+    zh: "OMP Desktop 设置不可用",
   },
-  workspace_add_failed: { ru: "Не удалось добавить проект", en: "Failed to add the project" },
+  workspace_add_failed: {
+    ru: "Не удалось добавить проект",
+    en: "Failed to add the project",
+    zh: "添加项目失败",
+  },
   workspace_rename_failed: {
     ru: "Не удалось переименовать проект",
     en: "Failed to rename the project",
+
+    zh: "重命名项目失败",
   },
   workspace_remove_failed: {
     ru: "Не удалось удалить проект из списка",
     en: "Failed to remove the project from the list",
+
+    zh: "从列表中删除项目失败",
   },
-  settings_save_failed: { ru: "Не удалось сохранить настройки", en: "Failed to save settings" },
+  settings_save_failed: {
+    ru: "Не удалось сохранить настройки",
+    en: "Failed to save settings",
+    zh: "保存设置失败",
+  },
   content_link_failed: {
     ru: "Не удалось открыть ссылку",
     en: "Failed to open link",
+
+    zh: "打开链接失败",
   },
   resource_health_failed: {
     ru: "Не удалось проверить системные ресурсы",
     en: "Failed to check system resources",
+
+    zh: "检查系统资源失败",
   },
   terminal_capture_failed: {
     ru: "Не удалось сохранить вывод терминала",
     en: "Failed to save terminal output",
+
+    zh: "保存终端输出失败",
   },
   session_active_rename: {
     ru: "Сначала остановите активную сессию OMP",
     en: "Stop the active OMP session before renaming it",
+
+    zh: "重命名前请先停止当前活动的 OMP 会话",
   },
   session_active_delete: {
     ru: "Сначала остановите активную сессию OMP",
     en: "Stop the active OMP session before deleting it",
+
+    zh: "删除前请先停止当前活动的 OMP 会话",
   },
   session_lease_active: {
     ru: "Эта сессия уже открыта другим процессом OMP Desktop",
     en: "This session is already open in another OMP Desktop process",
+
+    zh: "该会话已在另一个 OMP Desktop 进程中打开",
   },
   session_lease_stale: {
     ru: "После аварийного завершения осталась запись владельца сессии",
     en: "A stale session owner record remains after an interrupted run",
+
+    zh: "中断运行后残留了会话所有者记录",
   },
   session_lease_failed: {
     ru: "Не удалось безопасно получить владение сессией",
     en: "Failed to acquire session ownership safely",
+
+    zh: "安全获取会话租约失败",
   },
   session_rename_failed: {
     ru: "Не удалось переименовать сессию",
     en: "Failed to rename the session",
+
+    zh: "重命名会话失败",
   },
-  session_delete_failed: { ru: "Не удалось удалить сессию", en: "Failed to delete the session" },
+  session_delete_failed: {
+    ru: "Не удалось удалить сессию",
+    en: "Failed to delete the session",
+    zh: "删除会话失败",
+  },
   session_import_failed: {
     ru: "Не удалось импортировать сессию",
     en: "Failed to import the session",
+
+    zh: "导入会话失败",
   },
   codex_sessions_load_failed: {
     ru: "Не удалось загрузить сессии Codex",
     en: "Failed to load Codex sessions",
+
+    zh: "加载 Codex 会话失败",
   },
   transcript_read_failed: {
     ru: "Не удалось прочитать транскрипт",
     en: "Failed to read the transcript",
+
+    zh: "读取会话记录失败",
   },
   omp_config_load_failed: {
     ru: "Не удалось загрузить настройки OMP",
     en: "Failed to load OMP settings",
+
+    zh: "加载 OMP 设置失败",
   },
   omp_config_save_failed: {
     ru: "Не удалось сохранить настройки OMP",
     en: "Failed to save OMP settings",
+
+    zh: "保存 OMP 设置失败",
   },
   omp_update_check_failed: {
     ru: "Не удалось проверить обновление OMP",
     en: "Failed to check for OMP updates",
+
+    zh: "检查 OMP 更新失败",
   },
   omp_timeout: {
     ru: "OMP не ответил вовремя и был остановлен",
     en: "OMP timed out and was stopped",
+
+    zh: "OMP 超时并已停止",
   },
   omp_output_limit: {
     ru: "OMP вернул слишком большой объём данных",
     en: "OMP returned too much data",
+
+    zh: "OMP 返回的数据量过大",
   },
-  omp_spawn_failed: { ru: "Не удалось запустить OMP", en: "Failed to start OMP" },
-  omp_io_failed: { ru: "Ошибка обмена данными с OMP", en: "Failed to communicate with OMP" },
-  omp_invalid_json: { ru: "OMP вернул некорректные данные", en: "OMP returned invalid data" },
-  omp_command_failed: { ru: "Команда OMP завершилась с ошибкой", en: "The OMP command failed" },
-  terminal_switch_failed: { ru: "Не удалось сменить модель", en: "Failed to switch models" },
-  terminal_switch_busy: { ru: "Смена модели уже выполняется", en: "A model switch is in progress" },
+  omp_spawn_failed: {
+    ru: "Не удалось запустить OMP",
+    en: "Failed to start OMP",
+    zh: "启动 OMP 失败",
+  },
+  omp_io_failed: {
+    ru: "Ошибка обмена данными с OMP",
+    en: "Failed to communicate with OMP",
+    zh: "与 OMP 通信失败",
+  },
+  omp_invalid_json: {
+    ru: "OMP вернул некорректные данные",
+    en: "OMP returned invalid data",
+    zh: "OMP 返回了无效数据",
+  },
+  omp_command_failed: {
+    ru: "Команда OMP завершилась с ошибкой",
+    en: "The OMP command failed",
+    zh: "OMP 命令执行失败",
+  },
+  terminal_switch_failed: {
+    ru: "Не удалось сменить модель",
+    en: "Failed to switch models",
+    zh: "切换模型失败",
+  },
+  terminal_switch_busy: {
+    ru: "Смена модели уже выполняется",
+    en: "A model switch is in progress",
+    zh: "模型切换正在进行中",
+  },
   terminal_switch_input_recovery: {
     ru: "Смена модели не завершилась; ввод сохранён",
     en: "The model switch failed; input was preserved",
+
+    zh: "模型切换未完成；输入已保留",
   },
   terminal_switch_recovery_pending: {
     ru: "Сначала обработайте сохранённый ввод",
     en: "Resolve the preserved input first",
+
+    zh: "请先处理已保留的输入",
   },
   terminal_switch_recovery_send_failed: {
     ru: "Не удалось безопасно отправить сохранённый ввод",
     en: "Failed to send the preserved input safely",
+
+    zh: "安全发送已保留的输入失败",
   },
   terminal_switch_recovery_stale: {
     ru: "Состояние сохранённого ввода уже изменилось",
     en: "The preserved input state has changed",
+
+    zh: "已保留输入的状态已发生变化",
   },
   terminal_switch_recovery_busy: {
     ru: "Сохранённый ввод уже отправляется",
     en: "The preserved input is already being sent",
+
+    zh: "已保留的输入正在发送中",
   },
 }
 
@@ -439,7 +533,7 @@ export function errorMessage(
     (parsed.code && BACKEND_ERROR_TEXT[parsed.code]?.[language]) ||
     parsed.message ||
     parsed.details ||
-    (language === "en" ? "Unknown error" : "Неизвестная ошибка")
+    (language === "en" ? "Unknown error" : language === "zh" ? "未知错误" : "Неизвестная ошибка")
   const details = parsed.details?.trim()
   return includeDetails && details && details !== message
     ? `${message}: ${boundedBackendErrorText(details)}`

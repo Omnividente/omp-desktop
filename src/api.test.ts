@@ -61,6 +61,19 @@ describe("backend error codes", () => {
     expect(errorMessage(error, "en")).toBe("Stop the active OMP session before deleting it")
   })
 
+  it("keeps Chinese error classification and literal details without a Russian fallback", () => {
+    const details = " /synthetic/路径/$&/history.jsonl "
+    const error = { code: "settings_save_failed", message: "Сбой сохранения", details }
+    expect(errorMessage(error, "zh")).toBe("保存设置失败")
+    expect(errorMessage(error, "zh", { includeDetails: true })).toBe(
+      `保存设置失败: ${details.trim()}`,
+    )
+    expect(errorMessage(undefined, "zh")).toBe("未知错误")
+    expect(errorMessage({ code: "future_error", message: "Literal native detail" }, "zh")).toBe(
+      "Literal native detail",
+    )
+  })
+
   it("exposes bounded failure reasons only when a caller requests details", () => {
     const error = {
       code: "settings_save_failed",
