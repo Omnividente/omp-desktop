@@ -94,8 +94,14 @@ jobs:
         working-directory: src-tauri
         run: cargo check --features updater-e2e
 
-      - name: Measure isolated synthetic discovery phases
+      - name: Compile release discovery benchmark
+        if: github.head_ref == 'dot/discovery-benchmark-20261112'
+        working-directory: src-tauri
+        timeout-minutes: 20
+        run: cargo test --locked --release --lib --no-run
+
+      - name: Measure isolated release discovery phases
         if: github.head_ref == 'dot/discovery-benchmark-20261112'
         working-directory: src-tauri
         timeout-minutes: 10
-        run: cargo test --locked --lib sessions::discovery_benchmark::synthetic_bootstrap_phases -- --exact --ignored --nocapture --test-threads=1
+        run: cargo test --locked --release --lib sessions::discovery_benchmark::synthetic_bootstrap_phases -- --exact --ignored --nocapture --test-threads=1

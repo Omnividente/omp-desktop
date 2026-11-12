@@ -31,6 +31,73 @@ fn inventory(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
+// Separate diagnostic passes, not instrumentation of the main scan timings.
+// The cached parser includes metadata/open/read/JSON/path work; it is not CPU-only.
+fn diagnose_files(library: &Path, expected_ids: &BTreeSet<String>) {
+    let names = HashMap::new();
+    let stamp = thread_names_stamp(&names);
+    let before = inventory(library);
+    for repetition in 0..3 {
+        for cache in ["cold-summary", "warm-summary"] {
+            if cache == "cold-summary" {
+                session_summary_cache().lock().unwrap().clear();
+            }
+            let mut files = Vec::new();
+            let mut warnings = Vec::new();
+            let started = Instant::now();
+            collect_jsonl_files(library, 0, 3, &mut files, &mut warnings).unwrap();
+            let enumerate_us = started.elapsed().as_micros();
+            assert!(warnings.is_empty());
+            assert_eq!(files.len(), expected_ids.len() + 5);
+            let mut groups = BTreeMap::<&str, (usize, u128)>::new();
+            let mut ids = BTreeSet::new();
+            let mut rejected = 0;
+            for path in files {
+                let stem = path.file_stem().unwrap().to_str().unwrap();
+                let group = match stem.strip_prefix("session-") {
+                    Some(index) => match index.parse::<usize>().unwrap() % 20 {
+                        0 => "256KiB",
+                        1..=3 => "32KiB",
+                        _ => "2KiB",
+                    },
+                    None => "invalid",
+                };
+                let started = Instant::now();
+                let result = parse_session_cached(&path, &names, stamp);
+                let elapsed_ns = started.elapsed().as_nanos();
+                let sample = groups.entry(group).or_default();
+                sample.0 += 1;
+                sample.1 += elapsed_ns;
+                match result {
+                    Ok(Some(session)) => {
+                        assert_ne!(group, "invalid");
+                        assert!(ids.insert(session.id));
+                    }
+                    _ => {
+                        assert_eq!(group, "invalid");
+                        rejected += 1;
+                    }
+                }
+            }
+            assert_eq!(&ids, expected_ids);
+            assert_eq!(rejected, 5);
+            assert_eq!(groups["256KiB"].0, expected_ids.len() / 20);
+            assert_eq!(groups["32KiB"].0, expected_ids.len() * 3 / 20);
+            assert_eq!(groups["2KiB"].0, expected_ids.len() * 16 / 20);
+            assert_eq!(inventory(library), before);
+            eprintln!(
+                "DISCOVERY_DIAGNOSTIC {}",
+                serde_json::json!({
+                    "os":env::consts::OS, "sessions":expected_ids.len(),
+                    "repetition":repetition, "cache":cache,
+                    "enumerate_us":enumerate_us, "parser_groups_count_ns":groups,
+                    "debug_assertions":cfg!(debug_assertions)
+                })
+            );
+        }
+    }
+}
+
 #[test]
 #[ignore = "bounded synthetic discovery phase benchmark; run alone with nocapture"]
 fn synthetic_bootstrap_phases() {
@@ -115,9 +182,12 @@ fn synthetic_bootstrap_phases() {
                     apply_session_title_pin(session, &settings.session_title_pins);
                     apply_session_primary_provider_pin(session, &settings.primary_provider_pins);
                 }
+                let pins_us = compose_start.elapsed().as_micros();
+                let group_start = Instant::now();
                 scan.sessions
                     .sort_by_key(|session| std::cmp::Reverse(session.updated_at));
                 let workspaces = build_workspaces(&scan.sessions, &settings);
+                let group_us = group_start.elapsed().as_micros();
                 let payload = BootstrapPayload {
                     settings: settings.clone(),
                     runtime: RuntimeInfo {
@@ -209,6 +279,7 @@ fn synthetic_bootstrap_phases() {
                     "sessions":count, "projects":project_count, "session_jsonl_bytes":bytes,
                     "repetition":repetition, "cache":cache,
                     "scan_us":scan_us, "compose_us":compose_us,
+                    "pins_us":pins_us, "group_us":group_us,
                     "serialize_us":serialize_us, "total_us":total_us,
                     "payload_bytes":serialized.len(), "warnings":payload.session_warnings.len(),
                     "debug_assertions":cfg!(debug_assertions)
@@ -216,5 +287,6 @@ fn synthetic_bootstrap_phases() {
                 );
             }
         }
+        diagnose_files(&library, &expected_ids);
     }
 }
