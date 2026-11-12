@@ -783,7 +783,9 @@ mod tests {
     fn malformed_or_oversized_intent_retains_data_and_blocks_discovery() {
         for bytes in [b"not json".to_vec(), vec![b'x'; 4097]] {
             let fixture = Fixture::new();
-            let directory = fixture.root.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
+            let directory = fixture
+                .root
+                .join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
             fs::create_dir(&directory).unwrap();
             fs::write(directory.join("intent.json"), bytes).unwrap();
             let (warnings, blocked) = fixture.recover();
@@ -870,7 +872,9 @@ mod tests {
     fn duplicate_journals_never_clear_each_others_block() {
         let fixture = Fixture::new();
         for _ in 0..2 {
-            let directory = fixture.root.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
+            let directory = fixture
+                .root
+                .join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
             fs::create_dir(&directory).unwrap();
             write_intent(
                 &directory,
@@ -923,7 +927,9 @@ mod tests {
         use std::os::unix::{ffi::OsStrExt, fs::symlink};
         for fifo in [false, true] {
             let fixture = Fixture::new();
-            let directory = fixture.root.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
+            let directory = fixture
+                .root
+                .join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
             fs::create_dir(&directory).unwrap();
             let marker = directory.join("intent.json");
             if fifo {
@@ -1049,7 +1055,9 @@ mod tests {
         let unrelated = fixture.root.join(".omp-delete-ordinary");
         fs::rename(&ordinary, &unrelated).unwrap();
         let (sessions, _) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
-        assert!(sessions.iter().any(|session| session.file_path.ends_with("inside.jsonl")));
+        assert!(sessions
+            .iter()
+            .any(|session| session.file_path.ends_with("inside.jsonl")));
     }
 
     #[test]
@@ -1105,10 +1113,19 @@ mod tests {
         let mut intent = read_intent(&directory).unwrap();
         intent.phase = Phase::RollingBack;
         write_intent(&directory, &intent).unwrap();
-        move_new(&directory.join("artifacts"), &fixture.session.with_extension("")).unwrap();
+        move_new(
+            &directory.join("artifacts"),
+            &fixture.session.with_extension(""),
+        )
+        .unwrap();
         let (sessions, warnings) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
         assert!(sessions.is_empty() && !warnings.is_empty());
-        assert!(fixture.artifact.parent().unwrap().join("nested.jsonl").is_file());
+        assert!(fixture
+            .artifact
+            .parent()
+            .unwrap()
+            .join("nested.jsonl")
+            .is_file());
         drop(lease);
         let (sessions, warnings) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
         assert_eq!(sessions.len(), 1);

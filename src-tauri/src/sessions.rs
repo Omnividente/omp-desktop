@@ -3028,7 +3028,14 @@ fn collect_jsonl_files(
     files: &mut Vec<PathBuf>,
     warnings: &mut Vec<SessionScanWarning>,
 ) -> Result<(), String> {
-    collect_jsonl_files_guarded(directory, depth, max_depth, files, warnings, &HashSet::new())
+    collect_jsonl_files_guarded(
+        directory,
+        depth,
+        max_depth,
+        files,
+        warnings,
+        &HashSet::new(),
+    )
 }
 
 fn collect_jsonl_files_guarded(
