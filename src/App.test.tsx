@@ -4880,6 +4880,83 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).not.toHaveBeenCalled()
   })
 
+  it.each(["en", "ru"] as const)(
+    "preserves literal names in removal and deletion confirmations (%s)",
+    async (language) => {
+      const labels = [
+        "Ordinary name",
+        "Price $$5",
+        "A $& B",
+        "A $` B",
+        "A $' B",
+        "Проект 👩🏽‍💻 {name} {title} $1",
+      ]
+      vi.mocked(confirm).mockResolvedValue(false)
+      for (const label of labels) {
+        vi.mocked(api.bootstrap).mockResolvedValue({
+          ...bootstrap,
+          settings: { ...bootstrap.settings, language },
+          workspaces: [{ ...bootstrap.workspaces[0], name: label }],
+          sessions: [{ ...bootstrap.sessions[0], title: label }],
+        })
+        await act(async () => root.render(<App />))
+        await act(async () => element(".project-item-row.is-active .project-remove").click())
+        const projectTemplate = t(language, "removeProjectConfirm").split("{name}")
+        expect(confirm).toHaveBeenLastCalledWith(projectTemplate.join(label), {
+          title: t(language, "removeProject"),
+          kind: "warning",
+        })
+        await act(async () => element(".session-delete").click())
+        const sessionTemplate = t(language, "deleteSessionConfirm").split("{title}")
+        expect(confirm).toHaveBeenLastCalledWith(sessionTemplate.join(label), {
+          title: t(language, "deleteSession"),
+          kind: "warning",
+        })
+        await act(async () => root.render(null))
+      }
+      expect(confirm).toHaveBeenCalledTimes(labels.length * 2)
+      expect(api.removeWorkspace).not.toHaveBeenCalled()
+      expect(api.deleteSession).not.toHaveBeenCalled()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["en", "ru"] as const)(
+    "keeps confirmed removal and deletion bound to their original paths (%s)",
+    async (language) => {
+      const name = "Synthetic $& $$ $` $' {name} {title}"
+      const target = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        workspaces: [{ ...bootstrap.workspaces[0], name }],
+        sessions: [{ ...bootstrap.sessions[0], title: name }],
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue(target)
+      vi.mocked(api.removeWorkspace).mockResolvedValue({
+        ...target,
+        workspaces: [],
+        sessions: [],
+      })
+      vi.mocked(api.deleteSession).mockResolvedValue({ ...target, sessions: [] })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".project-item-row.is-active .project-remove").click())
+      expect(confirm).toHaveBeenLastCalledWith(
+        t(language, "removeProjectConfirm").split("{name}").join(name),
+        { title: t(language, "removeProject"), kind: "warning" },
+      )
+      expect(api.removeWorkspace).toHaveBeenCalledExactlyOnceWith(target.workspaces[0].path)
+      await act(async () => root.render(null))
+      await act(async () => root.render(<App />))
+      await act(async () => element(".session-delete").click())
+      expect(confirm).toHaveBeenLastCalledWith(
+        t(language, "deleteSessionConfirm").split("{title}").join(name),
+        { title: t(language, "deleteSession"), kind: "warning" },
+      )
+      expect(api.deleteSession).toHaveBeenCalledExactlyOnceWith(target.sessions[0].filePath, false)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it("reports a rejected workspace removal dialog without mutating the workspace", async () => {
     const projects = workspacePayload("A", "B")
     projects.settings = { ...projects.settings, lastWorkspace: "C:/fixture/B" }

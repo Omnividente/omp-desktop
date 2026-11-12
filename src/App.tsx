@@ -831,7 +831,7 @@ function App() {
       let shouldRemove: boolean
       try {
         shouldRemove = await confirm(
-          t(lang, "removeProjectConfirm").replace("{name}", workspace.name),
+          t(lang, "removeProjectConfirm").replace("{name}", () => workspace.name),
           { title: t(lang, "removeProject"), kind: "warning" },
         )
       } catch (error) {
@@ -2212,7 +2212,7 @@ function App() {
       }
       try {
         const accepted = await confirm(
-          t(lang, "deleteSessionConfirm").replace("{title}", session.title),
+          t(lang, "deleteSessionConfirm").replace("{title}", () => session.title),
           { title: t(lang, "deleteSession"), kind: "warning" },
         )
         if (!accepted) return
