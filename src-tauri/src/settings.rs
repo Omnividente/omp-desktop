@@ -2162,8 +2162,8 @@ mod tests {
                 Ok(())
             }
         })
-        .err()
-        .expect("publication followed by an error must not report success");
+        .map(|_| ())
+        .expect_err("publication followed by an error must not report success");
         assert_eq!(writes, 2);
         let details: serde_json::Value = serde_json::from_str(
             error
