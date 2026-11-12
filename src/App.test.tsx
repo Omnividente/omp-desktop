@@ -940,6 +940,126 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   })
 
+  it("ignores an OMP update response after runtime becomes unavailable", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    vi.mocked(api.checkOmpUpdate).mockReturnValueOnce(pending.promise)
+    await act(async () => root.render(<App />))
+    expect(api.checkOmpUpdate).toHaveBeenCalledTimes(1)
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      runtime: { ...bootstrap.runtime, ompAvailable: false, ompVersion: null },
+    })
+    await act(async () => element('[title="Обновить список"]').click())
+    expect(container.querySelector(".update-check-pill")).toBeNull()
+    await act(async () =>
+      pending.resolve({
+        hasUpdate: true,
+        currentVersion: "18.1.19",
+        latestVersion: "41.0.0",
+        message: "Old runtime",
+      }),
+    )
+    expect(container.querySelector(".update-pill")).toBeNull()
+    expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
+  })
+
+  it.each(["version", "executable"] as const)(
+    "keeps the newer OMP check after runtime %s changes",
+    async (changed) => {
+      const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+      const latest = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+      vi.mocked(api.checkOmpUpdate)
+        .mockReturnValueOnce(old.promise)
+        .mockReturnValueOnce(latest.promise)
+      await act(async () => root.render(<App />))
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        runtime: {
+          ...bootstrap.runtime,
+          ...(changed === "version"
+            ? { ompVersion: "omp/19.0.0" }
+            : { ompExecutable: "C:/fixture/other-omp.exe" }),
+        },
+      })
+      await act(async () => element('[title="Обновить список"]').click())
+      expect(api.checkOmpUpdate).toHaveBeenCalledTimes(2)
+      await act(async () =>
+        latest.resolve({
+          hasUpdate: true,
+          currentVersion: "19.0.0",
+          latestVersion: "42.0.0",
+          message: "New runtime",
+        }),
+      )
+      await act(async () =>
+        old.resolve({
+          hasUpdate: true,
+          currentVersion: "18.1.19",
+          latestVersion: "41.0.0",
+          message: "Old runtime",
+        }),
+      )
+      expect(container.querySelector(".notification-stack")?.textContent).toContain("42.0.0")
+      expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
+    },
+  )
+
+  it("keeps the OMP busy indicator until the latest check finishes", async () => {
+    const first = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    const latest = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    vi.mocked(api.checkOmpUpdate)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(latest.promise)
+    await act(async () => root.render(<App />))
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible")
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"))
+    })
+    expect(api.checkOmpUpdate).toHaveBeenCalledTimes(2)
+    await act(async () =>
+      first.resolve({ hasUpdate: false, currentVersion: null, latestVersion: null, message: "" }),
+    )
+    expect(container.querySelector(".update-check-pill")).not.toBeNull()
+    await act(async () =>
+      latest.resolve({ hasUpdate: false, currentVersion: null, latestVersion: null, message: "" }),
+    )
+    expect(container.querySelector(".update-check-pill")).toBeNull()
+  })
+
+  it.each(["negative", "error"] as const)(
+    "preserves a PTY update notice after a current %s check",
+    async (result) => {
+      await act(async () => root.render(<App />))
+      const pending = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+      vi.mocked(api.checkOmpUpdate).mockReturnValueOnce(pending.promise)
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "omp-update-notice")![1] as EventCallback<{
+        terminalId: string
+      }>
+      await act(async () =>
+        receive({
+          event: "omp-update-notice",
+          id: 17,
+          payload: { terminalId: "synthetic-source" },
+        }),
+      )
+      expect(container.querySelector(".update-pill")).not.toBeNull()
+      await act(async () => {
+        if (result === "error") pending.reject(new Error("Synthetic registry failure"))
+        else
+          pending.resolve({
+            hasUpdate: false,
+            currentVersion: null,
+            latestVersion: null,
+            message: "Unknown/negative",
+          })
+      })
+      expect(container.querySelector(".update-pill")).not.toBeNull()
+      expect(container.querySelector(".update-check-pill")).toBeNull()
+    },
+  )
+
   beforeEach(() => {
     previousDocumentLanguage = document.documentElement.getAttribute("lang")
     vi.clearAllMocks()
