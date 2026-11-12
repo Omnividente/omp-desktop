@@ -2354,16 +2354,19 @@ function App() {
         void confirm(t(lang, "stopAndCloseConfirm"), {
           title: target.label,
           kind: "warning",
-        }).then((shouldClose) => {
-          if (shouldClose) {
-            performCloseTab(terminalId)
-          }
-        })
+        }).then(
+          (shouldClose) => {
+            if (shouldClose) {
+              performCloseTab(terminalId)
+            }
+          },
+          (error) => showError(errorMessage(error, lang)),
+        )
       } else {
         performCloseTab(terminalId)
       }
     },
-    [lang, performCloseTab, tabs],
+    [lang, performCloseTab, showError, tabs],
   )
 
   useEffect(() => {
