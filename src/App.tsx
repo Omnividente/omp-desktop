@@ -221,9 +221,11 @@ async function notifyTerminalCompletion(
     if (!granted) return
 
     const title = t(lang, event.success ? "notificationSuccessTitle" : "notificationFailureTitle")
-    const body = t(lang, event.success ? "notificationSuccessBody" : "notificationFailureBody")
-      .replace("{title}", tab.label)
-      .replace("{code}", event.error || String(event.exitCode ?? "?"))
+    const template = t(lang, event.success ? "notificationSuccessBody" : "notificationFailureBody")
+    const body = template.replace(/\{title\}|\{code\}/g, (placeholder) => {
+      if (placeholder === "{title}") return tab.label
+      return event.error || String(event.exitCode ?? "?")
+    })
     sendNotification({ title, body })
   } catch {
     // Notifications are optional and must never interfere with terminal cleanup.
