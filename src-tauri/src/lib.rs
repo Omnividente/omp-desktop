@@ -11,6 +11,7 @@ mod operational_config;
 mod provider_config;
 mod resource_health;
 mod secrets;
+mod session_deletion;
 mod session_lease;
 mod sessions;
 mod settings;
@@ -1102,23 +1103,31 @@ async fn delete_session(
                 );
                 let settings_changed = title_pin_removed || provider_pin_removed;
                 let next = snapshot.clone();
-                let bootstrap =
+                let mut bootstrap =
                     sessions::build_bootstrap_excluding(&app, &next, Some(&session_key))?;
 
-                let mut settings_save_attempted = false;
-                let deletion_result = (|| {
+                // Persist pin cleanup only after the deletion's commit record. A restart
+                // before commit restores the history with its original settings intact.
+                let mut settings_cleaned = !settings_changed;
+                let warning = session_deletion::settle(deletion.commit(), || {
                     if settings_changed {
-                        settings_save_attempted = true;
                         save_settings(&app, &next)?;
                     }
-                    deletion.commit()
-                })();
-                settings::resolve_transaction(deletion_result, || {
-                    if !settings_save_attempted {
-                        return Vec::new();
-                    }
-                    save_settings(&app, &previous).err().into_iter().collect()
+                    settings_cleaned = true;
+                    Ok(())
                 })?;
+                if !settings_cleaned {
+                    // A write error may follow publication. Retaining stale pins is
+                    // harmless; never claim that deleted history was rolled back.
+                    *transaction.candidate_mut() = previous.clone();
+                    bootstrap.settings = previous;
+                }
+                if let Some(message) = warning {
+                    bootstrap.session_warnings.push(models::SessionScanWarning {
+                        path: session_key,
+                        message,
+                    });
+                }
                 Ok(bootstrap)
             })
         },
