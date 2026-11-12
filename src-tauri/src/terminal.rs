@@ -4447,7 +4447,11 @@ pub fn close_terminal(
     terminal_id: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    let process = lock_processes(&terminals).remove(&terminal_id);
+    close_terminal_in_state(&terminal_id, &terminals)
+}
+
+fn close_terminal_in_state(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
+    let process = lock_processes(terminals).remove(terminal_id);
     drop(process);
     Ok(())
 }
@@ -8913,4 +8917,6 @@ mod tests {
             vec!["network_unavailable"]
         );
     }
+
+    include!("close_lifecycle_research.rs");
 }
