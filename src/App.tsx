@@ -286,6 +286,8 @@ function App() {
   const restartExitEventsRef = useRef(new Map<string, PtyExitEvent>())
   const [activeTabId, setActiveTabId] = useState<string | null>(null)
   const tabSelectionRequestRef = useRef(0)
+  const activeTabIdRef = useRef(activeTabId)
+  activeTabIdRef.current = activeTabId
   const [terminalFocusRequest, setTerminalFocusRequest] = useState<{
     terminalId: string
     sequence: number
@@ -1099,9 +1101,16 @@ function App() {
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
 
-      const sessionSelectionRequest = ++sessionSelectionRequestRef.current
-      setSelectedSessionPath(session.filePath)
-      setSearch("")
+      // A background breadcrumb updates its tab, not the reader's current navigation.
+      // Discovery can precede tab publication, so preserve that launch-time selection.
+      const background =
+        activeTabIdRef.current !== event.terminalId &&
+        tabsRef.current.some((tab) => tab.id === event.terminalId)
+      const sessionSelectionRequest = background ? null : ++sessionSelectionRequestRef.current
+      if (sessionSelectionRequest !== null) {
+        setSelectedSessionPath(session.filePath)
+        setSearch("")
+      }
       setTabs((current) =>
         current.map((tab) =>
           tab.id === event.terminalId
@@ -1131,6 +1140,7 @@ function App() {
           if (latest && latest.id !== session.id) return
           applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
           if (
+            sessionSelectionRequest !== null &&
             sessionSelectionRequest === sessionSelectionRequestRef.current &&
             workspaceSelectionRequest === workspaceSelectionRequestRef.current
           ) {
