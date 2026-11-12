@@ -535,6 +535,9 @@ fn source_key(source: &str) -> String {
 }
 
 fn block_directory(parent: &Path, blocked: &mut HashSet<PathBuf>) {
+    // The missing destination of an unreadable intent cannot be enumerated.
+    // Reserve the directory itself, including names a future import would create.
+    blocked.insert(parent.to_path_buf());
     if let Ok(entries) = fs::read_dir(parent) {
         blocked.extend(entries.flatten().map(|entry| entry.path()));
     }
@@ -552,12 +555,27 @@ pub(crate) fn recover_directory(
     let entries: Vec<_> = entries.flatten().collect();
     let mut counts = std::collections::HashMap::new();
     for entry in &entries {
-        if is_private_directory_name(&entry.file_name())
-            && entry.file_name().to_string_lossy().starts_with(PREFIX)
-            && entry.file_type().is_ok_and(|kind| kind.is_dir())
+        if !is_private_directory_name(&entry.file_name())
+            || !entry.file_name().to_string_lossy().starts_with(PREFIX)
         {
-            if let Ok(intent) = read_intent(&entry.path()) {
-                *counts.entry(source_key(&intent.source)).or_insert(0usize) += 1;
+            continue;
+        }
+        let intent = if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            read_intent(&entry.path())
+        } else {
+            Err(problem(&entry.path(), "журнал не является каталогом"))
+        };
+        match intent {
+            Ok(intent) => *counts.entry(source_key(&intent.source)).or_insert(0usize) += 1,
+            Err(message) => {
+                // An opaque sibling could be a duplicate of any valid intent.
+                // Do not recover some journals before discovering that ambiguity.
+                block_directory(parent, blocked);
+                warnings.push(SessionScanWarning {
+                    path: entry.path().to_string_lossy().into_owned(),
+                    message,
+                });
+                return;
             }
         }
     }

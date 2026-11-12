@@ -1009,7 +1009,12 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
         use std::os::unix::fs::OpenOptionsExt;
         // A validated regular file can become a FIFO before open. Reach the
         // descriptor check below without waiting for a FIFO writer.
-        options.custom_flags(libc::O_NONBLOCK);
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
     }
     let file = options
         .open(source)
@@ -1020,7 +1025,7 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
             source.display()
         )
     })?;
-    if !metadata.is_file() {
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err("Импортировать можно только обычный JSONL-файл, не ссылку".to_owned());
     }
     if metadata.len() > MAX_IMPORT_BYTES {
@@ -1819,6 +1824,9 @@ fn import_destination(
     blocked: &HashSet<PathBuf>,
 ) -> Result<ImportDestination, String> {
     let destination_directory = session_root.join(encode_session_dir_name(target_cwd));
+    if blocked.contains(&destination_directory) {
+        return Err("[session_import_recovery_pending] Каталог содержит неопознанный журнал удаления".to_owned());
+    }
     fs::create_dir_all(&destination_directory).map_err(|error| {
         format!(
             "Не удалось создать {}: {error}",
@@ -7458,6 +7466,22 @@ mod tests {
                 .contains("обычный JSONL-файл"));
         }
         fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_source_rejects_symlink_replacement_after_validation() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let source = fixture.0.join("source.jsonl");
+        let unrelated = fixture.0.join("unrelated.jsonl");
+        fs::write(&source, b"original").unwrap();
+        fs::write(&unrelated, b"unrelated data").unwrap();
+        let validated = validated_external_import_source(source.to_str().unwrap()).unwrap();
+        fs::remove_file(&source).unwrap();
+        std::os::unix::fs::symlink(&unrelated, &source).unwrap();
+        assert!(super::read_bounded_import_source(&validated).is_err());
+        assert_eq!(fs::read(&unrelated).unwrap(), b"unrelated data");
+        assert!(fs::symlink_metadata(&source).unwrap().file_type().is_symlink());
     }
 
     #[test]

@@ -78,6 +78,47 @@ mod boundary_tests {
         assert!(fs::symlink_metadata(fixture.session.with_extension("")).is_err());
     }
 
+    #[test]
+    fn opaque_journal_preserves_valid_siblings_and_reserves_missing_import_names() {
+        use crate::models::{ImportItemStatus, ImportMode, ImportSessionRequest};
+        let fixture = Fixture::new();
+        let project = fixture.root.join("project");
+        fs::create_dir(&project).unwrap();
+        let session_root = fixture.root.join("sessions");
+        let target = crate::sessions::canonical_project_path(project.to_str().unwrap()).unwrap();
+        let directory = session_root.join(crate::sessions::encode_session_dir_name(target.to_str().unwrap()));
+        fs::create_dir_all(&directory).unwrap();
+        let source = directory.join("history.jsonl");
+        fs::copy(&fixture.session, &source).unwrap();
+        drop(SessionLease::acquire(&source, SessionLeasePurpose::Delete, false).unwrap());
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _ = delete_with(&source, |stage| {
+                assert_ne!(stage, "session", "interrupted deletion");
+                Ok(())
+            });
+        }));
+        let opaque = directory.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
+        fs::create_dir(&opaque).unwrap();
+        fs::write(opaque.join("intent.json"), b"unreadable intent").unwrap();
+        let mut warnings = Vec::new();
+        let mut blocked = HashSet::new();
+        recover_directory(&directory, &mut warnings, &mut blocked, None);
+        assert!(!warnings.is_empty());
+        assert!(blocked.contains(&directory));
+        assert!(!source.exists(), "valid sibling journal must remain untouched");
+        for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+            let results = crate::sessions::import_sessions(&[ImportSessionRequest {
+                path: fixture.session.to_string_lossy().into_owned(),
+                target_cwd: project.to_string_lossy().into_owned(), mode,
+            }], &session_root, &HashSet::new());
+            assert_eq!(results[0].status, ImportItemStatus::Failed);
+            assert_eq!(results[0].destination_path, None);
+        }
+        assert!(!source.exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 3);
+        fixture.preserved();
+    }
+
     #[cfg(windows)]
     #[test]
     fn duplicate_journals_with_case_aliases_block_the_real_directory_entries() {
