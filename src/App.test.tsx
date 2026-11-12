@@ -24,7 +24,6 @@ import type {
   PtySessionEvent,
   TerminalStarted,
   TerminalTab,
-  SessionTranscript,
 } from "./types"
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
