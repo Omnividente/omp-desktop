@@ -499,10 +499,19 @@ describe("App lifecycle serialization", () => {
         id: "second-session",
         title: "Fixture second",
         filePath: "C:/fixture/sessions/second.jsonl",
+        updatedAt: 0,
       }
       const projects = { ...bootstrap, sessions: [...bootstrap.sessions, secondSession] }
       vi.mocked(api.bootstrap).mockResolvedValue(projects)
       await mountAndResume()
+      expect(api.startTerminal).toHaveBeenLastCalledWith(
+        projects.sessions[0].cwd,
+        projects.sessions[0].filePath,
+        120,
+        36,
+        null,
+        false,
+      )
       vi.mocked(api.startTerminal).mockResolvedValueOnce({
         ...started,
         terminalId: "terminal-2",
