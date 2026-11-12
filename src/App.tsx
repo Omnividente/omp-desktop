@@ -55,7 +55,7 @@ import { Icon } from "./Icon"
 import { thinkingOptionsForModel } from "./ModelPicker"
 import { catalogModelForSelector } from "./modelPassportMetadata"
 import { sessionModelSelection } from "./sessionModelSelection"
-import { t, type Lang, type UiKey } from "./i18n"
+import { resolveLang, t, type Lang, type UiKey } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import {
   applyRuntimeEventToTab,
@@ -459,7 +459,7 @@ function App() {
     }
   }, [appFontSize])
 
-  const lang: Lang = payload?.settings.language === "en" ? "en" : "ru"
+  const lang: Lang = resolveLang(payload?.settings.language)
   useEffect(() => {
     const root = document.documentElement
     const previousLanguage = root.getAttribute("lang")
@@ -742,7 +742,7 @@ function App() {
       const warningKey = warning ? `${warning.code}:${warning.details ?? ""}` : null
       if (warning && settingsWarningShownRef.current !== warningKey) {
         settingsWarningShownRef.current = warningKey
-        const warningLang: Lang = next.settings.language === "en" ? "en" : "ru"
+        const warningLang: Lang = resolveLang(next.settings.language)
         showNotice(
           warning.code === "settings_recovered"
             ? t(warningLang, "settingsRecovered").replace(
@@ -1710,7 +1710,9 @@ function App() {
           id: started.terminalId,
           label:
             runtimeSession?.title ??
-            `${lang === "en" ? "New" : "Новая"} · ${selectedWorkspace?.name ?? "OMP"}`,
+            `${lang === "en" ? "New" : lang === "zh" ? "新建" : "Новая"} · ${
+              selectedWorkspace?.name ?? "OMP"
+            }`,
           pinnedTitle: runtimeSession?.pinnedTitle ?? null,
           cwd: started.cwd,
           processId: started.processId,
