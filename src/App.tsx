@@ -2119,9 +2119,7 @@ function App() {
             ? { ...current, terminalId: started.terminalId }
             : current,
         )
-        changeUpdateSource((current) =>
-          current === terminalId ? started.terminalId : current,
-        )
+        changeUpdateSource((current) => (current === terminalId ? started.terminalId : current))
         void refresh()
       } catch (error) {
         restartingTerminalIdsRef.current.delete(terminalId)
