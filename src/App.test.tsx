@@ -1063,37 +1063,41 @@ describe("App lifecycle serialization", () => {
     },
   )
 
-  it("ignores a pending OMP check after a new PTY notice supplies its source", async () => {
-    const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
-    const current = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
-    vi.mocked(api.checkOmpUpdate)
-      .mockReturnValueOnce(old.promise)
-      .mockReturnValueOnce(current.promise)
-    await act(async () => root.render(<App />))
-    const receive = vi
-      .mocked(listen)
-      .mock.calls.find(([event]) => event === "omp-update-notice")![1] as EventCallback<{
-      terminalId: string
-    }>
-    await act(async () =>
-      receive({ event: "omp-update-notice", id: 18, payload: { terminalId: "new-source" } }),
-    )
-    expect(api.checkOmpUpdate).toHaveBeenCalledTimes(2)
-    await act(async () =>
-      old.resolve({
-        hasUpdate: true,
-        currentVersion: "18.1.19",
-        latestVersion: "41.0.0",
-        message: "Old source",
-      }),
-    )
-    expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
-    expect(container.querySelector(".update-check-pill")).not.toBeNull()
-    await act(async () =>
-      current.resolve({ hasUpdate: false, currentVersion: null, latestVersion: null, message: "" }),
-    )
-    expect(container.querySelector(".update-pill")).not.toBeNull()
-  })
+  it.each([false, true])(
+    "ignores an OMP check after a new PTY source (batched %s)",
+    async (batched) => {
+      const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+      const current = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+      vi.mocked(api.checkOmpUpdate)
+        .mockReturnValueOnce(old.promise)
+        .mockReturnValueOnce(current.promise)
+      await act(async () => root.render(<App />))
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "omp-update-notice")![1] as EventCallback<{
+        terminalId: string
+      }>
+      const resolveOld = () =>
+        old.resolve({
+          hasUpdate: true,
+          currentVersion: "18.1.19",
+          latestVersion: "41.0.0",
+          message: "Old source",
+        })
+      await act(async () => {
+        receive({ event: "omp-update-notice", id: 18, payload: { terminalId: "new-source" } })
+        if (batched) resolveOld()
+      })
+      expect(api.checkOmpUpdate).toHaveBeenCalledTimes(2)
+      if (!batched) await act(async () => resolveOld())
+      expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
+      expect(container.querySelector(".update-check-pill")).not.toBeNull()
+      await act(async () =>
+        current.resolve({ hasUpdate: false, currentVersion: null, latestVersion: null, message: "" }),
+      )
+      expect(container.querySelector(".update-pill")).not.toBeNull()
+    },
+  )
 
   it("does not carry an old OMP check into a remounted App", async () => {
     const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
@@ -1112,6 +1116,32 @@ describe("App lifecycle serialization", () => {
     )
     expect(container.querySelector(".update-pill")).toBeNull()
     expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
+  })
+
+  it("invalidates an OMP check before a batched runtime reset commits", async () => {
+    const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    vi.mocked(api.checkOmpUpdate).mockReturnValueOnce(old.promise)
+    await act(async () => root.render(<App />))
+    const reload = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(reload.promise)
+    await act(async () => element('[title="Обновить список"]').click())
+    await act(async () => {
+      reload.resolve({
+        ...bootstrap,
+        runtime: { ...bootstrap.runtime, ompAvailable: false, ompVersion: null },
+      })
+      // Let refresh accept its payload, while act still holds the React commit.
+      await Promise.resolve()
+      old.resolve({
+        hasUpdate: true,
+        currentVersion: "18.1.19",
+        latestVersion: "41.0.0",
+        message: "Before runtime reset",
+      })
+    })
+    expect(container.querySelector(".runtime-pill.is-error")).not.toBeNull()
+    expect(container.querySelector(".update-pill")).toBeNull()
+    expect(container.querySelector(".update-check-pill")).toBeNull()
   })
 
   beforeEach(() => {
