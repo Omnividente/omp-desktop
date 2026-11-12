@@ -1752,6 +1752,18 @@ function App() {
 
   const openAndRereadSession = useCallback(
     async (session: SessionSummary) => {
+      if (
+        payload &&
+        tabsRef.current.some(
+          (tab) =>
+            tab.status === "running" &&
+            tabMatchesSession(tab, session, payload.runtime.platform) &&
+            (restartingTerminalIdsRef.current.has(tab.id) || tab.primaryProviderPinPending),
+        )
+      ) {
+        showNotice(t(lang, "transcriptRereadRestartPending"))
+        return
+      }
       const prompt = `${t(lang, "transcriptRereadPrompt").replace(
         "{path}",
         () => session.filePath,
@@ -1760,7 +1772,7 @@ function App() {
       closeTranscript()
       await launchSession(session, prompt)
     },
-    [closeTranscript, lang, launchSession],
+    [closeTranscript, lang, launchSession, payload, showNotice],
   )
 
   const launchUpdate = useCallback(async () => {
@@ -2187,6 +2199,12 @@ function App() {
         return
       }
 
+      // Keep never-sent reread input on its current terminal. Restart exits clear that queue.
+      if (pendingInitialInputRef.current.has(terminalId)) {
+        showNotice(t(langRef.current, "primaryProviderPinQueuedInput"))
+        return
+      }
+
       restartingTerminalIdsRef.current.add(terminalId)
       restartExitEventsRef.current.delete(terminalId)
       setTabs((current) =>
@@ -2262,7 +2280,7 @@ function App() {
         showError(errorMessage(error, langRef.current))
       }
     },
-    [changeUpdateSource, isInstallingClientUpdate, refresh, showError],
+    [changeUpdateSource, isInstallingClientUpdate, refresh, showError, showNotice],
   )
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
