@@ -126,6 +126,45 @@ describe("runtime event contract", () => {
 })
 
 describe("proxy runtime policy", () => {
+  it.each([false, true])(
+    "preserves local runtime failures with a pending proxy error of %s",
+    (alreadyPending) => {
+      const pending = new Set<string>(alreadyPending ? ["terminal-1"] : [])
+      const failure = event({
+        kind: "runtimeError",
+        activity: "error",
+        errorMessage: "Synthetic local PTY write failed",
+      })
+
+      expect(suppressTransientProxyError(pending, failure, "proxy/model", ["proxy"])).toBe(false)
+      expect(pending.has("terminal-1")).toBe(alreadyPending)
+      expect(runtimeEventFeedback(failure)).toEqual({
+        kind: "error",
+        message: failure.errorMessage,
+      })
+      expect(applyRuntimeEventToTab(tab, failure).activity).toBe("error")
+    },
+  )
+
+  it("does not consume a model error allowance for an unrelated local failure", () => {
+    const pending = new Set<string>()
+    const localFailure = event({ kind: "runtimeError", activity: "error" })
+    const modelFailure = event({ kind: "modelError", activity: "error" })
+
+    expect(suppressTransientProxyError(pending, localFailure, "proxy/model", ["proxy"])).toBe(
+      false,
+    )
+    expect(suppressTransientProxyError(pending, modelFailure, "proxy/model", ["proxy"])).toBe(
+      true,
+    )
+    expect(suppressTransientProxyError(pending, localFailure, "proxy/model", ["proxy"])).toBe(
+      false,
+    )
+    expect(suppressTransientProxyError(pending, modelFailure, "proxy/model", ["proxy"])).toBe(
+      false,
+    )
+  })
+
   it("suppresses one proxy account error and surfaces a consecutive failure", () => {
     const pending = new Set<string>()
     const failure = event({

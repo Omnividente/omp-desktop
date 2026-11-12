@@ -21,6 +21,7 @@ import type {
   OmpConfigSnapshot,
   SingleInstanceEvent,
   PtySessionEvent,
+  PtyRuntimeEvent,
   TerminalStarted,
   TerminalTab,
 } from "./types"
@@ -4879,6 +4880,61 @@ describe("App lifecycle serialization", () => {
     expect(fixture.batches[1].map((x) => x.path)).toEqual([fixture.sources[1]])
     expect(api.startTerminal).not.toHaveBeenCalled()
   })
+
+  it.each(["en", "ru"] as const)(
+    "reports the first local runtime failure while proxy mode is enabled (%s)",
+    async (language) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language, proxyProviders: ["provider"] },
+        sessions: [{ ...bootstrap.sessions[0], model: "provider/Initial" }],
+      })
+      const frames = new Map<number, FrameRequestCallback>()
+      let nextFrame = 1
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        const id = nextFrame++
+        frames.set(id, callback)
+        return id
+      })
+      vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => frames.delete(id))
+      await act(async () => root.render(<App />))
+      await act(async () => element(".recent-resume").click())
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      const subscription = vi.mocked(listen).mock.calls.find(([name]) => name === "pty-runtime")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<PtyRuntimeEvent>
+      const message = "Synthetic local PTY write failed"
+      await act(async () => {
+        receive({
+          event: "pty-runtime",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            kind: "runtimeError",
+            model: null,
+            modelRole: null,
+            thinkingLevel: null,
+            configuredThinkingLevel: null,
+            activity: "error",
+            errorMessage: message,
+            fallbackFrom: null,
+            fallbackTo: null,
+            fallbackRole: null,
+            resolvedModelIsFallback: null,
+          },
+        })
+        const scheduled = [...frames.values()]
+        frames.clear()
+        for (const frame of scheduled) frame(0)
+      })
+      expect(element(".error-toast").textContent).toContain(message)
+      expect(element(".incident-center-badge").textContent).toBe("1")
+      await act(async () => element(".incident-center-trigger").click())
+      expect(element(".incident-center-panel").textContent).toContain(message)
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      expect(api.switchTerminal).not.toHaveBeenCalled()
+    },
+  )
 
   it("reports a rejected workspace removal dialog without mutating the workspace", async () => {
     const projects = workspacePayload("A", "B")
