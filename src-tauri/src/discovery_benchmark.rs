@@ -31,6 +31,210 @@ fn inventory(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
+// Experimental, test-only composition. No persistent or cross-session key cache.
+fn shared_key_pins(session: &mut SessionSummary, settings: &AppSettings) {
+    let canonical = path_key(&session.file_path);
+    let lexical = lexical_path_key(&session.file_path);
+    session.pinned_title = settings
+        .session_title_pins
+        .get(&canonical)
+        .or_else(|| settings.session_title_pins.get(&lexical))
+        .cloned();
+    if let Some(title) = &session.pinned_title {
+        session.title.clone_from(title);
+    }
+    session.primary_provider_pinned = settings.primary_provider_pins.contains(&canonical)
+        || settings.primary_provider_pins.contains(&lexical);
+}
+
+fn apply_current_pins(session: &mut SessionSummary, settings: &AppSettings) {
+    apply_session_title_pin(session, &settings.session_title_pins);
+    apply_session_primary_provider_pin(session, &settings.primary_provider_pins);
+}
+
+fn timed_pins(
+    source: &[SessionSummary],
+    settings: &AppSettings,
+    apply: fn(&mut SessionSummary, &AppSettings),
+) -> (u128, Vec<SessionSummary>) {
+    let mut result = source.to_vec();
+    let started = Instant::now();
+    for session in &mut result {
+        apply(session, settings);
+    }
+    (started.elapsed().as_micros(), result)
+}
+
+fn assert_same_pins(source: &[SessionSummary], settings: &AppSettings) {
+    let (_, current) = timed_pins(source, settings, apply_current_pins);
+    let (_, shared) = timed_pins(source, settings, shared_key_pins);
+    assert_eq!(
+        serde_json::to_value(current).unwrap(),
+        serde_json::to_value(shared).unwrap()
+    );
+}
+
+#[test]
+#[ignore = "isolated release pin-key scaling benchmark"]
+fn synthetic_pin_keys() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = env::temp_dir().join(format!(
+        "omp-pin-profile-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&root).unwrap();
+    let _fixture = Fixture {
+        root: root.clone(),
+        previous_names: TEST_CODEX_THREAD_NAMES.with(|names| names.replace(Some(HashMap::new()))),
+    };
+    for count in [100_usize, 1_000, 10_000] {
+        let library = root.join(format!("library-{count}"));
+        fs::create_dir(&library).unwrap();
+        let mut source = Vec::new();
+        let mut settings = AppSettings::default();
+        for index in 0..count {
+            let project = library.join(format!("project-{}", index / 100));
+            fs::create_dir_all(&project).unwrap();
+            let path = project.join(format!("session-{index}.jsonl"));
+            let header = serde_json::json!({
+                "type":"session", "id":format!("pin-{index}"), "cwd":project
+            });
+            fs::write(&path, format!("{header}\n")).unwrap();
+            let session = parse_session_with_names(&path, &HashMap::new())
+                .unwrap()
+                .unwrap();
+            if index % 10 == 0 {
+                settings
+                    .session_title_pins
+                    .insert(path_key(&session.file_path), format!("Pinned {index}"));
+                settings
+                    .primary_provider_pins
+                    .insert(path_key(&session.file_path));
+            }
+            source.push(session);
+        }
+        let before = inventory(&library);
+        let expected_keys: Vec<_> = source.iter().map(|s| path_key(&s.file_path)).collect();
+        // Alternate AB/BA order; cloning, assertions and inventory are untimed.
+        for repetition in 0..6 {
+            let ((current_us, current), (shared_us, shared)) = if repetition % 2 == 0 {
+                (
+                    timed_pins(&source, &settings, apply_current_pins),
+                    timed_pins(&source, &settings, shared_key_pins),
+                )
+            } else {
+                let shared = timed_pins(&source, &settings, shared_key_pins);
+                let current = timed_pins(&source, &settings, apply_current_pins);
+                (current, shared)
+            };
+            let started = Instant::now();
+            let keys: Vec<_> = source.iter().map(|s| path_key(&s.file_path)).collect();
+            let path_key_us = started.elapsed().as_micros();
+            let started = Instant::now();
+            let lexical: Vec<_> = source
+                .iter()
+                .map(|s| lexical_path_key(&s.file_path))
+                .collect();
+            let lexical_us = started.elapsed().as_micros();
+            assert_eq!(keys, expected_keys);
+            assert_eq!(lexical.len(), count);
+            std::hint::black_box(&lexical);
+            assert_eq!(
+                serde_json::to_value(&current).unwrap(),
+                serde_json::to_value(&shared).unwrap()
+            );
+            assert_eq!(current.len(), count);
+            for (index, session) in current.iter().enumerate() {
+                assert_eq!(session.primary_provider_pinned, index % 10 == 0);
+                assert_eq!(
+                    session.pinned_title,
+                    (index % 10 == 0).then(|| format!("Pinned {index}"))
+                );
+            }
+            assert_eq!(inventory(&library), before);
+            eprintln!(
+                "PIN_KEYS_BENCH {}",
+                serde_json::json!({
+                    "os":env::consts::OS, "sessions":count, "repetition":repetition,
+                    "current_first":repetition % 2 == 0,
+                    "current_us":current_us, "shared_us":shared_us,
+                    "path_key_once_us":path_key_us, "lexical_once_us":lexical_us,
+                    "debug_assertions":cfg!(debug_assertions)
+                })
+            );
+        }
+        // Controls for sparse/empty maps and stale incoming pin flags.
+        let mut stale = source[..2].to_vec();
+        stale[0].pinned_title = Some("stale".to_owned());
+        stale[0].primary_provider_pinned = true;
+        assert_same_pins(&stale, &AppSettings::default());
+        // A dot alias produces distinct canonical/lexical keys on both OSes.
+        let mut alias = source[0].clone();
+        let path = Path::new(&alias.file_path);
+        alias.file_path = path
+            .parent()
+            .unwrap()
+            .join(".")
+            .join(path.file_name().unwrap())
+            .to_string_lossy()
+            .into_owned();
+        let canonical = path_key(&alias.file_path);
+        let lexical = lexical_path_key(&alias.file_path);
+        assert_ne!(canonical, lexical);
+        let mut aliases = AppSettings::default();
+        aliases
+            .session_title_pins
+            .insert(lexical.clone(), "legacy".to_owned());
+        aliases.primary_provider_pins.insert(lexical);
+        assert_same_pins(std::slice::from_ref(&alias), &aliases);
+        let mut resolved = alias.clone();
+        shared_key_pins(&mut resolved, &aliases);
+        assert_eq!(resolved.pinned_title.as_deref(), Some("legacy"));
+        aliases
+            .session_title_pins
+            .insert(canonical, "canonical".to_owned());
+        assert_same_pins(std::slice::from_ref(&alias), &aliases);
+        shared_key_pins(&mut resolved, &aliases);
+        assert_eq!(resolved.pinned_title.as_deref(), Some("canonical"));
+        #[cfg(windows)]
+        {
+            let mut case_alias = alias.clone();
+            case_alias.file_path = case_alias.file_path.to_ascii_uppercase();
+            assert_same_pins(std::slice::from_ref(&case_alias), &aliases);
+            shared_key_pins(&mut case_alias, &aliases);
+            assert_eq!(case_alias.pinned_title.as_deref(), Some("canonical"));
+        }
+        // No stale cached key survives a file disappearing between invocations.
+        fs::remove_file(&alias.file_path).unwrap();
+        assert_same_pins(std::slice::from_ref(&alias), &aliases);
+        shared_key_pins(&mut alias, &aliases);
+        assert_eq!(alias.pinned_title.as_deref(), Some("legacy"));
+        #[cfg(unix)]
+        {
+            let link = library.join("alias.jsonl");
+            let mut linked = source[1].clone();
+            linked.file_path = link.to_string_lossy().into_owned();
+            let mut pins = AppSettings::default();
+            pins.session_title_pins
+                .insert(path_key(&source[1].file_path), "one".to_owned());
+            pins.session_title_pins
+                .insert(path_key(&source[2].file_path), "two".to_owned());
+            for (index, expected) in [(1, "one"), (2, "two")] {
+                if link.symlink_metadata().is_ok() {
+                    fs::remove_file(&link).unwrap();
+                }
+                std::os::unix::fs::symlink(&source[index].file_path, &link).unwrap();
+                assert_same_pins(std::slice::from_ref(&linked), &pins);
+                shared_key_pins(&mut linked, &pins);
+                assert_eq!(linked.pinned_title.as_deref(), Some(expected));
+            }
+        }
+    }
+}
+
 // Separate diagnostic passes, not instrumentation of the main scan timings.
 // The cached parser includes metadata/open/read/JSON/path work; it is not CPU-only.
 fn diagnose_files(library: &Path, expected_ids: &BTreeSet<String>) {
