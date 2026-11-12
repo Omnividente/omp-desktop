@@ -135,6 +135,10 @@ type PendingUpdateRestart = {
   updateTerminalId: string
   sourceTab: TerminalTab | null
 }
+type PendingLaunchDiscovery = {
+  terminalId: string | null
+  superseded: boolean
+}
 type PendingRuntimeEvent = {
   event: PtyRuntimeEvent
   receivedAt: number
@@ -259,6 +263,7 @@ function App() {
   const workspaceSaveRetryPendingRef = useRef(false)
   const [selectedSessionPath, setSelectedSessionPath] = useState<string | null>(null)
   const sessionSelectionRequestRef = useRef(0)
+  const pendingLaunchDiscoveriesRef = useRef(new Map<symbol, PendingLaunchDiscovery>())
   const [search, setSearch] = useState("")
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
@@ -269,6 +274,10 @@ function App() {
     if (unpublished.size === 0) return
     // A spawned process remains guarded until its tab reaches the committed tree.
     for (const tab of tabs) unpublished.delete(tab.id)
+    for (const [key, pending] of pendingLaunchDiscoveriesRef.current) {
+      if (pending.terminalId && tabs.some((tab) => tab.id === pending.terminalId))
+        pendingLaunchDiscoveriesRef.current.delete(key)
+    }
   }, [tabs])
   const [runtimeIncidentState, setRuntimeIncidentState] = useState(() =>
     createRuntimeIncidentState(Date.now()),
@@ -1101,12 +1110,19 @@ function App() {
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
 
-      // A background breadcrumb updates its tab, not the reader's current navigation.
-      // Discovery can precede tab publication, so preserve that launch-time selection.
+      // Published background tabs and superseded unpublished launches must not reclaim navigation.
       const background =
         activeTabIdRef.current !== event.terminalId &&
         tabsRef.current.some((tab) => tab.id === event.terminalId)
-      const sessionSelectionRequest = background ? null : ++sessionSelectionRequestRef.current
+      const supersededLaunch =
+        !tabsRef.current.some((tab) => tab.id === event.terminalId) &&
+        [...pendingLaunchDiscoveriesRef.current.values()].some(
+          (pending) =>
+            pending.superseded &&
+            (pending.terminalId === null || pending.terminalId === event.terminalId),
+        )
+      const sessionSelectionRequest =
+        background || supersededLaunch ? null : ++sessionSelectionRequestRef.current
       if (sessionSelectionRequest !== null) {
         setSelectedSessionPath(session.filePath)
         setSearch("")
@@ -1471,6 +1487,8 @@ function App() {
       const target = tabs.find((tab) => tab.id === tabId)
       if (!target) return
       ++tabSelectionRequestRef.current
+      for (const [key, pending] of pendingLaunchDiscoveriesRef.current)
+        pendingLaunchDiscoveriesRef.current.set(key, { ...pending, superseded: true })
       ++sessionSelectionRequestRef.current
       setActiveTabId(target.id)
       if (target.sessionPath) {
@@ -1646,6 +1664,11 @@ function App() {
       launchingRef.current = true
       setLaunching(launchKey)
       const tabSelectionRequest = tabSelectionRequestRef.current
+      const pendingDiscovery = Symbol()
+      pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
+        terminalId: null,
+        superseded: false,
+      })
       try {
         const started = await runWithSessionLeaseReclaim(
           lang,
@@ -1695,6 +1718,12 @@ function App() {
           success: null,
         }
         if (initialInput) pendingInitialInputRef.current.set(tab.id, initialInput)
+        const discovery = pendingLaunchDiscoveriesRef.current.get(pendingDiscovery)
+        if (discovery)
+          pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
+            ...discovery,
+            terminalId: tab.id,
+          })
         unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, tab])
         // Publish the new terminal without taking back a newer explicit tab choice.
@@ -1702,6 +1731,8 @@ function App() {
       } catch (error) {
         showError(errorMessage(error, lang))
       } finally {
+        if (pendingLaunchDiscoveriesRef.current.get(pendingDiscovery)?.terminalId === null)
+          pendingLaunchDiscoveriesRef.current.delete(pendingDiscovery)
         launchingRef.current = false
         setLaunching(null)
       }
