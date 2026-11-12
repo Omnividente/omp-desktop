@@ -4447,7 +4447,11 @@ pub fn close_terminal(
     terminal_id: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    let process = lock_processes(&terminals).remove(&terminal_id);
+    close_terminal_in_state(&terminal_id, &terminals)
+}
+
+fn close_terminal_in_state(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
+    let process = lock_processes(terminals).remove(terminal_id);
     drop(process);
     Ok(())
 }
@@ -4654,27 +4658,22 @@ fn run_output_pipeline<Output, Exit>(
     exit(event);
 }
 
-fn finalize_terminal_exit(
-    app: &AppHandle,
+fn finalize_terminal_exit_in_state(
+    state: &TerminalState,
     terminal_id: &str,
     output: &SharedTerminalOutput,
-    event: PtyExitEvent,
-) {
-    let runtime_error = event
-        .output_truncated
-        .then(|| event.error.clone())
-        .flatten();
+    event: &PtyExitEvent,
+) -> bool {
     let session_lease = {
-        let state = app.state::<TerminalState>();
-        let mut processes = lock_processes(&state);
+        let mut processes = lock_processes(state);
         let Some(process) = processes
             .get_mut(terminal_id)
             .filter(|process| Arc::ptr_eq(&process.output, output))
         else {
-            return;
+            return false;
         };
         if process.exited {
-            return;
+            return false;
         }
         process.exit_pending = false;
         process.exited = true;
@@ -4688,10 +4687,23 @@ fn finalize_terminal_exit(
         process.session_lease.take()
     };
     drop(session_lease);
+    true
+}
 
+fn finalize_terminal_exit(
+    app: &AppHandle,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    event: PtyExitEvent,
+) {
+    if !finalize_terminal_exit_in_state(&app.state::<TerminalState>(), terminal_id, output, &event) {
+        return;
+    }
     if lock_terminal_output(output).has_attachment() {
-        if let Some(error) = runtime_error {
-            emit_runtime_error(app, terminal_id, error);
+        if event.output_truncated {
+            if let Some(error) = event.error.clone() {
+                emit_runtime_error(app, terminal_id, error);
+            }
         }
         let _ = app.emit("pty-exit", event);
     }
@@ -4806,6 +4818,59 @@ fn spawn_reader(
     })
 }
 
+fn terminal_child_exit_event(
+    terminal_id: &str,
+    status: std::io::Result<portable_pty::ExitStatus>,
+) -> PtyExitEvent {
+    match status {
+        Ok(status) => PtyExitEvent {
+            terminal_id: terminal_id.to_owned(),
+            exit_code: Some(status.exit_code()),
+            success: status.success(),
+            error: status.signal().map(|signal| format!("Сигнал: {signal}")),
+            output_truncated: false,
+        },
+        Err(error) => PtyExitEvent {
+            terminal_id: terminal_id.to_owned(),
+            exit_code: None,
+            success: false,
+            error: Some(error.to_string()),
+            output_truncated: false,
+        },
+    }
+}
+
+fn release_terminal_io_after_wait(
+    state: &TerminalState,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    wait_failed: bool,
+) -> bool {
+    let (master, writer, mut killer) = {
+        let mut processes = lock_processes(state);
+        let Some(process) = processes
+            .get_mut(terminal_id)
+            .filter(|process| Arc::ptr_eq(&process.output, output))
+        else {
+            return false;
+        };
+        process.exit_pending = true;
+        (process.master.take(), process.writer.take(), process.killer.take())
+    };
+    if wait_failed {
+        if let Some(killer) = killer.as_mut() {
+            let _ = kill_terminal_process(killer.as_mut());
+        }
+    }
+    if let Some(writer) = writer.as_ref() {
+        writer.close();
+    }
+    drop(writer);
+    drop(master);
+    drop(killer);
+    true
+}
+
 fn spawn_waiter<F>(
     app: AppHandle,
     terminal_id: String,
@@ -4820,22 +4885,7 @@ where
         .spawn(move || {
             let status = wait();
             let wait_failed = status.is_err();
-            let event = match status {
-                Ok(status) => PtyExitEvent {
-                    terminal_id: terminal_id.clone(),
-                    exit_code: Some(status.exit_code()),
-                    success: status.success(),
-                    error: status.signal().map(|signal| format!("Сигнал: {signal}")),
-                    output_truncated: false,
-                },
-                Err(error) => PtyExitEvent {
-                    terminal_id: terminal_id.clone(),
-                    exit_code: None,
-                    success: false,
-                    error: Some(error.to_string()),
-                    output_truncated: false,
-                },
-            };
+            let event = terminal_child_exit_event(&terminal_id, status);
 
             // Preserve the last breadcrumb for very short-lived sessions without
             // putting filesystem work back into the PTY output hot path. A pin
@@ -4852,34 +4902,14 @@ where
                 }
             }
 
-            let (master, writer, mut killer) = {
-                let state = app.state::<TerminalState>();
-                let mut processes = lock_processes(&state);
-                let Some(process) = processes
-                    .get_mut(&terminal_id)
-                    .filter(|process| Arc::ptr_eq(&process.output, &exit_signal.output))
-                else {
-                    return;
-                };
-                process.exit_pending = true;
-                (
-                    process.master.take(),
-                    process.writer.take(),
-                    process.killer.take(),
-                )
-            };
-
-            if wait_failed {
-                if let Some(killer) = killer.as_mut() {
-                    let _ = kill_terminal_process(killer.as_mut());
-                }
+            if !release_terminal_io_after_wait(
+                &app.state::<TerminalState>(),
+                &terminal_id,
+                &exit_signal.output,
+                wait_failed,
+            ) {
+                return;
             }
-            if let Some(writer) = writer.as_ref() {
-                writer.close();
-            }
-            drop(writer);
-            drop(master);
-            drop(killer);
 
             let fallback_event = event.clone();
             if let Err(error) = exit_signal.event_sender.send(event) {
@@ -9025,4 +9055,6 @@ mod tests {
             vec!["network_unavailable"]
         );
     }
+
+    include!("terminal_lifecycle_tests.rs");
 }
