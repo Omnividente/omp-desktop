@@ -93,3 +93,15 @@ jobs:
       - name: Check updater E2E feature
         working-directory: src-tauri
         run: cargo check --features updater-e2e
+
+      - name: Compile release empty-pin benchmark
+        if: github.head_ref == 'dot/empty-pin-fast-path-20261112'
+        working-directory: src-tauri
+        timeout-minutes: 20
+        run: cargo test --locked --release --lib --no-run
+
+      - name: Measure release empty-pin helpers
+        if: github.head_ref == 'dot/empty-pin-fast-path-20261112'
+        working-directory: src-tauri
+        timeout-minutes: 10
+        run: cargo test --locked --release --lib sessions::empty_pin_tests::empty_pin_benchmark -- --exact --ignored --nocapture --test-threads=1

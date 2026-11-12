@@ -208,6 +208,10 @@ pub(crate) fn apply_session_title_pin(
     session: &mut SessionSummary,
     pins: &BTreeMap<String, String>,
 ) {
+    if pins.is_empty() {
+        session.pinned_title = None;
+        return;
+    }
     session.pinned_title = pins
         .get(&path_key(&session.file_path))
         .or_else(|| pins.get(&lexical_path_key(&session.file_path)))
@@ -221,6 +225,10 @@ pub(crate) fn apply_session_primary_provider_pin(
     session: &mut SessionSummary,
     pins: &BTreeSet<String>,
 ) {
+    if pins.is_empty() {
+        session.primary_provider_pinned = false;
+        return;
+    }
     session.primary_provider_pinned = pins.contains(&path_key(&session.file_path))
         || pins.contains(&lexical_path_key(&session.file_path));
 }
@@ -6865,3 +6873,7 @@ mod tests {
         fs::remove_dir_all(root).expect("fixture should be removable");
     }
 }
+
+#[cfg(test)]
+#[path = "empty_pin_tests.rs"]
+mod empty_pin_tests;
