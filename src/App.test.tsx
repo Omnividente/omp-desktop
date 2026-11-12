@@ -493,6 +493,74 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
   })
 
+  it.each(["other", "current", "round-trip", "session"] as const)(
+    "keeps an explicit %s tab choice when a pending terminal starts",
+    async (choice) => {
+      await mountAndResume()
+      const second = { ...started, terminalId: "terminal-2", processId: 102 }
+      vi.mocked(api.startTerminal).mockResolvedValueOnce(second)
+      await act(async () => element(".new-tab-button").click())
+      const firstPane = element('[data-terminal-id="terminal-1"]')
+      const secondPane = element('[data-terminal-id="terminal-2"]')
+      const pending = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+      await act(async () => element(".new-tab-button").click())
+      const tabSelector = ".terminal-tab > button:first-child"
+      const tabButtons = [...container.querySelectorAll<HTMLButtonElement>(tabSelector)]
+      expect(tabButtons).toHaveLength(2)
+      expect(tabButtons.every((button) => !button.disabled)).toBe(true)
+      if (choice === "session") {
+        await act(async () => element(".session-select").click())
+      } else {
+        await act(async () => tabButtons[choice === "current" ? 1 : 0].click())
+        if (choice === "round-trip") await act(async () => tabButtons[1].click())
+      }
+      const expected = choice === "current" || choice === "round-trip" ? secondPane : firstPane
+      expect(expected.getAttribute("data-active")).toBe("true")
+      await act(async () =>
+        pending.resolve({ ...started, terminalId: "terminal-3", processId: 103 }),
+      )
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(3)
+      expect(element('[data-terminal-id="terminal-1"]')).toBe(firstPane)
+      expect(element('[data-terminal-id="terminal-2"]')).toBe(secondPane)
+      expect(expected.getAttribute("data-active")).toBe("true")
+      const thirdPane = element('[data-terminal-id="terminal-3"]')
+      expect(thirdPane.getAttribute("data-active")).toBe("false")
+      expect(api.startTerminal).toHaveBeenCalledTimes(3)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+      const thirdTab = container.querySelectorAll<HTMLButtonElement>(tabSelector)[2]
+      await act(async () => thirdTab.click())
+      expect(thirdPane.getAttribute("data-active")).toBe("true")
+    },
+  )
+
+  it("still activates a pending launch after its early session discovery", async () => {
+    await mountAndResume()
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => element(".new-tab-button").click())
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<PtySessionEvent>
+    const discovered = {
+      ...bootstrap.sessions[0],
+      id: "early-session",
+      title: "Early synthetic session",
+      filePath: "C:/fixture/sessions/early.jsonl",
+    }
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: "terminal-2", session: discovered },
+      }),
+    )
+    await act(async () => pending.resolve({ ...started, terminalId: "terminal-2", processId: 102 }))
+    expect(element('[data-terminal-id="terminal-2"]').getAttribute("data-active")).toBe("true")
+    expect(element(".terminal-tab.is-active").textContent).toContain(discovered.title)
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
