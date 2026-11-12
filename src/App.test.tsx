@@ -15,6 +15,7 @@ import type {
   BootstrapPayload,
   DesktopUpdateStatus,
   ResourceHealthSnapshot,
+  SessionTranscript,
   SettingsSavePayload,
   ImportBatchPayload,
   ImportSessionRequest,
@@ -3170,6 +3171,78 @@ describe("App lifecycle serialization", () => {
       expect(api.startTerminal).not.toHaveBeenCalled()
     },
   )
+
+  it.each(["success", "failure"] as const)(
+    "keeps Settings in control after a superseded Home history %s",
+    async (outcome) => {
+      const pending = deferred<SessionTranscript>()
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "read_session_transcript") return pending.promise
+        throw new Error(`Unexpected Home reader command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".recent-read").click())
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(invokeMock).toHaveBeenCalledWith(
+        "read_session_transcript",
+        { path: bootstrap.sessions[0].filePath },
+        undefined,
+      )
+      await act(async () => element('[title="Настройки"]').click())
+      const input = element<HTMLInputElement>("#app-font-family")
+      act(() => input.focus())
+      await act(async () => {
+        if (outcome === "failure") pending.reject(new Error("Superseded Home history"))
+        else
+          pending.resolve({
+            session: bootstrap.sessions[0],
+            entries: [],
+            updatedAt: 1,
+            truncated: false,
+            malformedRecords: 0,
+            incompleteLastRecord: false,
+          })
+      })
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(container.querySelectorAll('[aria-modal="true"]')).toHaveLength(1)
+      expect(document.activeElement).toBe(input)
+      expect(container.textContent).not.toContain("Superseded Home history")
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps old history dismissed after Settings closes and allows a fresh read", async () => {
+    const pending = deferred<SessionTranscript>()
+    const loaded: SessionTranscript = {
+      session: bootstrap.sessions[0],
+      entries: [],
+      updatedAt: 1,
+      truncated: false,
+      malformedRecords: 0,
+      incompleteLastRecord: false,
+    }
+    let reads = 0
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "read_session_transcript") {
+        reads++
+        return reads === 1 ? pending.promise : Promise.resolve(loaded)
+      }
+      throw new Error(`Unexpected Home reader command: ${command}`)
+    })
+    await act(async () => root.render(<App />))
+    const read = element(".recent-read")
+    await act(async () => read.click())
+    await act(async () => element(".runtime-pill").click())
+    await act(async () => element(".settings-actions .secondary").click())
+    expect(container.querySelector('[aria-modal="true"]')).toBeNull()
+    await act(async () => pending.resolve(loaded))
+    expect(container.querySelector(".transcript-panel")).toBeNull()
+    await act(async () => read.click())
+    expect(reads).toBe(2)
+    expect(element(".transcript-panel").textContent).toContain(loaded.session.title)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
 
   it("closes a transcript when external refresh removes its session", async () => {
     vi.mocked(api.bootstrap)

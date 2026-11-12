@@ -2549,7 +2549,10 @@ function App() {
         resourceTriggerRef={resourceHealthTriggerRef}
         onOpenIncidentCenter={openIncidentCenter}
         onOpenResourceHealth={openResourceHealth}
-        onOpenSettings={() => setSettingsOpenedAt(Date.now())}
+        onOpenSettings={() => {
+          closeTranscript()
+          setSettingsOpenedAt(Date.now())
+        }}
         onRefresh={() => void refresh()}
         onUpdate={() => void launchUpdate()}
         refreshing={refreshing}
