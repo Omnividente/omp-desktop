@@ -377,6 +377,7 @@ function App() {
   })
   const [codexLoading, setCodexLoading] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [importTargetPath, setImportTargetPath] = useState<string | null>(null)
   const [importMode, setImportMode] = useState<ImportMode>("skip")
   const [ompFilePickerOpen, setOmpFilePickerOpen] = useState(false)
   const copyCloseFocusRef = useRef<{ workspace: number; session: number } | null>(null)
@@ -1896,12 +1897,13 @@ function App() {
       for (const session of selected) delete next[session.filePath]
       return next
     })
+    setImportTargetPath(targetPath)
     setImporting(true)
     try {
       const result = await importSessions(
         selected.map((session) => ({
           path: session.filePath,
-          targetCwd: selectedWorkspace.path,
+          targetCwd: targetPath,
           mode: importMode,
         })),
       )
@@ -1942,6 +1944,7 @@ function App() {
       showError(errorMessage(error, lang))
     } finally {
       setImporting(false)
+      setImportTargetPath(null)
     }
   }, [
     applyPayload,
@@ -1980,12 +1983,14 @@ function App() {
 
   const importPendingOmp = useCallback(async () => {
     if (!pendingOmpImportPath || !selectedWorkspace?.path) return
+    const targetPath = selectedWorkspace.path
+    setImportTargetPath(targetPath)
     setImporting(true)
     try {
       const result = await importSessions([
         {
           path: pendingOmpImportPath,
-          targetCwd: selectedWorkspace.path,
+          targetCwd: targetPath,
           mode: importMode,
         },
       ])
@@ -2004,6 +2009,7 @@ function App() {
       showError(errorMessage(error, lang))
     } finally {
       setImporting(false)
+      setImportTargetPath(null)
     }
   }, [
     applyPayload,
@@ -3031,6 +3037,7 @@ function App() {
           onSelectedChange={setCodexSelected}
           selected={codexSelected}
           sessions={codexSessions}
+          targetPath={importing ? importTargetPath : (selectedWorkspace?.path ?? null)}
         />
       )}
 
@@ -3088,6 +3095,7 @@ function App() {
           onImport={() => void importPendingOmp()}
           onModeChange={setImportMode}
           path={pendingOmpImportPath}
+          targetPath={importing ? importTargetPath : (selectedWorkspace?.path ?? null)}
         />
       )}
 
