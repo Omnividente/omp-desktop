@@ -30,9 +30,9 @@ use models::{
 use sessions::{build_bootstrap, path_key};
 use settings::{
     normalize_app_font_family, normalize_app_font_size, normalize_optional,
-    normalize_terminal_font_family, normalize_terminal_font_size, save_settings, settings_snapshot,
-    start_with_defaults_prepared, update_provider_secrets, with_settings_transaction,
-    SettingsState, SettingsTransaction,
+    normalize_optional_path, normalize_terminal_font_family, normalize_terminal_font_size,
+    save_settings, settings_snapshot, start_with_defaults_prepared, update_provider_secrets,
+    with_settings_transaction, SettingsState, SettingsTransaction,
 };
 use startup_workspace::{Resolution, StartupWorkspaceIntent};
 use std::path::{Path, PathBuf};
@@ -874,10 +874,10 @@ fn remove_workspace_from_settings(snapshot: &mut AppSettings, key: String) {
 
 fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     if let SettingsPatch::Set(value) = &update.omp_executable {
-        snapshot.omp_executable = normalize_optional(value.clone());
+        snapshot.omp_executable = normalize_optional_path(value.clone());
     }
     if let SettingsPatch::Set(value) = &update.session_root {
-        snapshot.session_root = normalize_optional(value.clone());
+        snapshot.session_root = normalize_optional_path(value.clone());
     }
     if let SettingsPatch::Set(Some(language)) = &update.language {
         if let Some(language) = normalize_optional(Some(language.clone())) {

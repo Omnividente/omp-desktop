@@ -855,12 +855,7 @@ pub fn restore_provider_secrets(
 }
 
 pub fn session_root(app: &AppHandle, settings: &AppSettings) -> Result<PathBuf, String> {
-    if let Some(path) = settings
-        .session_root
-        .as_deref()
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-    {
+    if let Some(path) = configured_path(settings.session_root.as_deref()) {
         return Ok(PathBuf::from(path));
     }
 
@@ -943,12 +938,7 @@ fn primary_provider_pin_overlay() -> &'static str {
 
 pub fn resolve_omp(app: &AppHandle, settings: &AppSettings) -> OmpResolution {
     let key = OmpResolutionKey {
-        configured: settings
-            .omp_executable
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned),
+        configured: configured_path(settings.omp_executable.as_deref()).map(str::to_owned),
         environment: env::var_os("OMP_EXECUTABLE"),
         path: env::var_os("PATH"),
         local_app_data: env::var_os("LOCALAPPDATA"),
@@ -988,28 +978,31 @@ where
     resolution
 }
 
+fn resolve_configured_omp<F>(settings: &AppSettings, probe: F) -> Option<OmpResolution>
+where
+    F: FnOnce(&str) -> Result<String, OmpProbeFailureReason>,
+{
+    let configured = configured_path(settings.omp_executable.as_deref())?;
+    let (version, probe_failures) = match probe(configured) {
+        Ok(version) => (Some(version), Vec::new()),
+        Err(reason) => (
+            None,
+            vec![OmpProbeFailure {
+                source: OmpProbeSource::Configured,
+                reason,
+            }],
+        ),
+    };
+    Some(OmpResolution {
+        executable: configured.to_owned(),
+        version,
+        probe_failures,
+    })
+}
+
 fn resolve_omp_uncached(_app: &AppHandle, settings: &AppSettings) -> OmpResolution {
-    if let Some(configured) = settings
-        .omp_executable
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        let (version, probe_failures) = match probe_omp(configured) {
-            Ok(version) => (Some(version), Vec::new()),
-            Err(reason) => (
-                None,
-                vec![OmpProbeFailure {
-                    source: OmpProbeSource::Configured,
-                    reason,
-                }],
-            ),
-        };
-        return OmpResolution {
-            executable: configured.to_owned(),
-            version,
-            probe_failures,
-        };
+    if let Some(resolution) = resolve_configured_omp(settings, probe_omp) {
+        return resolution;
     }
 
     let mut candidates = Vec::new();
@@ -1122,6 +1115,15 @@ pub fn runtime_info(app: &AppHandle, settings: &AppSettings) -> Result<RuntimeIn
         session_root: root.to_string_lossy().into_owned(),
         language: settings.language.clone(),
     })
+}
+
+// A nonblank configured path is a literal filesystem value, not display text.
+fn configured_path(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| !value.trim().is_empty())
+}
+
+pub fn normalize_optional_path(value: Option<String>) -> Option<String> {
+    value.filter(|value| configured_path(Some(value.as_str())).is_some())
 }
 
 pub fn normalize_optional(value: Option<String>) -> Option<String> {
@@ -1267,6 +1269,137 @@ mod tests {
             std::process::id(),
             rand::random::<u64>()
         ))
+    }
+
+    #[test]
+    fn configured_paths_survive_updates_and_serialization_literally() {
+        let mut settings = AppSettings::default();
+        for literal in [
+            "/synthetic/with space ",
+            " relative/path ",
+            "/synthetic/unicode\u{00a0}",
+            r"C:\synthetic\ordinary path",
+        ] {
+            let update = serde_json::from_value(serde_json::json!({
+                "ompExecutable": literal,
+                "sessionRoot": literal,
+                "language": " en "
+            }))
+            .expect("literal path patch should deserialize");
+            crate::apply_settings_update(&mut settings, &update);
+            settings = serde_json::from_slice(
+                &serde_json::to_vec(&settings).expect("settings should serialize"),
+            )
+            .expect("settings should deserialize");
+            assert_eq!(settings.omp_executable.as_deref(), Some(literal));
+            assert_eq!(settings.session_root.as_deref(), Some(literal));
+            assert_eq!(settings.language, "en");
+            assert_eq!(
+                super::configured_path(settings.session_root.as_deref()).map(PathBuf::from),
+                Some(PathBuf::from(literal))
+            );
+
+            let unrelated = serde_json::from_value(serde_json::json!({"language": "ru"}))
+                .expect("unrelated patch should deserialize");
+            crate::apply_settings_update(&mut settings, &unrelated);
+            assert_eq!(settings.omp_executable.as_deref(), Some(literal));
+            assert_eq!(settings.session_root.as_deref(), Some(literal));
+        }
+    }
+
+    #[test]
+    fn configured_paths_keep_blank_and_null_reset_semantics() {
+        for empty in [
+            serde_json::Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(" \t\n\u{00a0}"),
+        ] {
+            let mut settings = AppSettings {
+                omp_executable: Some("/synthetic/omp ".to_owned()),
+                session_root: Some("/synthetic/history ".to_owned()),
+                ..AppSettings::default()
+            };
+            let update = serde_json::from_value(serde_json::json!({
+                "ompExecutable": empty,
+                "sessionRoot": empty
+            }))
+            .expect("reset patch should deserialize");
+            crate::apply_settings_update(&mut settings, &update);
+            assert_eq!(settings.omp_executable, None);
+            assert_eq!(settings.session_root, None);
+        }
+        for value in [None, Some(""), Some(" \t\n\u{00a0}")] {
+            assert_eq!(super::configured_path(value), None);
+        }
+    }
+
+    #[test]
+    fn configured_probe_receives_literal_path_and_preserves_failure() {
+        for literal in ["/synthetic/omp ", " relative/omp", "/synthetic/omp\u{00a0}"] {
+            let settings = AppSettings {
+                omp_executable: Some(literal.to_owned()),
+                ..AppSettings::default()
+            };
+            let found = super::resolve_configured_omp(&settings, |candidate| {
+                assert_eq!(candidate, literal);
+                Ok("omp/synthetic".to_owned())
+            })
+            .expect("configured path should be probed");
+            assert_eq!(found.executable, literal);
+            assert_eq!(found.version.as_deref(), Some("omp/synthetic"));
+            assert!(found.probe_failures.is_empty());
+
+            let unavailable = super::resolve_configured_omp(&settings, |candidate| {
+                assert_eq!(candidate, literal);
+                Err(OmpProbeFailureReason::PathUnavailable)
+            })
+            .expect("configured failure must not fall back to another executable");
+            assert_eq!(unavailable.executable, literal);
+            assert_eq!(unavailable.version, None);
+            assert_eq!(
+                unavailable.probe_failures,
+                vec![OmpProbeFailure {
+                    source: OmpProbeSource::Configured,
+                    reason: OmpProbeFailureReason::PathUnavailable,
+                }]
+            );
+        }
+        for value in [None, Some(""), Some(" \t\n\u{00a0}")] {
+            let settings = AppSettings {
+                omp_executable: value.map(str::to_owned),
+                ..AppSettings::default()
+            };
+            assert!(super::resolve_configured_omp(&settings, |_| {
+                panic!("blank configured paths must use existing discovery")
+            })
+            .is_none());
+        }
+    }
+
+    #[test]
+    fn configured_resolution_cache_distinguishes_literal_path_variants() {
+        let cache = std::sync::Mutex::new(OmpResolutionCache::default());
+        let calls = Cell::new(0);
+        for literal in [
+            "/synthetic/omp",
+            "/synthetic/omp ",
+            "/synthetic/omp\u{00a0}",
+        ] {
+            let key = OmpResolutionKey {
+                configured: super::configured_path(Some(literal)).map(str::to_owned),
+                ..OmpResolutionKey::default()
+            };
+            let found = resolve_omp_cached(&cache, key.clone(), || {
+                calls.set(calls.get() + 1);
+                resolution(literal)
+            });
+            assert_eq!(found.executable, literal);
+            let cached = resolve_omp_cached(&cache, key, || {
+                panic!("an identical literal path should reuse its cached result")
+            });
+            assert_eq!(cached, found);
+        }
+        assert_eq!(calls.get(), 3);
     }
 
     #[test]
