@@ -1030,6 +1030,7 @@ describe("App lifecycle serialization", () => {
     "preserves a PTY update notice after a current %s check",
     async (result) => {
       await act(async () => root.render(<App />))
+      expect(api.checkOmpUpdate).toHaveBeenCalledTimes(1)
       const pending = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
       vi.mocked(api.checkOmpUpdate).mockReturnValueOnce(pending.promise)
       const receive = vi
@@ -1045,6 +1046,8 @@ describe("App lifecycle serialization", () => {
         }),
       )
       expect(container.querySelector(".update-pill")).not.toBeNull()
+      expect(api.checkOmpUpdate).toHaveBeenCalledTimes(2)
+      expect(container.querySelector(".update-check-pill")).not.toBeNull()
       await act(async () => {
         if (result === "error") pending.reject(new Error("Synthetic registry failure"))
         else
@@ -1059,6 +1062,57 @@ describe("App lifecycle serialization", () => {
       expect(container.querySelector(".update-check-pill")).toBeNull()
     },
   )
+
+  it("ignores a pending OMP check after a new PTY notice supplies its source", async () => {
+    const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    const current = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    vi.mocked(api.checkOmpUpdate)
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(current.promise)
+    await act(async () => root.render(<App />))
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "omp-update-notice")![1] as EventCallback<{
+      terminalId: string
+    }>
+    await act(async () =>
+      receive({ event: "omp-update-notice", id: 18, payload: { terminalId: "new-source" } }),
+    )
+    expect(api.checkOmpUpdate).toHaveBeenCalledTimes(2)
+    await act(async () =>
+      old.resolve({
+        hasUpdate: true,
+        currentVersion: "18.1.19",
+        latestVersion: "41.0.0",
+        message: "Old source",
+      }),
+    )
+    expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
+    expect(container.querySelector(".update-check-pill")).not.toBeNull()
+    await act(async () =>
+      current.resolve({ hasUpdate: false, currentVersion: null, latestVersion: null, message: "" }),
+    )
+    expect(container.querySelector(".update-pill")).not.toBeNull()
+  })
+
+  it("does not carry an old OMP check into a remounted App", async () => {
+    const old = deferred<Awaited<ReturnType<typeof api.checkOmpUpdate>>>()
+    vi.mocked(api.checkOmpUpdate).mockReturnValueOnce(old.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      old.resolve({
+        hasUpdate: true,
+        currentVersion: "18.1.19",
+        latestVersion: "41.0.0",
+        message: "Unmounted request",
+      }),
+    )
+    expect(container.querySelector(".update-pill")).toBeNull()
+    expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
+  })
 
   beforeEach(() => {
     previousDocumentLanguage = document.documentElement.getAttribute("lang")
