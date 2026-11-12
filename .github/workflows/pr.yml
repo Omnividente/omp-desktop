@@ -100,8 +100,8 @@ jobs:
         timeout-minutes: 20
         run: cargo test --locked --release --lib --no-run
 
-      - name: Measure isolated release pin-key costs
+      - name: Check release pin-key compatibility
         if: github.head_ref == 'dot/discovery-benchmark-20261112'
         working-directory: src-tauri
         timeout-minutes: 10
-        run: cargo test --locked --release --lib sessions::discovery_benchmark::synthetic_pin_keys -- --exact --ignored --nocapture --test-threads=1
+        run: cargo test --locked --release --lib sessions::discovery_benchmark::pin_key_compatibility -- --nocapture --test-threads=1

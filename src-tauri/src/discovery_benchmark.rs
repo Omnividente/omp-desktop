@@ -33,8 +33,17 @@ fn inventory(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 
 // Experimental, test-only composition. No persistent or cross-session key cache.
 fn shared_key_pins(session: &mut SessionSummary, settings: &AppSettings) {
+    shared_key_pins_with_interleaving(session, settings, || {});
+}
+
+fn shared_key_pins_with_interleaving(
+    session: &mut SessionSummary,
+    settings: &AppSettings,
+    after_resolution: impl FnOnce(),
+) {
     let canonical = path_key(&session.file_path);
     let lexical = lexical_path_key(&session.file_path);
+    after_resolution();
     session.pinned_title = settings
         .session_title_pins
         .get(&canonical)
@@ -72,6 +81,109 @@ fn assert_same_pins(source: &[SessionSummary], settings: &AppSettings) {
         serde_json::to_value(current).unwrap(),
         serde_json::to_value(shared).unwrap()
     );
+}
+
+fn compatibility_fixture() -> (Fixture, PathBuf, SessionSummary) {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = env::temp_dir().join(format!("omp-pin-compat-{}-{nonce}", std::process::id()));
+    fs::create_dir(&root).unwrap();
+    let fixture = Fixture {
+        root: root.clone(),
+        previous_names: TEST_CODEX_THREAD_NAMES.with(|names| names.replace(Some(HashMap::new()))),
+    };
+    let file = root.join("session.jsonl");
+    let header = serde_json::json!({"type":"session", "id":"compat", "cwd":root});
+    fs::write(&file, format!("{header}\n")).unwrap();
+    // Configured session roots retain their spelling in the production scanner.
+    let scan = scan_sessions(&root.join(".")).unwrap();
+    assert!(scan.warnings.is_empty());
+    assert_eq!(scan.sessions.len(), 1);
+    let session = scan.sessions.into_iter().next().unwrap();
+    assert_eq!(session.id, "compat");
+    (fixture, file, session)
+}
+
+#[test]
+fn pin_key_compatibility_removal_between_helpers_changes_provider_pin() {
+    let (_fixture, file, source) = compatibility_fixture();
+    let bytes = fs::read(&file).unwrap();
+    let canonical = path_key(&source.file_path);
+    let lexical = lexical_path_key(&source.file_path);
+    assert_ne!(canonical, lexical);
+    let mut settings = AppSettings::default();
+    settings
+        .session_title_pins
+        .insert(canonical.clone(), "Pinned".to_owned());
+    settings.primary_provider_pins.insert(canonical);
+    assert_same_pins(std::slice::from_ref(&source), &settings);
+
+    // The production bootstrap invokes these actual helpers in this order.
+    // This deterministic interleaving models an external removal, not its rate.
+    let mut current = source.clone();
+    apply_session_title_pin(&mut current, &settings.session_title_pins);
+    fs::remove_file(&file).unwrap();
+    assert_eq!(path_key(&source.file_path), lexical);
+    apply_session_primary_provider_pin(&mut current, &settings.primary_provider_pins);
+    assert_eq!(current.pinned_title.as_deref(), Some("Pinned"));
+    assert!(!current.primary_provider_pinned);
+
+    fs::write(&file, &bytes).unwrap();
+    let mut shared = source;
+    shared_key_pins_with_interleaving(&mut shared, &settings, || {
+        fs::remove_file(&file).unwrap();
+    });
+    assert_eq!(shared.pinned_title, current.pinned_title);
+    assert!(shared.primary_provider_pinned);
+    assert_ne!(
+        serde_json::to_value(current).unwrap(),
+        serde_json::to_value(shared).unwrap()
+    );
+    assert!(!file.exists());
+}
+
+#[cfg(windows)]
+#[test]
+fn pin_key_compatibility_windows_local_verbatim_and_unc_normalization() {
+    let (fixture, file, source) = compatibility_fixture();
+    let before = inventory(&fixture.root);
+    let canonical = path_key(&source.file_path);
+    let mut settings = AppSettings::default();
+    settings
+        .session_title_pins
+        .insert(canonical.clone(), "Pinned".to_owned());
+    settings.primary_provider_pins.insert(canonical.clone());
+    for path in [
+        file.to_string_lossy().into_owned(),
+        file.to_string_lossy().to_ascii_uppercase(),
+        fs::canonicalize(&file)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+        source.file_path.clone(),
+    ] {
+        let mut session = source.clone();
+        session.file_path = path;
+        assert_eq!(path_key(&session.file_path), canonical);
+        assert_same_pins(std::slice::from_ref(&session), &settings);
+        shared_key_pins(&mut session, &settings);
+        assert_eq!(session.pinned_title.as_deref(), Some("Pinned"));
+        assert!(session.primary_provider_pinned);
+    }
+    // Pure normalization only: never connect to a network share.
+    for (verbatim, ordinary) in [
+        (r"\\?\C:\Work\OMP", r"C:\Work\OMP"),
+        (r"\\?\UNC\Server\Share\Project", r"\\Server\Share\Project"),
+    ] {
+        let normalized = normalize_windows_verbatim_path(PathBuf::from(verbatim));
+        assert_eq!(
+            lexical_path_key(&normalized.to_string_lossy()),
+            lexical_path_key(ordinary)
+        );
+    }
+    assert_eq!(inventory(&fixture.root), before);
 }
 
 #[test]
