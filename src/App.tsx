@@ -745,7 +745,7 @@ function App() {
           warning.code === "settings_recovered"
             ? t(warningLang, "settingsRecovered").replace(
                 "{path}",
-                warning.details ?? "settings.invalid.json",
+                () => warning.details ?? "settings.invalid.json",
               )
             : warning.message,
         )
