@@ -41,7 +41,11 @@ fn baseline_pins(session: &mut SessionSummary, settings: &AppSettings) {
     session.pinned_title = settings
         .session_title_pins
         .get(&path_key(&session.file_path))
-        .or_else(|| settings.session_title_pins.get(&lexical_path_key(&session.file_path)))
+        .or_else(|| {
+            settings
+                .session_title_pins
+                .get(&lexical_path_key(&session.file_path))
+        })
         .cloned();
     if let Some(title) = session.pinned_title.as_ref() {
         session.title.clone_from(title);
