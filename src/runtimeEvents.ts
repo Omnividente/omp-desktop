@@ -71,10 +71,9 @@ export function suppressTransientProxyError(
     return false
   }
 
+  // Local PTY, watcher, and persistence failures are not proxy-account retries.
   const failed =
-    event.kind === "modelError" ||
-    event.kind === "runtimeError" ||
-    (event.kind === "activity" && event.activity === "error")
+    event.kind === "modelError" || (event.kind === "activity" && event.activity === "error")
   if (!failed) return false
 
   const provider = providerFromSelector(event.model ?? currentModel)
