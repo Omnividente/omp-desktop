@@ -2029,6 +2029,8 @@ function App() {
       const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
       const recovery = tab?.switchRecovery
       if (!recovery || recovery.state !== "pending") return
+      const sessionRequest = sessionSelectionRequestRef.current
+      const workspaceRequest = workspaceSelectionRequestRef.current
       let accepted: boolean
       try {
         accepted = await confirm(
@@ -2058,7 +2060,18 @@ function App() {
             candidate.id === terminalId ? { ...candidate, switchRecovery: null } : candidate,
           ),
         )
-        focusTerminal(terminalId)
+        if (
+          mountedRef.current &&
+          !launchingRef.current &&
+          unpublishedTerminalIdsRef.current.size === 0 &&
+          !endedRuntimeTerminalIdsRef.current.includes(terminalId) &&
+          activeTabIdRef.current === terminalId &&
+          sessionSelectionRequestRef.current === sessionRequest &&
+          workspaceSelectionRequestRef.current === workspaceRequest &&
+          tabsRef.current.some((candidate) => candidate.id === terminalId)
+        ) {
+          focusTerminal(terminalId)
+        }
       } catch (error) {
         const currentRecovery = switchInputRecoveryDetails(error)
         setTabs((current) =>
@@ -2086,6 +2099,8 @@ function App() {
       const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
       const recovery = tab?.switchRecovery
       if (!recovery || recovery.state === "sending") return
+      const sessionRequest = sessionSelectionRequestRef.current
+      const workspaceRequest = workspaceSelectionRequestRef.current
       try {
         await discardSwitchInputRecovery(terminalId, recovery.generation, recovery.token)
         setTabs((current) =>
@@ -2093,7 +2108,18 @@ function App() {
             candidate.id === terminalId ? { ...candidate, switchRecovery: null } : candidate,
           ),
         )
-        focusTerminal(terminalId)
+        if (
+          mountedRef.current &&
+          !launchingRef.current &&
+          unpublishedTerminalIdsRef.current.size === 0 &&
+          !endedRuntimeTerminalIdsRef.current.includes(terminalId) &&
+          activeTabIdRef.current === terminalId &&
+          sessionSelectionRequestRef.current === sessionRequest &&
+          workspaceSelectionRequestRef.current === workspaceRequest &&
+          tabsRef.current.some((candidate) => candidate.id === terminalId)
+        ) {
+          focusTerminal(terminalId)
+        }
       } catch (error) {
         const currentRecovery = switchInputRecoveryDetails(error)
         if (currentRecovery) {
