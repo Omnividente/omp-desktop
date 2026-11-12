@@ -151,18 +151,10 @@ describe("proxy runtime policy", () => {
     const localFailure = event({ kind: "runtimeError", activity: "error" })
     const modelFailure = event({ kind: "modelError", activity: "error" })
 
-    expect(suppressTransientProxyError(pending, localFailure, "proxy/model", ["proxy"])).toBe(
-      false,
-    )
-    expect(suppressTransientProxyError(pending, modelFailure, "proxy/model", ["proxy"])).toBe(
-      true,
-    )
-    expect(suppressTransientProxyError(pending, localFailure, "proxy/model", ["proxy"])).toBe(
-      false,
-    )
-    expect(suppressTransientProxyError(pending, modelFailure, "proxy/model", ["proxy"])).toBe(
-      false,
-    )
+    expect(suppressTransientProxyError(pending, localFailure, "proxy/model", ["proxy"])).toBe(false)
+    expect(suppressTransientProxyError(pending, modelFailure, "proxy/model", ["proxy"])).toBe(true)
+    expect(suppressTransientProxyError(pending, localFailure, "proxy/model", ["proxy"])).toBe(false)
+    expect(suppressTransientProxyError(pending, modelFailure, "proxy/model", ["proxy"])).toBe(false)
   })
 
   it("suppresses one proxy account error and surfaces a consecutive failure", () => {
