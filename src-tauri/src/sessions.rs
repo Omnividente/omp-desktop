@@ -1825,7 +1825,10 @@ fn import_destination(
 ) -> Result<ImportDestination, String> {
     let destination_directory = session_root.join(encode_session_dir_name(target_cwd));
     if blocked.contains(&destination_directory) {
-        return Err("[session_import_recovery_pending] Каталог содержит неопознанный журнал удаления".to_owned());
+        return Err(
+            "[session_import_recovery_pending] Каталог содержит неопознанный журнал удаления"
+                .to_owned(),
+        );
     }
     fs::create_dir_all(&destination_directory).map_err(|error| {
         format!(
@@ -4137,7 +4140,8 @@ mod tests {
             "Default profile title",
         );
         fixture.write_session(&custom, "custom-only", "Custom profile title");
-        let root = super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
+        let root =
+            super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
         assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
         let sessions = super::list_codex_sessions_from_root(&root).unwrap();
         assert_eq!(sessions.len(), 1);
@@ -4162,7 +4166,8 @@ mod tests {
         fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
         let custom = fixture.0.join("empty");
         fs::create_dir(&custom).unwrap();
-        let root = super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
+        let root =
+            super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
         let sessions = super::list_codex_sessions_from_root(&root).unwrap();
         assert!(sessions.is_empty());
         assert!(!root.exists());
@@ -4174,7 +4179,9 @@ mod tests {
         let profile = fixture.0.join("profile");
         fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
         let missing = fixture.0.join("missing");
-        assert!(super::codex_sessions_root_from(Some(missing.as_os_str()), Some(&profile)).is_err());
+        assert!(
+            super::codex_sessions_root_from(Some(missing.as_os_str()), Some(&profile)).is_err()
+        );
         assert!(!missing.exists());
         let file = fixture.0.join("not-a-directory");
         fs::write(&file, "synthetic file").unwrap();
@@ -4214,7 +4221,9 @@ mod tests {
     fn codex_home_native_non_utf8_path_never_falls_back_to_another_profile() {
         use std::os::unix::ffi::OsStringExt;
         let fixture = CodexHomeFixture::new(&std::env::temp_dir());
-        let custom = fixture.0.join(std::ffi::OsString::from_vec(b"native-home-\xff".to_vec()));
+        let custom = fixture
+            .0
+            .join(std::ffi::OsString::from_vec(b"native-home-\xff".to_vec()));
         fs::create_dir(&custom).unwrap();
         let root = super::codex_sessions_root_from(Some(custom.as_os_str()), None).unwrap();
         assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
@@ -7481,7 +7490,10 @@ mod tests {
         std::os::unix::fs::symlink(&unrelated, &source).unwrap();
         assert!(super::read_bounded_import_source(&validated).is_err());
         assert_eq!(fs::read(&unrelated).unwrap(), b"unrelated data");
-        assert!(fs::symlink_metadata(&source).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(&source)
+            .unwrap()
+            .file_type()
+            .is_symlink());
     }
 
     #[test]

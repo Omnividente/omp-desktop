@@ -1671,16 +1671,20 @@ export const UI_TEXT = {
     modelComparisonTitle: "比较元数据",
     modelComparisonSelected: "已选择",
     modelComparisonCandidate: "预览",
-    modelComparisonHelp: "将鼠标悬停在列表行上，或用方向键浏览。比较不会改变选择或草稿。点击行或按 Enter 才会选择模型。",
-    desktopUpdateInstallUncertain: "Desktop 安装结果未知。已阻止再次安装。请保存工作，重启应用并检查版本。",
-    importSessionInvalidCodexJson: "无法导入：Codex JSONL 包含无效或未完成的记录。请等待源会话写入完成后重试。此文件未被导入。",
+    modelComparisonHelp:
+      "将鼠标悬停在列表行上，或用方向键浏览。比较不会改变选择或草稿。点击行或按 Enter 才会选择模型。",
+    desktopUpdateInstallUncertain:
+      "Desktop 安装结果未知。已阻止再次安装。请保存工作，重启应用并检查版本。",
+    importSessionInvalidCodexJson:
+      "无法导入：Codex JSONL 包含无效或未完成的记录。请等待源会话写入完成后重试。此文件未被导入。",
     resourceRefresh: "刷新指标",
     resourceOpenTerminal: "跳转到标签页",
     copySessionFilePath: "复制历史文件路径",
     markdownFormattingFailed: "无法格式化 Markdown。现显示原始文本。",
     transcriptSearchUnavailable: "无法处理此搜索。请尝试缩短查询。",
     keyboardShortcutsTitle: "Desktop 键盘快捷键",
-    keyboardShortcutsHelp: "现有命令参考，不会更改设置。每条命令均标明适用范围。终端输入使用独立的 OMP 快捷键。",
+    keyboardShortcutsHelp:
+      "现有命令参考，不会更改设置。每条命令均标明适用范围。终端输入使用独立的 OMP 快捷键。",
     shortcutDesktopScope: "仅在输入框和对话框之外生效。请先关闭设置。",
     shortcutSidebar: "显示或隐藏项目侧边栏",
     shortcutCloseTab: "关闭当前终端标签页",
@@ -1702,7 +1706,8 @@ export const UI_TEXT = {
     taskAgentsSearchHelp: "仅搜索当前目录快照。保存将应用所有修改，包括被搜索隐藏的智能体。",
     taskAgentsNoMatches: "当前快照中没有匹配的智能体。",
     taskAgentsShown: "已显示的智能体",
-    customProviderConfigRequired: "保存提供商需要已加载的 OMP 配置。草稿仍保留在表单中。请加载配置后重试，或清空提供商字段以单独保存 Desktop 设置。",
+    customProviderConfigRequired:
+      "保存提供商需要已加载的 OMP 配置。草稿仍保留在表单中。请加载配置后重试，或清空提供商字段以单独保存 Desktop 设置。",
     codexSearch: "搜索要导入的会话",
     codexSearchPlaceholder: "标题、文件夹、模型或预览",
     codexSearchCount: "匹配：{visible}，共 {total}。",
@@ -1904,7 +1909,8 @@ export const UI_TEXT = {
     startupWorkspaceEmpty: "未选择项目",
     startupWorkspaceChoose: "选择其他文件夹",
     startupWorkspaceContinue: "在此继续",
-    settingsRecovered: "无效的 settings.json 已保存到 {path}。已恢复可用的安全字段，其余设置使用默认值。请检查凭据和路径。",
+    settingsRecovered:
+      "无效的 settings.json 已保存到 {path}。已恢复可用的安全字段，其余设置使用默认值。请检查凭据和路径。",
     settingsRecoveryTitle: "设置不可用",
     settingsRecoveryDescription:
       "在源文件修复或被保存到备份之前，OMP Desktop 不会以隐式默认值继续运行。",

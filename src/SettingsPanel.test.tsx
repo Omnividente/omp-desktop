@@ -918,9 +918,13 @@ describe("SettingsPanel configuration generations", () => {
     expect(container.querySelector(".settings-header")?.textContent).toContain("OMP 设置")
     act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
     const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
-    saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig, runtime, {
-      ...settings, language: "zh", providerEnvKeys: ["__proto__"],
-    }))
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult(ompConfig, runtime, {
+        ...settings,
+        language: "zh",
+        providerEnvKeys: ["__proto__"],
+      }),
+    )
     await act(async () => save.click())
     const request = saveSettingsBundleMock.mock.lastCall![0]
     expect(request.update.language).toBe("zh")

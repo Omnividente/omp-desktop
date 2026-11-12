@@ -28,8 +28,6 @@ describe("UI translation catalogs", () => {
       }
     }
   })
-
-
 })
 
 describe("language resolution", () => {

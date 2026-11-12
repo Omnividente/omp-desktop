@@ -345,15 +345,22 @@ describe("resource terminal context", () => {
       await render([first])
       const close = container.querySelector<HTMLButtonElement>(".resource-panel-header button")!
       const composition = new KeyboardEvent("keydown", {
-        key: "Escape", bubbles: true, cancelable: true, ...options,
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+        ...options,
       })
       close.dispatchEvent(composition)
       expect(composition.defaultPrevented).toBe(false)
       expect(onClose).not.toHaveBeenCalled()
       expect(document.activeElement).toBe(close)
-      close.dispatchEvent(new KeyboardEvent("keydown", {
-        key: "Escape", bubbles: true, cancelable: true,
-      }))
+      close.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      )
       expect(onClose).toHaveBeenCalledOnce()
     },
   )

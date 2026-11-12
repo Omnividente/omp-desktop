@@ -224,8 +224,6 @@ it.each(["Escape", "Done"])("discards the expanded comparison after %s and reope
   expect(changes).not.toHaveBeenCalled()
 })
 
-
-
 it("keeps comparison disclosure and outside blur independent of selection", () => {
   key(search(), "ArrowDown")
   key(options()[0], "ArrowDown")

@@ -136,7 +136,9 @@ it.each([
     expect(button.getAttribute("aria-label")).toBe(label)
     await act(async () => button.click())
     expect(writeText).toHaveBeenCalledExactlyOnceWith(filePath)
-    expect(button.textContent).toBe(lang === "ru" ? "Скопировано" : lang === "zh" ? "已复制" : "Copied")
+    expect(button.textContent).toBe(
+      lang === "ru" ? "Скопировано" : lang === "zh" ? "已复制" : "Copied",
+    )
     expect(values()[2]).toBe(filePath)
     expect(onError).not.toHaveBeenCalled()
   },

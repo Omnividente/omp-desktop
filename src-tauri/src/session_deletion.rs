@@ -64,7 +64,9 @@ where
         Ok(()) => Ok(warning),
         Err(error) => Ok(Some(format!(
             "{}Сессия удалена; очистка закреплений не подтверждена: {error}",
-            warning.map(|warning| format!("{warning}; ")).unwrap_or_default()
+            warning
+                .map(|warning| format!("{warning}; "))
+                .unwrap_or_default()
         ))),
     }
 }
@@ -378,8 +380,9 @@ fn cleanup(directory: &Path) -> Result<(), String> {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             fs::remove_dir_all(&artifact).map_err(|error| problem(&artifact, error))?;
         }
-        Ok(metadata) => remove_artifact_link(&artifact, &metadata)
-            .map_err(|error| problem(&artifact, error))?,
+        Ok(metadata) => {
+            remove_artifact_link(&artifact, &metadata).map_err(|error| problem(&artifact, error))?
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(problem(&artifact, error)),
     }
@@ -607,7 +610,12 @@ pub(crate) fn recover_directory(
             };
             let source = parent.join(&intent.source);
             candidate_source = Some(source.clone());
-            if counts.get(&source_key(&intent.source)).copied().unwrap_or(0) != 1 {
+            if counts
+                .get(&source_key(&intent.source))
+                .copied()
+                .unwrap_or(0)
+                != 1
+            {
                 return Err(problem(
                     &source,
                     "несколько журналов удаления; данные сохранены",

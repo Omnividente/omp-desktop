@@ -4696,7 +4696,8 @@ fn finalize_terminal_exit(
     output: &SharedTerminalOutput,
     event: PtyExitEvent,
 ) {
-    if !finalize_terminal_exit_in_state(&app.state::<TerminalState>(), terminal_id, output, &event) {
+    if !finalize_terminal_exit_in_state(&app.state::<TerminalState>(), terminal_id, output, &event)
+    {
         return;
     }
     if lock_terminal_output(output).has_attachment() {
@@ -4855,7 +4856,11 @@ fn release_terminal_io_after_wait(
             return false;
         };
         process.exit_pending = true;
-        (process.master.take(), process.writer.take(), process.killer.take())
+        (
+            process.master.take(),
+            process.writer.take(),
+            process.killer.take(),
+        )
     };
     if wait_failed {
         if let Some(killer) = killer.as_mut() {
