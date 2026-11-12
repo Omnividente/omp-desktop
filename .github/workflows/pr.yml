@@ -75,6 +75,13 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      - name: Test terminal UTF-8 adaptation
+        run: npm run test:xterm-utf8
+
+      # Build-time xterm adaptations must compose against the locked npm bundle.
+      - name: Build frontend
+        run: npm run build
+
       - name: Test release asset gate
         run: npm run test:release-assets
 
