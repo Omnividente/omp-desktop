@@ -504,7 +504,10 @@ function App() {
       knownSessionPathsRef.current.has(transcriptSession.filePath) &&
       !nextPaths.has(transcriptSession.filePath)
     ) {
-      closeTranscript()
+      // A partial scan cannot establish that the loaded history was removed.
+      // Keep its known identity until a later warning-free snapshot can reconcile it.
+      if (payload.sessionWarnings.length > 0) nextPaths.add(transcriptSession.filePath)
+      else closeTranscript()
     }
     knownSessionPathsRef.current = nextPaths
   }, [payload, transcriptSession, closeTranscript])
