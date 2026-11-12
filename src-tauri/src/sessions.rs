@@ -6865,3 +6865,7 @@ mod tests {
         fs::remove_dir_all(root).expect("fixture should be removable");
     }
 }
+
+#[cfg(test)]
+#[path = "discovery_benchmark.rs"]
+mod discovery_benchmark;

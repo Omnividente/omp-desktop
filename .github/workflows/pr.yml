@@ -93,3 +93,9 @@ jobs:
       - name: Check updater E2E feature
         working-directory: src-tauri
         run: cargo check --features updater-e2e
+
+      - name: Measure isolated synthetic discovery phases
+        if: github.head_ref == 'dot/discovery-benchmark-20261112'
+        working-directory: src-tauri
+        timeout-minutes: 10
+        run: cargo test --locked --lib sessions::discovery_benchmark::synthetic_bootstrap_phases -- --exact --ignored --nocapture --test-threads=1
