@@ -16,6 +16,19 @@ use std::{
 const PREFIX: &str = ".omp-delete-txn-";
 const PRIVATE_PREFIX: &str = ".omp-delete-";
 
+pub(crate) fn is_private_directory_name(name: &std::ffi::OsStr) -> bool {
+    let Some((kind, nonce)) = name
+        .to_str()
+        .and_then(|name| name.strip_prefix(PRIVATE_PREFIX))
+        .and_then(|name| name.split_once('-'))
+    else {
+        return false;
+    };
+    matches!(kind, "txn" | "build" | "done")
+        && nonce.len() == 32
+        && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum Phase {
     Prepared,
@@ -338,7 +351,10 @@ fn cleanup(directory: &Path) -> Result<(), String> {
     if exists(&artifact).map_err(|error| problem(&artifact, error))?
         && !exists(&directory.join("session")).map_err(|error| problem(directory, error))?
     {
-        return Err(problem(directory, "артефакты без staged JSONL; данные сохранены"));
+        return Err(problem(
+            directory,
+            "артефакты без staged JSONL; данные сохранены",
+        ));
     }
     match fs::symlink_metadata(&artifact) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
@@ -470,9 +486,10 @@ pub(crate) fn recover_tree(
     for entry in entries {
         let name = entry.file_name();
         let text = name.to_string_lossy();
-        if text.starts_with(PRIVATE_PREFIX)
+        if is_private_directory_name(&name)
             || (text.starts_with('.') && text.contains(".artifacts-"))
             || artifact_names.contains(&name)
+            || blocked.contains(&entry.path())
             || !entry.file_type().is_ok_and(|kind| kind.is_dir())
         {
             continue;
@@ -493,7 +510,8 @@ pub(crate) fn recover_directory(
     let entries: Vec<_> = entries.flatten().collect();
     let mut counts = std::collections::HashMap::new();
     for entry in &entries {
-        if entry.file_name().to_string_lossy().starts_with(PREFIX)
+        if is_private_directory_name(&entry.file_name())
+            && entry.file_name().to_string_lossy().starts_with(PREFIX)
             && entry.file_type().is_ok_and(|kind| kind.is_dir())
         {
             if let Ok(intent) = read_intent(&entry.path()) {
@@ -502,7 +520,9 @@ pub(crate) fn recover_directory(
         }
     }
     for entry in entries {
-        if !entry.file_name().to_string_lossy().starts_with(PREFIX) {
+        if !is_private_directory_name(&entry.file_name())
+            || !entry.file_name().to_string_lossy().starts_with(PREFIX)
+        {
             continue;
         }
         let directory = entry.path();
@@ -522,14 +542,7 @@ pub(crate) fn recover_directory(
                     // Suppress this directory's JSONLs rather than expose a partial pair.
                     if let Ok(entries) = fs::read_dir(parent) {
                         for item in entries.flatten() {
-                            if item
-                                .path()
-                                .extension()
-                                .and_then(|extension| extension.to_str())
-                                .is_some_and(|ext| ext.eq_ignore_ascii_case("jsonl"))
-                            {
-                                blocked.insert(item.path());
-                            }
+                            blocked.insert(item.path());
                         }
                     }
                     return Err(error);
@@ -578,6 +591,7 @@ pub(crate) fn recover_directory(
         })();
         if let Err(message) = recovery {
             if let Some(source) = candidate_source {
+                blocked.insert(source.with_extension(""));
                 blocked.insert(source);
             }
             warnings.push(SessionScanWarning {
@@ -769,7 +783,7 @@ mod tests {
     fn malformed_or_oversized_intent_retains_data_and_blocks_discovery() {
         for bytes in [b"not json".to_vec(), vec![b'x'; 4097]] {
             let fixture = Fixture::new();
-            let directory = fixture.root.join(format!("{PREFIX}malformed"));
+            let directory = fixture.root.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
             fs::create_dir(&directory).unwrap();
             fs::write(directory.join("intent.json"), bytes).unwrap();
             let (warnings, blocked) = fixture.recover();
@@ -840,8 +854,12 @@ mod tests {
     #[test]
     fn incomplete_preparation_and_finished_metadata_do_not_block_history() {
         let fixture = Fixture::new();
-        for suffix in ["build-orphan", "done-orphan"] {
-            fs::create_dir(fixture.root.join(format!("{PRIVATE_PREFIX}{suffix}"))).unwrap();
+        for suffix in ["build", "done"] {
+            let directory = fixture.root.join(format!(
+                "{PRIVATE_PREFIX}{suffix}-{:032x}",
+                rand::random::<u128>()
+            ));
+            fs::create_dir(directory).unwrap();
         }
         let (warnings, blocked) = fixture.recover();
         assert!(warnings.is_empty() && blocked.is_empty());
@@ -851,8 +869,8 @@ mod tests {
     #[test]
     fn duplicate_journals_never_clear_each_others_block() {
         let fixture = Fixture::new();
-        for suffix in ["one", "two"] {
-            let directory = fixture.root.join(format!("{PREFIX}{suffix}"));
+        for _ in 0..2 {
+            let directory = fixture.root.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
             fs::create_dir(&directory).unwrap();
             write_intent(
                 &directory,
@@ -905,7 +923,7 @@ mod tests {
         use std::os::unix::{ffi::OsStrExt, fs::symlink};
         for fifo in [false, true] {
             let fixture = Fixture::new();
-            let directory = fixture.root.join(format!("{PREFIX}invalid"));
+            let directory = fixture.root.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
             fs::create_dir(&directory).unwrap();
             let marker = directory.join("intent.json");
             if fifo {
@@ -1019,6 +1037,19 @@ mod tests {
         let (sessions, _) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "test");
+        let ordinary = fixture.root.join(".omp-delete-notes");
+        fs::create_dir(&ordinary).unwrap();
+        fs::copy(
+            fixture.root.join(".omp-delete-notes.jsonl"),
+            ordinary.join("inside.jsonl"),
+        )
+        .unwrap();
+        // The sibling JSONL above makes this an artifact directory; use another name
+        // to check an ordinary, unrelated prefix-matching directory.
+        let unrelated = fixture.root.join(".omp-delete-ordinary");
+        fs::rename(&ordinary, &unrelated).unwrap();
+        let (sessions, _) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
+        assert!(sessions.iter().any(|session| session.file_path.ends_with("inside.jsonl")));
     }
 
     #[test]
@@ -1047,9 +1078,41 @@ mod tests {
                 fs::read(directory.join("artifacts/tool.log")).unwrap(),
                 b"original artifact"
             );
-            let (sessions, warnings) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
+            let (sessions, warnings) =
+                crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
             assert!(sessions.is_empty() && !warnings.is_empty());
             assert!(directory.join("artifacts/nested.jsonl").is_file());
         }
+    }
+
+    #[test]
+    fn interrupted_rollback_reserves_artifact_directory_while_lease_is_active() {
+        let fixture = Fixture::new();
+        fs::copy(
+            &fixture.session,
+            fixture.artifact.parent().unwrap().join("nested.jsonl"),
+        )
+        .unwrap();
+        let lease =
+            SessionLease::acquire(&fixture.session, SessionLeasePurpose::Delete, false).unwrap();
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _ = delete_with(&fixture.session, |stage| {
+                assert_ne!(stage, "session", "injected interruption");
+                Ok(())
+            });
+        }));
+        let directory = fixture.transactions().pop().unwrap();
+        let mut intent = read_intent(&directory).unwrap();
+        intent.phase = Phase::RollingBack;
+        write_intent(&directory, &intent).unwrap();
+        move_new(&directory.join("artifacts"), &fixture.session.with_extension("")).unwrap();
+        let (sessions, warnings) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
+        assert!(sessions.is_empty() && !warnings.is_empty());
+        assert!(fixture.artifact.parent().unwrap().join("nested.jsonl").is_file());
+        drop(lease);
+        let (sessions, warnings) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert!(warnings.is_empty());
+        fixture.preserved();
     }
 }

@@ -2981,7 +2981,7 @@ fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
     crate::session_deletion::recover_tree(root, 0, &mut scan.warnings, &mut blocked);
     recover_interrupted_imports(root, &mut scan.warnings, &mut blocked);
     let mut files = Vec::new();
-    collect_jsonl_files(root, 0, 3, &mut files, &mut scan.warnings)?;
+    collect_jsonl_files_guarded(root, 0, 3, &mut files, &mut scan.warnings, &blocked)?;
     let current_files = files
         .iter()
         .filter(|path| !blocked.contains(*path))
@@ -3027,6 +3027,17 @@ fn collect_jsonl_files(
     max_depth: usize,
     files: &mut Vec<PathBuf>,
     warnings: &mut Vec<SessionScanWarning>,
+) -> Result<(), String> {
+    collect_jsonl_files_guarded(directory, depth, max_depth, files, warnings, &HashSet::new())
+}
+
+fn collect_jsonl_files_guarded(
+    directory: &Path,
+    depth: usize,
+    max_depth: usize,
+    files: &mut Vec<PathBuf>,
+    warnings: &mut Vec<SessionScanWarning>,
+    blocked: &HashSet<PathBuf>,
 ) -> Result<(), String> {
     let directory_entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -3075,10 +3086,10 @@ fn collect_jsonl_files(
 
     for (entry, file_type) in entries {
         let path = entry.path();
-        if entry
-            .file_name()
-            .to_string_lossy()
-            .starts_with(".omp-delete-")
+        if blocked.contains(&path) {
+            continue;
+        }
+        if crate::session_deletion::is_private_directory_name(&entry.file_name())
             && file_type.as_ref().map_or(true, |kind| kind.is_dir())
         {
             continue;
@@ -3114,7 +3125,7 @@ fn collect_jsonl_files(
         };
 
         if file_type.is_dir() && depth < max_depth {
-            collect_jsonl_files(&path, depth + 1, max_depth, files, warnings)?;
+            collect_jsonl_files_guarded(&path, depth + 1, max_depth, files, warnings, blocked)?;
             continue;
         }
 
