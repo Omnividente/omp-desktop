@@ -1093,7 +1093,12 @@ describe("App lifecycle serialization", () => {
       expect(container.querySelector(".notification-stack")?.textContent).not.toContain("41.0.0")
       expect(container.querySelector(".update-check-pill")).not.toBeNull()
       await act(async () =>
-        current.resolve({ hasUpdate: false, currentVersion: null, latestVersion: null, message: "" }),
+        current.resolve({
+          hasUpdate: false,
+          currentVersion: null,
+          latestVersion: null,
+          message: "",
+        }),
       )
       expect(container.querySelector(".update-pill")).not.toBeNull()
     },

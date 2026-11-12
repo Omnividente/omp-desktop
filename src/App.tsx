@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom"
 import { StartupWorkspaceRecovery } from "./StartupWorkspaceRecovery"
 import type { StartupWorkspaceWarning } from "./types"
-import type { KeyboardEvent as ReactKeyboardEvent } from "react"
+import type { KeyboardEvent as ReactKeyboardEvent, SetStateAction } from "react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useDesktopTheme } from "./useDesktopTheme"
 import { getVersion } from "@tauri-apps/api/app"
@@ -333,11 +333,21 @@ function App() {
   const [updateSourceTerminalId, setUpdateSourceTerminalId] = useState<string | null>(null)
   const pendingUpdateRestartRef = useRef<PendingUpdateRestart | null>(null)
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const updateCheckRequestRef = useRef(0)
+  const updateRuntimeKeyRef = useRef<string | null>(null)
   const [updateNoticeVisible, setUpdateNoticeVisible] = useState(false)
   const updateInfoRef = useRef(updateInfo)
   updateInfoRef.current = updateInfo
   const updateSourceTerminalIdRef = useRef(updateSourceTerminalId)
-  updateSourceTerminalIdRef.current = updateSourceTerminalId
+  const changeUpdateSource = useCallback((next: SetStateAction<string | null>) => {
+    const value = typeof next === "function" ? next(updateSourceTerminalIdRef.current) : next
+    if (value !== updateSourceTerminalIdRef.current) {
+      ++updateCheckRequestRef.current
+      setCheckingUpdate(false)
+    }
+    updateSourceTerminalIdRef.current = value
+    setUpdateSourceTerminalId(value)
+  }, [])
   const ignoredUpdateReminderKeysRef = useRef(new Set<string>())
   const updateReminderSnoozedUntilRef = useRef(readUpdateReminderSnoozedUntil())
   const updateReminderTimerRef = useRef<number | null>(null)
@@ -679,6 +689,17 @@ function App() {
   const applyPayload = useCallback(
     (next: BootstrapPayload, preferredWorkspace?: string) => {
       ++payloadRevisionRef.current
+      const runtimeKey = JSON.stringify([
+        next.runtime.ompAvailable,
+        next.runtime.ompExecutable,
+        next.runtime.ompVersion,
+      ])
+      if (runtimeKey !== updateRuntimeKeyRef.current) {
+        // Invalidate before React commits this payload, including batched IPC replies.
+        ++updateCheckRequestRef.current
+        updateRuntimeKeyRef.current = runtimeKey
+        setCheckingUpdate(false)
+      }
       setPayload(next)
       // Ordinary mutations may omit this add-only field; they cannot dismiss the launch intent.
       if (next.startupWorkspaceWarning) acceptStartupWorkspaceWarning(next.startupWorkspaceWarning)
@@ -1186,7 +1207,7 @@ function App() {
 
     const unlistenUpdate = listen<PtyUpdateEvent>("omp-update-notice", ({ payload: event }) => {
       if (disposed) return
-      setUpdateSourceTerminalId(event.terminalId)
+      changeUpdateSource(event.terminalId)
       setUpdateInfo((current) =>
         current?.hasUpdate
           ? current
@@ -1213,13 +1234,23 @@ function App() {
       void unlistenRuntime.then((stop) => stop?.())
       void unlistenUpdate.then((stop) => stop?.())
     }
-  }, [applyPayload, pushToast, showError, updateReminderAllowed])
+  }, [applyPayload, changeUpdateSource, pushToast, showError, updateReminderAllowed])
 
   const checkForUpdates = useCallback(async () => {
+    const request = ++updateCheckRequestRef.current
+    const runtimeKey = updateRuntimeKeyRef.current
+    const sourceTerminalId = updateSourceTerminalIdRef.current
+    const isCurrent = () =>
+      mountedRef.current &&
+      request === updateCheckRequestRef.current &&
+      runtimeKey === updateRuntimeKeyRef.current &&
+      sourceTerminalId === updateSourceTerminalIdRef.current
     setCheckingUpdate(true)
     try {
       const info = await checkOmpUpdate()
+      if (!isCurrent()) return
       setUpdateInfo((current) => {
+        if (!isCurrent()) return current
         if (!info.hasUpdate && current?.hasUpdate) {
           return current
         }
@@ -1232,14 +1263,15 @@ function App() {
     } catch {
       // A live PTY notice remains authoritative when the registry check is temporarily unavailable.
     } finally {
-      setCheckingUpdate(false)
+      if (isCurrent()) setCheckingUpdate(false)
     }
   }, [updateReminderAllowed])
 
   useEffect(() => {
     if (!payload?.runtime.ompAvailable) {
+      ++updateCheckRequestRef.current
       setUpdateInfo(null)
-      setUpdateSourceTerminalId(null)
+      changeUpdateSource(null)
       setUpdateNoticeVisible(false)
       setCheckingUpdate(false)
       pendingUpdateRestartRef.current = null
@@ -1253,12 +1285,15 @@ function App() {
     }
     document.addEventListener("visibilitychange", handleVisibility)
     return () => {
+      ++updateCheckRequestRef.current
       window.clearInterval(interval)
       document.removeEventListener("visibilitychange", handleVisibility)
     }
   }, [
     checkForUpdates,
+    changeUpdateSource,
     payload?.runtime.ompAvailable,
+    payload?.runtime.ompExecutable,
     payload?.runtime.ompVersion,
     updateSourceTerminalId,
   ])
@@ -2084,7 +2119,7 @@ function App() {
             ? { ...current, terminalId: started.terminalId }
             : current,
         )
-        setUpdateSourceTerminalId((current) =>
+        changeUpdateSource((current) =>
           current === terminalId ? started.terminalId : current,
         )
         void refresh()
@@ -2117,7 +2152,7 @@ function App() {
         showError(errorMessage(error, langRef.current))
       }
     },
-    [isInstallingClientUpdate, refresh, showError],
+    [changeUpdateSource, isInstallingClientUpdate, refresh, showError],
   )
 
   const handleReorderTabs = useCallback((draggedId: string, targetId: string) => {
@@ -2363,7 +2398,7 @@ function App() {
       if (event.success) {
         if (pendingUpdate) {
           setUpdateInfo(null)
-          setUpdateSourceTerminalId(null)
+          changeUpdateSource(null)
           setUpdateNoticeVisible(false)
           clearUpdateReminderTimer()
           ignoredUpdateReminderKeysRef.current.clear()
@@ -2393,6 +2428,7 @@ function App() {
     [
       activeTabId,
       checkForUpdates,
+      changeUpdateSource,
       clearUpdateReminderTimer,
       lang,
       launchSession,
