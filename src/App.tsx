@@ -2426,7 +2426,13 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || startupWorkspaceWarningRef.current) return
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        startupWorkspaceWarningRef.current ||
+        settingsRecoveryRef.current
+      )
+        return
       if (
         incidentCenterOpen ||
         resourceHealthOpen ||

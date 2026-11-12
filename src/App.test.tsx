@@ -1253,6 +1253,100 @@ describe("App lifecycle serialization", () => {
     await act(async () => root.render(<App />))
   }
 
+  it.each(
+    (["ctrlKey", "metaKey"] as const).flatMap((modifier) =>
+      (["KeyN", "KeyW", "KeyB", "KeyO"] as const).map((code) => ({ modifier, code })),
+    ),
+  )(
+    "blocks $modifier $code during Settings recovery and restores it after Retry",
+    async ({ modifier, code }) => {
+      await mountAndResume()
+      vi.mocked(confirm).mockResolvedValue(false)
+      vi.mocked(open).mockResolvedValue(null)
+      vi.mocked(api.saveSettingsBundle).mockResolvedValue({ bootstrap, ompConfig: null })
+      vi.mocked(api.startTerminal).mockResolvedValue({ ...started, terminalId: "terminal-2" })
+      vi.mocked(api.bootstrap).mockRejectedValueOnce({
+        code: "settings_unavailable",
+        message: "Settings unavailable",
+        details: "Synthetic background read failure",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(
+          ([event]) => event === "single-instance",
+        )![1] as EventCallback<SingleInstanceEvent>
+      await act(async () =>
+        receive({ event: "single-instance", id: 41, payload: { workspace: null, error: null } }),
+      )
+      const screen = element<HTMLElement>(".settings-recovery-screen")
+      expect(document.activeElement).toBe(screen)
+      expect(container.querySelector(".terminal-pane")).toBeNull()
+      const shortcut = () =>
+        new KeyboardEvent("keydown", {
+          code,
+          [modifier]: true,
+          shiftKey: code === "KeyO",
+          bubbles: true,
+          cancelable: true,
+        })
+      for (const pending of [false, true]) {
+        const retry = pending ? deferred<BootstrapPayload>() : null
+        if (retry) {
+          vi.mocked(api.bootstrap).mockReturnValueOnce(retry.promise)
+          act(() => element(".settings-recovery-actions button:nth-child(2)").click())
+        }
+        try {
+          const event = shortcut()
+          await act(async () => screen.dispatchEvent(event))
+          expect(event.defaultPrevented).toBe(false)
+          expect(api.startTerminal).toHaveBeenCalledTimes(1)
+          expect(confirm).not.toHaveBeenCalled()
+          expect(open).not.toHaveBeenCalled()
+          expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+          const commands = invokeMock.mock.calls.map(([command]) => command)
+          expect(commands).not.toContain("close_terminal")
+          expect(container.querySelector(".settings-recovery-screen")).toBe(screen)
+        } finally {
+          if (retry) await act(async () => retry.resolve(bootstrap))
+        }
+      }
+      expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+      const event = shortcut()
+      await act(async () => element(".app-shell").dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(true)
+      if (code === "KeyN") expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      else if (code === "KeyW") expect(confirm).toHaveBeenCalledTimes(1)
+      else if (code === "KeyO") expect(open).toHaveBeenCalledTimes(1)
+      else
+        expect(api.saveSettingsBundle).toHaveBeenCalledExactlyOnceWith({
+          update: { railMode: "collapsed" },
+          ompConfig: null,
+        })
+    },
+  )
+
+  it.each(["ctrlKey", "metaKey"] as const)(
+    "does not open a project picker from initial Settings recovery with %s",
+    async (modifier) => {
+      await mountSettingsRecovery()
+      const event = new KeyboardEvent("keydown", {
+        code: "KeyO",
+        [modifier]: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      })
+      await act(async () => element(".settings-recovery-screen").dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(open).not.toHaveBeenCalled()
+      expect(api.addWorkspace).not.toHaveBeenCalled()
+    },
+  )
+
   it("reports a rejected recovery confirmation without sending defaults", async () => {
     await mountSettingsRecovery()
     vi.mocked(confirm).mockRejectedValueOnce(new Error("Dialog service unavailable"))
