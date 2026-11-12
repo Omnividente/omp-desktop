@@ -1722,22 +1722,37 @@ function App() {
     updateSourceTerminalId,
   ])
 
-  const openCodexImport = useCallback(async () => {
+  const openCodexImport = useCallback(() => {
+    if (codexOpen) return
     setCodexFailures({})
+    setCodexSessions([])
+    setCodexSelected({})
     setRailAutoOpen(true)
     setCodexOpen(true)
     setCodexLoading(true)
     setImportMode("skip")
-    try {
-      const sessions = await listCodexSessions()
-      setCodexSessions(sessions)
-      setCodexSelected({})
-    } catch (error) {
-      showError(errorMessage(error, lang))
-    } finally {
-      setCodexLoading(false)
+  }, [codexOpen])
+
+  useEffect(() => {
+    if (!codexOpen) return
+    let cancelled = false
+    // Discovery belongs to this opening, not a later dialog or its selection.
+    void listCodexSessions()
+      .then(
+        (sessions) => {
+          if (!cancelled) setCodexSessions(sessions)
+        },
+        (error) => {
+          if (!cancelled) showError(errorMessage(error, langRef.current))
+        },
+      )
+      .finally(() => {
+        if (!cancelled) setCodexLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-  }, [lang, showError])
+  }, [codexOpen, showError])
 
   const importCodexSelected = useCallback(async () => {
     if (!selectedWorkspace?.path) {

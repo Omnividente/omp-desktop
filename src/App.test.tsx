@@ -2785,6 +2785,117 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelector(".codex-import-panel")).toBeNull()
   })
 
+  describe("Codex discovery ownership", () => {
+    type Discovery = Awaited<ReturnType<typeof api.listCodexSessions>>
+    const discovered = (id: string): Discovery => [
+      {
+        id,
+        title: `Discovery ${id}`,
+        cwd: "C:/fixture/project",
+        filePath: `C:/fixture/codex/${id}.jsonl`,
+        createdAt: "2026-11-09T00:00:00.000Z",
+        updatedAt: 1,
+        model: null,
+        preview: "Synthetic discovery",
+      },
+    ]
+    const openImport = () => element('[title="Импорт из Codex"]').click()
+    const closeImport = () => element(".codex-import-panel .settings-header button").click()
+    const selectedInput = () => element<HTMLInputElement>(".codex-item input")
+
+    async function discoveryFixture() {
+      const scans: ReturnType<typeof deferred<Discovery>>[] = []
+      const list = vi.spyOn(api, "listCodexSessions").mockImplementation(() => {
+        const scan = deferred<Discovery>()
+        scans.push(scan)
+        return scan.promise
+      })
+      await act(async () =>
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        ),
+      )
+      expect(list).not.toHaveBeenCalled()
+      await act(async () => openImport())
+      expect(list).toHaveBeenCalledTimes(1)
+      return { scans, list }
+    }
+
+    it("preserves a newer scan and selection when a closed scan resolves late", async () => {
+      const { scans, list } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      expect(list).toHaveBeenCalledTimes(2)
+      await act(async () => scans[1].resolve(discovered("new")))
+      await act(async () => selectedInput().click())
+      expect(selectedInput().checked).toBe(true)
+      await act(async () => scans[0].resolve(discovered("old")))
+      expect(element(".codex-list").textContent).toContain("Discovery new")
+      expect(element(".codex-list").textContent).not.toContain("Discovery old")
+      expect(selectedInput().checked).toBe(true)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(false)
+      expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([])
+    })
+
+    it("keeps the current scan loading after an obsolete scan finishes", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      await act(async () => scans[0].resolve(discovered("old")))
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("true")
+      expect(container.querySelectorAll(".codex-item")).toHaveLength(0)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+      await act(async () => scans[1].resolve(discovered("current")))
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("false")
+      expect(element(".codex-list").textContent).toContain("Discovery current")
+    })
+
+    it("ignores an obsolete scan error but reports the current error", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      await act(async () => scans[0].reject(new Error("Obsolete discovery failure")))
+      expect(container.textContent).not.toContain("Obsolete discovery failure")
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("true")
+      await act(async () => scans[1].reject(new Error("Current discovery failure")))
+      expect(container.textContent).toContain("Current discovery failure")
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("false")
+    })
+
+    it("does not report a scan failure after the import dialog closes", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => scans[0].reject(new Error("Closed discovery failure")))
+      expect(container.querySelector(".codex-import-panel")).toBeNull()
+      expect(container.textContent).not.toContain("Closed discovery failure")
+    })
+
+    it("clears a previous selection before a reopened scan can fail", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => scans[0].resolve(discovered("previous")))
+      await act(async () => selectedInput().click())
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      expect(container.querySelectorAll(".codex-item")).toHaveLength(0)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+      await act(async () => scans[1].reject(new Error("Current discovery failure")))
+      expect(container.querySelectorAll(".codex-item")).toHaveLength(0)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+    })
+
+    it("leaves an already open import view and selection alone on repeated open", async () => {
+      const { scans, list } = await discoveryFixture()
+      await act(async () => scans[0].resolve(discovered("selected")))
+      await act(async () => selectedInput().click())
+      await act(async () => openImport())
+      expect(list).toHaveBeenCalledTimes(1)
+      expect(selectedInput().checked).toBe(true)
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("false")
+    })
+  })
+
   async function openImportFeedbackFixture(count = 4) {
     const sources = Array.from({ length: count }, (_, index) => `C:/fixture/codex/${index}.jsonl`)
     const batches: ImportSessionRequest[][] = []
