@@ -8914,3 +8914,149 @@ mod tests {
         );
     }
 }
+
+// Research regression: an unsuccessful deletion must preserve both history and artifacts.
+// This module deliberately exercises the production lease and deletion path.
+#[cfg(all(test, target_os = "linux"))]
+mod deletion_recovery_research {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::SystemTime;
+
+    struct Fixture {
+        root: PathBuf,
+        project: PathBuf,
+        session: PathBuf,
+        artifact: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(name: &str, existing_sidecar: bool) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "omp-delete-recovery-{name}-{}-{nonce}",
+                std::process::id()
+            ));
+            let project = root.join("project");
+            let session = project.join("session.jsonl");
+            let artifact = project.join("session").join("tool.log");
+            fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+            fs::write(&session, b"{\"type\":\"session\",\"id\":\"synthetic\"}\n").unwrap();
+            fs::write(&artifact, b"synthetic artifact\n").unwrap();
+            if existing_sidecar {
+                // Normal clean release deliberately retains an empty sidecar.
+                drop(SessionLease::acquire(&session, SessionLeasePurpose::Resume, false).unwrap());
+            }
+            Self {
+                root,
+                project,
+                session,
+                artifact,
+            }
+        }
+
+        fn make_parent_read_only(&self) {
+            fs::set_permissions(&self.project, fs::Permissions::from_mode(0o555)).unwrap();
+            // Fail explicitly if the runner bypasses the permission boundary.
+            assert!(fs::write(self.project.join("permission-probe"), b"probe").is_err());
+        }
+
+        fn assert_preserved(&self) {
+            assert_eq!(
+                fs::read(&self.session).unwrap(),
+                b"{\"type\":\"session\",\"id\":\"synthetic\"}\n"
+            );
+            assert_eq!(
+                fs::read(&self.artifact).expect("failed deletion must preserve artifact bytes"),
+                b"synthetic artifact\n"
+            );
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(&self.project, fs::Permissions::from_mode(0o755));
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn failed_delete_preserves_artifacts_with_existing_sidecar() {
+        let fixture = Fixture::new("existing-sidecar", true);
+        fixture.make_parent_read_only();
+        let state = TerminalState::default();
+        let deletion = state
+            .prepare_inactive_session_deletion(
+                fixture.session.to_str().unwrap(),
+                &fixture.root,
+                false,
+            )
+            .expect("existing writable sidecar must permit the real lease acquisition");
+        let error = deletion
+            .commit()
+            .expect_err("parent prevents directory removal");
+        eprintln!(
+            "delete recovery observation: jsonl={}, artifact={}, error={error}",
+            fixture.session.is_file(),
+            fixture.artifact.is_file()
+        );
+        fixture.assert_preserved();
+    }
+
+    #[test]
+    fn missing_sidecar_blocks_before_artifact_mutation() {
+        let fixture = Fixture::new("missing-sidecar", false);
+        fixture.make_parent_read_only();
+        let state = TerminalState::default();
+        let error = state
+            .prepare_inactive_session_deletion(
+                fixture.session.to_str().unwrap(),
+                &fixture.root,
+                false,
+            )
+            .err()
+            .expect("missing sidecar must prevent deletion");
+        assert!(error.starts_with("[session_lease_failed] "));
+        fixture.assert_preserved();
+    }
+
+    #[test]
+    fn active_lease_blocks_before_artifact_mutation() {
+        let fixture = Fixture::new("active-lease", true);
+        let lease =
+            SessionLease::acquire(&fixture.session, SessionLeasePurpose::Resume, false).unwrap();
+        fixture.make_parent_read_only();
+        let state = TerminalState::default();
+        let error = state
+            .prepare_inactive_session_deletion(
+                fixture.session.to_str().unwrap(),
+                &fixture.root,
+                false,
+            )
+            .err()
+            .expect("active lease must prevent deletion");
+        assert!(error.starts_with("[session_lease_active] "));
+        fixture.assert_preserved();
+        drop(lease);
+    }
+
+    #[test]
+    fn writable_parent_deletes_both_history_and_artifacts() {
+        let fixture = Fixture::new("writable", true);
+        let state = TerminalState::default();
+        state
+            .prepare_inactive_session_deletion(
+                fixture.session.to_str().unwrap(),
+                &fixture.root,
+                false,
+            )
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert!(!fixture.session.exists());
+        assert!(!fixture.artifact.parent().unwrap().exists());
+    }
+}
