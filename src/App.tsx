@@ -1971,10 +1971,16 @@ function App() {
       const tab = tabsRef.current.find((candidate) => candidate.id === terminalId)
       const recovery = tab?.switchRecovery
       if (!recovery || recovery.state !== "pending") return
-      const accepted = await confirm(
-        t(lang, "switchRecoverySendConfirm").replace("{count}", String(recovery.byteCount)),
-        { title: t(lang, "switchRecoveryTitle"), kind: "warning" },
-      )
+      let accepted: boolean
+      try {
+        accepted = await confirm(
+          t(lang, "switchRecoverySendConfirm").replace("{count}", String(recovery.byteCount)),
+          { title: t(lang, "switchRecoveryTitle"), kind: "warning" },
+        )
+      } catch (error) {
+        showError(errorMessage(error, lang))
+        return
+      }
       if (!accepted) return
 
       setTabs((current) =>
