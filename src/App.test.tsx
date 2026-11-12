@@ -758,6 +758,55 @@ describe("App lifecycle serialization", () => {
     expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith("C:/fixture/chosen")
   })
 
+  it.each(["success", "failure"] as const)(
+    "preserves newer navigation while an obsolete folder result reconciles with %s",
+    async (outcome) => {
+      vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+      vi.mocked(open).mockResolvedValue("C:/fixture/Chosen")
+      const addition = deferred<BootstrapPayload>()
+      const reconcile = deferred<BootstrapPayload>()
+      vi.mocked(api.addWorkspace)
+        .mockReturnValueOnce(addition.promise)
+        .mockResolvedValueOnce(workspacePayload("Newer"))
+      await act(async () => root.render(<App />))
+      await act(async () => recoveryAction("choose").click())
+      expect(api.addWorkspace).toHaveBeenCalledWith("C:/fixture/Chosen")
+      await act(async () => requestWorkspace("Newer"))
+      expect(element(".project-item.is-active").textContent).toContain("Newer")
+      vi.mocked(api.bootstrap).mockReturnValueOnce(reconcile.promise)
+      const bootstrapCalls = vi.mocked(api.bootstrap).mock.calls.length
+      await act(async () => addition.resolve(workspacePayload("Chosen")))
+      expect(api.bootstrap).toHaveBeenCalledTimes(bootstrapCalls + 1)
+      expect(element(".project-item.is-active").textContent).toContain("Newer")
+      expect(container.textContent).toContain("Newer session")
+      await act(async () => {
+        if (outcome === "success") reconcile.resolve(workspacePayload("Chosen", "Newer"))
+        else reconcile.reject(new Error("Synthetic reconciliation failure"))
+      })
+      expect(element(".project-item.is-active").textContent).toContain("Newer")
+      expect(container.textContent).toContain("Newer session")
+      expect(api.addWorkspace).toHaveBeenCalledTimes(2)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(api.saveWorkspaceSelection).toHaveBeenLastCalledWith("C:/fixture/Newer")
+    },
+  )
+
+  it("does not apply or reconcile a folder acknowledgement after unmount", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
+    vi.mocked(open).mockResolvedValue("C:/fixture/Chosen")
+    const addition = deferred<BootstrapPayload>()
+    vi.mocked(api.addWorkspace).mockReturnValueOnce(addition.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => recoveryAction("choose").click())
+    await act(async () => root.render(null))
+    const bootstrapCalls = vi.mocked(api.bootstrap).mock.calls.length
+    const saveCalls = vi.mocked(api.saveWorkspaceSelection).mock.calls.length
+    await act(async () => addition.resolve(workspacePayload("Chosen")))
+    expect(api.bootstrap).toHaveBeenCalledTimes(bootstrapCalls)
+    expect(api.saveWorkspaceSelection).toHaveBeenCalledTimes(saveCalls)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
   it("does not let a delayed startup retry replace a newer second-instance workspace", async () => {
     vi.mocked(api.bootstrap).mockResolvedValue(warningPayload)
     const pending = deferred<BootstrapPayload>()

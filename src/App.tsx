@@ -1487,7 +1487,13 @@ function App() {
       if (typeof selected !== "string") return
       const selectionRequest = ++workspaceSelectionRequestRef.current
       const next = await addWorkspace(selected)
+      if (!mountedRef.current) return
       const selectRequested = selectionRequest === workspaceSelectionRequestRef.current
+      if (!selectRequested) {
+        // The folder was added, but its snapshot cannot replace newer navigation.
+        void refresh()
+        return
+      }
       acceptStartupWorkspaceWarning(null)
       applyPayload(next, selectRequested ? selected : undefined)
       if (selectRequested) {
@@ -1504,7 +1510,7 @@ function App() {
         setStartupWorkspaceBusy(false)
       }
     }
-  }, [acceptStartupWorkspaceWarning, applyPayload, lang, showError])
+  }, [acceptStartupWorkspaceWarning, applyPayload, lang, refresh, showError])
 
   const resolveStartup = useCallback(
     async (action: "retry" | "continue") => {
