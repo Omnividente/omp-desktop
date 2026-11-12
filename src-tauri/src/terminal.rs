@@ -2680,10 +2680,10 @@ fn apply_handoff_session_titles(
             &mut previous_session,
             &transaction.candidate().session_title_pins,
         );
-        let archive_label = if transaction.candidate().language == "en" {
-            "archive"
-        } else {
-            "архив"
+        let archive_label = match transaction.candidate().language.as_str() {
+            "en" => "archive",
+            "zh" => "归档",
+            _ => "архив",
         };
         let previous_path_string = previous_path.to_string_lossy().into_owned();
         let active_path_string = active_path.to_string_lossy().into_owned();
@@ -4736,6 +4736,16 @@ fn forward_output_batches(
     let _ = finalized_sender.send(());
 }
 
+fn read_terminal_chunk(reader: &mut dyn Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match reader.read(buffer) {
+            // An interrupted read consumes no bytes and does not end the PTY stream.
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
+}
+
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
@@ -4769,7 +4779,7 @@ fn spawn_reader(
         .spawn(move || {
             let mut buffer = [0_u8; 8192];
             loop {
-                match reader.read(&mut buffer) {
+                match read_terminal_chunk(reader.as_mut(), &mut buffer) {
                     Ok(0) => break,
                     Ok(read) => {
                         if output_sender.send(buffer[..read].to_vec()).is_err() {
@@ -6078,6 +6088,108 @@ mod tests {
             .err()
             .expect("future sequence must be rejected");
         assert!(error.starts_with("[terminal_sequence_invalid] "));
+    }
+
+    struct ScriptedPtyReader {
+        reads: std::vec::IntoIter<io::Result<Vec<u8>>>,
+        calls: usize,
+    }
+
+    impl io::Read for ScriptedPtyReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.calls += 1;
+            let bytes = self.reads.next().expect("unexpected read")?;
+            assert!(bytes.len() <= buffer.len());
+            buffer[..bytes.len()].copy_from_slice(&bytes);
+            Ok(bytes.len())
+        }
+    }
+
+    #[test]
+    fn terminal_reader_retries_interruptions_without_losing_output() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(vec![0xf0, 0x9f]),
+                Err(io::ErrorKind::Interrupted.into()),
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(vec![0x99, 0x82, b'\n']),
+                Ok(Vec::new()),
+            ]
+            .into_iter(),
+            calls: 0,
+        };
+        let mut buffer = [0_u8; 8192];
+        let mut output = Vec::new();
+        loop {
+            let read = super::read_terminal_chunk(&mut reader, &mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            output.extend_from_slice(&buffer[..read]);
+        }
+        assert_eq!(output, [0xf0, 0x9f, 0x99, 0x82, b'\n']);
+        assert_eq!(reader.calls, 6);
+    }
+
+    #[test]
+    fn terminal_reader_preserves_immediate_eof() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![Ok(Vec::new()), Ok(b"not read".to_vec())].into_iter(),
+            calls: 0,
+        };
+        assert_eq!(
+            super::read_terminal_chunk(&mut reader, &mut [0_u8; 32]).unwrap(),
+            0
+        );
+        assert_eq!(reader.calls, 1);
+        assert_eq!(reader.reads.len(), 1);
+    }
+
+    #[test]
+    fn terminal_reader_preserves_eof_after_interruption() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![Err(io::ErrorKind::Interrupted.into()), Ok(Vec::new())].into_iter(),
+            calls: 0,
+        };
+        assert_eq!(
+            super::read_terminal_chunk(&mut reader, &mut [0_u8; 32]).unwrap(),
+            0
+        );
+        assert_eq!(reader.calls, 2);
+    }
+
+    #[test]
+    fn terminal_reader_returns_other_errors_without_retrying() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::Other,
+        ] {
+            let mut reader = ScriptedPtyReader {
+                reads: vec![
+                    Ok(b"before".to_vec()),
+                    Err(io::ErrorKind::Interrupted.into()),
+                    Err(io::Error::new(kind, "synthetic read failure")),
+                    Ok(b"not read".to_vec()),
+                ]
+                .into_iter(),
+                calls: 0,
+            };
+            let mut buffer = [0_u8; 32];
+            assert_eq!(
+                super::read_terminal_chunk(&mut reader, &mut buffer).unwrap(),
+                6
+            );
+            assert_eq!(&buffer[..6], b"before");
+            let error = super::read_terminal_chunk(&mut reader, &mut buffer).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.to_string(), "synthetic read failure");
+            assert_eq!(reader.calls, 3);
+            assert_eq!(reader.reads.len(), 1);
+        }
     }
 
     struct BlockingWriter {
