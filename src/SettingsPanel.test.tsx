@@ -4,17 +4,18 @@ import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { SettingsPanel } from "./SettingsPanel"
+import { roleLabel, t } from "./i18n"
 import type { AppSettings, OmpConfigSnapshot, RuntimeInfo, SettingsSavePayload } from "./types"
 import type * as Api from "./api"
 
-const { confirmMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } = vi.hoisted(
-  () => ({
+const { confirmMock, openMock, loadOmpConfigMock, refreshOmpConfigMock, saveSettingsBundleMock } =
+  vi.hoisted(() => ({
     confirmMock: vi.fn(),
+    openMock: vi.fn(),
     loadOmpConfigMock: vi.fn(),
     refreshOmpConfigMock: vi.fn(),
     saveSettingsBundleMock: vi.fn(),
-  }),
-)
+  }))
 
 vi.mock("./api", async (importOriginal) => ({
   ...(await importOriginal<typeof Api>()),
@@ -27,7 +28,7 @@ vi.mock("./api", async (importOriginal) => ({
     .mockRejectedValue(new Error("Synthetic policy unavailable")),
 }))
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmMock, open: vi.fn() }))
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: confirmMock, open: openMock }))
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -468,6 +469,110 @@ describe("SettingsPanel Save state", () => {
     expect(save?.disabled).toBe(false)
   })
 
+  function openProviders() {
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+  }
+
+  it.each(
+    (["ru", "en", "zh"] as const).flatMap((language) =>
+      (["observed", "fetched", "reset"] as const).map((field) => ({ language, field })),
+    ),
+  )(
+    "keeps Providers usable with an invalid $field timestamp in $language",
+    async ({ language, field }) => {
+      const invalid = 8_640_000_000_000_001
+      const account = ompConfig.accounts[0]
+      const snapshot = {
+        ...ompConfig,
+        usageObservedAt: field === "observed" ? invalid : ompConfig.usageObservedAt,
+        accounts: [
+          {
+            ...account,
+            fetchedAt: field === "fetched" ? invalid : account.fetchedAt,
+            limits: account.limits.map((limit) => ({
+              ...limit,
+              resetsAt: field === "reset" ? invalid : limit.resetsAt,
+            })),
+          },
+        ],
+      }
+      loadOmpConfigMock.mockResolvedValue(snapshot)
+      await renderRuntime(runtime, { ...settings, language })
+      openProviders()
+
+      const card = container.querySelector(".provider-account")!
+      expect(card.textContent).toContain(account.label)
+      expect(card.classList.contains("is-limited")).toBe(true)
+      expect(card.querySelector('[role="meter"]')?.getAttribute("aria-valuenow")).toBe("82")
+      expect(card.querySelector(".is-eligible")).not.toBeNull()
+      if (field === "observed") {
+        const freshness = container.querySelector(".provider-account-freshness")!
+        expect(freshness.textContent).toContain(t(language, "accountUsageUnknown"))
+        expect(freshness.querySelector("time")).toBeNull()
+        expect(freshness.classList.contains("is-stale")).toBe(false)
+      }
+      if (field === "fetched") expect(card.querySelector(".provider-account-fetched-at")).toBeNull()
+      if (field === "reset") {
+        expect(card.querySelector(".provider-account-limit small")?.textContent).toBe(
+          t(language, "accountResetUnknown"),
+        )
+      }
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")?.disabled,
+      ).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+      expect(container.querySelector("#omp-executable")).not.toBeNull()
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(snapshot.accounts[0].limits[0].resetsAt).toBe(field === "reset" ? invalid : null)
+    },
+  )
+
+  it.each(
+    (["ru", "en", "zh"] as const).flatMap((language) =>
+      [null, 0, 1_794_442_500_000, 8_640_000_000_000_000].map((timestamp) => ({
+        language,
+        timestamp,
+      })),
+    ),
+  )(
+    "preserves valid and missing account dates: $language / $timestamp",
+    async ({ language, timestamp }) => {
+      const account = ompConfig.accounts[0]
+      loadOmpConfigMock.mockResolvedValue({
+        ...ompConfig,
+        usageObservedAt: timestamp,
+        accounts: [
+          {
+            ...account,
+            fetchedAt: timestamp,
+            limits: [{ ...account.limits[0], resetsAt: timestamp }],
+          },
+        ],
+      })
+      await renderRuntime(runtime, { ...settings, language })
+      openProviders()
+      const freshness = container.querySelector(".provider-account-freshness")!
+      const observed = container.querySelector(".provider-account-fetched-at")
+      const reset = container.querySelector(".provider-account-limit small")!
+      if (timestamp === null) {
+        expect(freshness.textContent).toContain(t(language, "accountUsageUnknown"))
+        expect(freshness.querySelector("time")).toBeNull()
+        expect(observed).toBeNull()
+        expect(reset.textContent).toBe(t(language, "accountResetUnknown"))
+      } else {
+        const date = new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : language, {
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(timestamp)
+        expect(freshness.querySelector("time")?.getAttribute("datetime")).toBe(
+          new Date(timestamp).toISOString(),
+        )
+        expect(observed?.textContent).toContain(date)
+        expect(reset.textContent).toContain(date)
+      }
+    },
+  )
+
   it("keeps a non-reporting account visible beside a healthy sibling", async () => {
     const healthy = ompConfig.accounts[0]
     if (!healthy) throw new Error("account fixture missing")
@@ -683,6 +788,7 @@ describe("SettingsPanel configuration generations", () => {
     loadOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
     refreshOmpConfigMock.mockReset().mockResolvedValue(ompConfig)
     saveSettingsBundleMock.mockReset()
+    openMock.mockReset()
     onError = vi.fn()
     onSaved = vi.fn()
     container = document.createElement("div")
@@ -693,6 +799,135 @@ describe("SettingsPanel configuration generations", () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+  })
+
+  it.each([" ", "\u00a0"])(
+    "keeps literal saved paths clean and preserves them during an unrelated save (%j)",
+    async (suffix) => {
+      const literalSettings = {
+        ...settings,
+        ompExecutable: `/synthetic/omp${suffix}`,
+        sessionRoot: `/synthetic/history${suffix}`,
+      }
+      await renderPanel(runtime, literalSettings, false, ompConfig)
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      changeField("#language-select", "en")
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(ompConfig, runtime, { ...literalSettings, language: "en" }),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            ompExecutable: literalSettings.ompExecutable,
+            sessionRoot: literalSettings.sessionRoot,
+            language: "en",
+          }),
+        }),
+      )
+    },
+  )
+
+  it.each([
+    ["omp-executable", "ompExecutable", "/synthetic/omp"],
+    ["session-root", "sessionRoot", "/synthetic/history"],
+  ] as const)("recognizes and saves an exact typed %s path", async (id, field, path) => {
+    const initial = { ...settings, [field]: path }
+    const literal = `${path} `
+    await renderPanel(runtime, initial, false, ompConfig)
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    expect(save.disabled).toBe(true)
+    changeField(`#${id}`, literal)
+    expect(save.disabled).toBe(false)
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult(ompConfig, runtime, { ...initial, [field]: literal }),
+    )
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].update[field]).toBe(literal)
+  })
+
+  it.each([
+    ["omp-executable", "ompExecutable", "/synthetic/omp\u00a0", false],
+    ["session-root", "sessionRoot", "/synthetic/history\u00a0", true],
+  ] as const)("preserves the exact %s picker result through Save", async (id, field, path, dir) => {
+    const initial = { ...settings, [field]: path.trim() }
+    openMock.mockResolvedValueOnce(path)
+    await renderPanel(runtime, initial, false, ompConfig)
+    await act(async () => {
+      container
+        .querySelector<HTMLInputElement>(`#${id}`)!
+        .parentElement!.querySelector<HTMLButtonElement>("button")!
+        .click()
+    })
+    expect(openMock).toHaveBeenLastCalledWith(expect.objectContaining({ directory: dir }))
+    expect(container.querySelector<HTMLInputElement>(`#${id}`)!.value).toBe(path)
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    expect(save.disabled).toBe(false)
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult(ompConfig, runtime, { ...initial, [field]: path }),
+    )
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock.mock.lastCall![0].update[field]).toBe(path)
+  })
+
+  it.each(["omp-executable", "session-root"])(
+    "protects a whitespace-only suffix edit in %s from accidental dismissal",
+    async (id) => {
+      const initial = { ...settings, ompExecutable: "/synthetic/omp", sessionRoot: "/history" }
+      await renderPanel(runtime, initial, false, ompConfig)
+      const input = container.querySelector<HTMLInputElement>(`#${id}`)!
+      changeField(`#${id}`, `${input.value} `)
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(".settings-header .icon-button")!.click()
+      })
+      const confirmation = container.querySelector<HTMLElement>('[role="alertdialog"]')!
+      expect(confirmation).not.toBeNull()
+      act(() => confirmation.querySelector<HTMLButtonElement>(".primary")!.click())
+      expect(container.querySelector('[role="alertdialog"]')).toBeNull()
+      expect(input.value.endsWith(" ")).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["", " ", "\t\u00a0"])(
+    "continues to reset empty or whitespace-only path fields (%j)",
+    async (blank) => {
+      const initial = { ...settings, ompExecutable: "/synthetic/omp", sessionRoot: "/history" }
+      await renderPanel(runtime, initial, false, ompConfig)
+      changeField("#omp-executable", blank)
+      changeField("#session-root", blank)
+      saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click()
+      })
+      expect(saveSettingsBundleMock.mock.lastCall![0].update).toMatchObject({
+        ompExecutable: null,
+        sessionRoot: null,
+      })
+    },
+  )
+
+  it("previews Chinese without submitting and preserves literal provider drafts through Save", async () => {
+    await renderPanel(runtime, settings, false, ompConfig)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    addKey("__proto__", "synthetic-locale-draft")
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+    changeField("#language-select", "zh")
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(container.querySelector(".settings-header")?.textContent).toContain("OMP 设置")
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig, runtime, {
+      ...settings, language: "zh", providerEnvKeys: ["__proto__"],
+    }))
+    await act(async () => save.click())
+    const request = saveSettingsBundleMock.mock.lastCall![0]
+    expect(request.update.language).toBe("zh")
+    expect(Object.hasOwn(request.update.providerEnv, "__proto__")).toBe(true)
+    expect(request.update.providerEnv["__proto__"]).toBe("synthetic-locale-draft")
+    expect(container.textContent).not.toContain("synthetic-locale-draft")
+    expect(save.disabled).toBe(true)
   })
 
   it("saves only the submitted Desktop theme and keeps a later theme draft with a sticky acknowledgement", async () => {
@@ -1039,6 +1274,71 @@ describe("SettingsPanel configuration generations", () => {
     expect(container.querySelector(".settings-loading-banner")).toBeNull()
   })
 
+  it.each(["ru", "en"] as const)("keeps literal custom role labels in %s", (language) => {
+    for (const name of ["__proto__", "constructor", "toString", "hasOwnProperty", "custom-role"])
+      expect(roleLabel(language, name)).toBe(name)
+    expect(roleLabel(language, "default")).toBe(t(language, "roleDefault"))
+  })
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty", "custom-role"])(
+    "loads, edits and saves the literal role %s without inherited draft values",
+    async (name) => {
+      const role = { ...pendingConfig.roles[0], role: name }
+      const snapshot = { ...ompConfig, roles: [role] }
+      loadOmpConfigMock.mockResolvedValueOnce(snapshot)
+      saveSettingsBundleMock.mockResolvedValue(
+        saveResult({ ...snapshot, roles: [{ ...role, selector: savedRole }] }),
+      )
+      await renderPanel()
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>(`[data-role="${name}"]`)!
+      expect(row.querySelector(".role-head strong")!.textContent).toBe(name)
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain(role.selector)
+      act(() => row.querySelector<HTMLButtonElement>(".model-picker-trigger")!.click())
+      changeField(`[data-role="${name}"] .model-picker-manual input`, savedRole)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.roles).toEqual({
+        [name]: savedRole,
+      })
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain(savedRole)
+      expect(save.disabled).toBe(true)
+      expect(onError).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["__proto__", "constructor", "toString", "hasOwnProperty", "custom-role"])(
+    "refreshes a new literal role %s without making Settings dirty or losing a later draft",
+    async (name) => {
+      await renderPanel(runtime, settings, false, pendingConfig)
+      const freshRole = { ...pendingConfig.roles[0], role: name, selector: "synthetic/fresh" }
+      const refreshed = { ...pendingConfig, roles: [...pendingConfig.roles, freshRole] }
+      refreshOmpConfigMock.mockResolvedValueOnce(refreshed)
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>(".runtime-card button")!.click(),
+      )
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>(`[data-role="${name}"]`)!
+      expect(row.querySelector(".role-head strong")!.textContent).toBe(name)
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain("synthetic/fresh")
+      changeModelDraft()
+      saveSettingsBundleMock.mockResolvedValue(
+        saveResult({ ...refreshed, roles: [committedConfig.roles[0], freshRole] }),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.roles).toEqual({
+        default: savedRole,
+      })
+      expect(row.querySelector(".model-picker-trigger")!.textContent).toContain("synthetic/fresh")
+      expect(save.disabled).toBe(true)
+      expect(onError).not.toHaveBeenCalled()
+    },
+  )
+
   it("makes a discovered model selectable without replacing drafts edited during refresh", async () => {
     const oldModel = {
       provider: "catalog",
@@ -1096,6 +1396,218 @@ describe("SettingsPanel configuration generations", () => {
     )
   })
 
+  const searchableAgents = [
+    {
+      name: "reviewer",
+      description: "Checks changes",
+      source: "builtin",
+      enabled: true,
+      modelOverride: null,
+      defaultModelSelectors: [],
+    },
+    {
+      name: "Café-auditor",
+      description: "Проверяет безопасность",
+      source: "project",
+      enabled: false,
+      modelOverride: ["catalog/first", "catalog/second"],
+      defaultModelSelectors: [],
+    },
+    {
+      name: "writer",
+      description: "Writes documentation",
+      source: "configured",
+      enabled: true,
+      modelOverride: null,
+      defaultModelSelectors: [],
+    },
+  ]
+  const agentSnapshot = {
+    ...ompConfig,
+    agents: searchableAgents,
+    agentSettingsSupported: true,
+  }
+  function agentRows() {
+    const rows = container.querySelectorAll<HTMLElement>(".agent-row")
+    return Array.from(rows, (row) => row.dataset.agent)
+  }
+  const agentSearchInput = () => container.querySelector<HTMLInputElement>("#task-agent-search")!
+  function agentStatus() {
+    return container.querySelector(".agent-search-controls [role=status]")?.textContent
+  }
+  function agentSaveButton() {
+    return container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+  }
+  function agentCheckbox(name: string) {
+    return container.querySelector<HTMLInputElement>(`[data-agent="${name}"] input`)!
+  }
+  function openAgentSection() {
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+  }
+
+  it.each(["ru", "en"] as const)(
+    "searches agent names, descriptions and sources locally in %s",
+    async (language) => {
+      await renderPanel(runtime, { ...settings, language }, false, agentSnapshot)
+      openAgentSection()
+      expect(container.querySelector('label[for="task-agent-search"]')?.textContent).toBe(
+        language === "ru"
+          ? "Поиск по имени, описанию или источнику"
+          : "Search names, descriptions or sources",
+      )
+      expect(agentRows()).toEqual(["reviewer", "Café-auditor", "writer"])
+      for (const query of ["  CAFE\u0301  ", "БЕЗОПАСНОСТЬ", "PROJECT"]) {
+        changeField("#task-agent-search", query)
+        expect(agentRows()).toEqual(["Café-auditor"])
+      }
+      changeField("#task-agent-search", "catalog/first")
+      expect(agentRows()).toEqual([])
+      expect(agentStatus()).toBe(
+        language === "ru"
+          ? "В текущем снимке нет агентов, соответствующих запросу."
+          : "No agents in this snapshot match the search.",
+      )
+      const clear = container.querySelector<HTMLButtonElement>(".agent-search-row button")!
+      act(() => clear.click())
+      expect(agentRows()).toEqual(["reviewer", "Café-auditor", "writer"])
+      expect(document.activeElement).toBe(container.querySelector("#task-agent-search"))
+      expect(clear.disabled).toBe(true)
+      expect(agentSaveButton().disabled).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(loadOmpConfigMock).not.toHaveBeenCalled()
+      expect(refreshOmpConfigMock).not.toHaveBeenCalled()
+    },
+  )
+
+  it("finds one agent in a larger snapshot without changing its order or selection", async () => {
+    const agents = Array.from({ length: 100 }, (_, index) => ({
+      ...searchableAgents[0],
+      name: `agent-${index}`,
+      description: index === 73 ? "Synthetic needle" : "Synthetic worker",
+    }))
+    await renderPanel(runtime, settings, false, { ...agentSnapshot, agents })
+    openAgentSection()
+    expect(agentRows()).toHaveLength(100)
+    changeField("#task-agent-search", "needle")
+    expect(agentRows()).toEqual(["agent-73"])
+    expect(agentStatus()).toContain("1 / 100")
+    changeField("#task-agent-search", "   ")
+    expect(agentRows()).toEqual(agents.map((agent) => agent.name))
+    expect(agentCheckbox("agent-73").checked).toBe(true)
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
+  it("saves hidden agent edits and retains the search after a failed save and retry", async () => {
+    saveSettingsBundleMock.mockRejectedValueOnce(new Error("Synthetic save failure"))
+    saveSettingsBundleMock.mockResolvedValueOnce(
+      saveResult({
+        ...agentSnapshot,
+        agents: [
+          { ...searchableAgents[0], enabled: false },
+          { ...searchableAgents[1], modelOverride: null },
+          searchableAgents[2],
+        ],
+      }),
+    )
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    act(() => agentCheckbox("reviewer").click())
+    changeField('[data-agent="Café-auditor"] .agent-model-mode select', "inherit")
+    changeField("#task-agent-search", "writer")
+    expect(agentRows()).toEqual(["writer"])
+    expect(container.querySelector("#task-agent-search-help")?.textContent).toContain("скрытых")
+    await act(async () => agentSaveButton().click())
+    expect(agentSearchInput().value).toBe("writer")
+    changeField("#task-agent-search", "reviewer")
+    expect(agentCheckbox("reviewer").checked).toBe(false)
+    changeField("#task-agent-search", "no matches")
+    await act(async () => agentSaveButton().click())
+    const expectedChanges = {
+      reviewer: { enabled: false, expectedEnabled: true },
+      "Café-auditor": {
+        modelOverride: null,
+        expectedModelOverride: ["catalog/first", "catalog/second"],
+      },
+    }
+    expect(saveSettingsBundleMock).toHaveBeenCalledTimes(2)
+    for (const [payload] of saveSettingsBundleMock.mock.calls) {
+      expect(payload.ompConfig.agentChanges).toEqual(expectedChanges)
+    }
+    expect(agentSearchInput().value).toBe("no matches")
+    act(() => container.querySelector<HTMLButtonElement>(".agent-search-row button")!.click())
+    expect(agentCheckbox("reviewer").checked).toBe(false)
+    const modeSelector = '[data-agent="Café-auditor"] .agent-model-mode select'
+    expect(container.querySelector<HTMLSelectElement>(modeSelector)!.value).toBe("inherit")
+    expect(agentSaveButton().disabled).toBe(true)
+  })
+
+  it("preserves the query and hidden drafts across a catalog refresh", async () => {
+    const refreshed = deferred<OmpConfigSnapshot>()
+    refreshOmpConfigMock.mockReturnValueOnce(refreshed.promise)
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    act(() => agentCheckbox("reviewer").click())
+    changeField("#task-agent-search", "new agent")
+    act(() => container.querySelector<HTMLButtonElement>(".runtime-card button")!.click())
+    await act(async () =>
+      refreshed.resolve({
+        ...agentSnapshot,
+        agents: [
+          ...searchableAgents,
+          { ...searchableAgents[0], name: "new agent", description: "New snapshot entry" },
+        ],
+      }),
+    )
+    expect(agentRows()).toEqual(["new agent"])
+    expect(agentSearchInput().value).toBe("new agent")
+    changeField("#task-agent-search", "reviewer")
+    expect(agentCheckbox("reviewer").checked).toBe(false)
+    expect(refreshOmpConfigMock).toHaveBeenCalledTimes(1)
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+  })
+
+  it("distinguishes an empty snapshot and keeps unsupported agent controls disabled", async () => {
+    await renderPanel(runtime, settings, false, { ...agentSnapshot, agentSettingsSupported: false })
+    openAgentSection()
+    changeField("#task-agent-search", "reviewer")
+    expect(agentRows()).toEqual(["reviewer"])
+    expect(container.querySelector(".agent-controls")?.hasAttribute("disabled")).toBe(true)
+    await act(async () => root.unmount())
+    root = createRoot(container)
+    await renderPanel(runtime, settings, false, { ...agentSnapshot, agents: [] })
+    openAgentSection()
+    changeField("#task-agent-search", "missing")
+    expect(agentStatus()).toBe("В этом снимке OMP нет доступных определений агентов.")
+  })
+
+  it("closes hidden pickers and resets search only after dismissal", async () => {
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('[data-agent="Café-auditor"] .model-picker-trigger')!
+        .click(),
+    )
+    expect(container.querySelector(".model-picker-panel")).not.toBeNull()
+    changeField("#task-agent-search", "writer")
+    changeField("#task-agent-search", "auditor")
+    expect(container.querySelector(".model-picker-panel")).toBeNull()
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+    openAgentSection()
+    expect(agentSearchInput().value).toBe("auditor")
+    act(() =>
+      agentSearchInput().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    )
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+    await renderPanel(runtime, settings, false, agentSnapshot)
+    openAgentSection()
+    expect(agentSearchInput().value).toBe("")
+    expect(agentRows()).toEqual(["reviewer", "Café-auditor", "writer"])
+  })
+
   it("saves only changed agent fields without collapsing inherited or ordered overrides", async () => {
     const reviewer = {
       name: "reviewer",
@@ -1128,6 +1640,68 @@ describe("SettingsPanel configuration generations", () => {
       reviewer: { enabled: true, expectedEnabled: false },
     })
   })
+
+  it.each(
+    ["constructor", "__proto__", "toString", "hasOwnProperty"].flatMap((name) =>
+      [null, [], ["catalog/slow", "catalog/fast"]].map((modelOverride) => ({
+        name,
+        modelOverride,
+      })),
+    ),
+  )(
+    "keeps agent $name with override $modelOverride independent of object properties",
+    async ({ name, modelOverride }) => {
+      const agent = {
+        name,
+        description: "Synthetic agent",
+        source: "project",
+        enabled: true,
+        modelOverride,
+        defaultModelSelectors: [],
+      }
+      const other = { ...agent, name: "ordinary-reviewer", modelOverride: null }
+      const snapshot = { ...ompConfig, agents: [agent, other], agentSettingsSupported: true }
+      const saved = { ...snapshot, agents: [{ ...agent, enabled: false }, other] }
+      saveSettingsBundleMock
+        .mockRejectedValueOnce(new Error("Synthetic Save failure"))
+        .mockResolvedValue(saveResult(saved))
+      await renderPanel(runtime, settings, true, snapshot)
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>(`[data-agent="${name}"]`)!
+      const enabled = row.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+      const mode = row.querySelector<HTMLSelectElement>(".agent-model-mode select")!
+      expect(enabled.checked).toBe(true)
+      expect(mode.value).toBe(modelOverride === null ? "inherit" : "override")
+      expect(row.querySelectorAll(".model-picker-trigger")).toHaveLength(modelOverride?.length ?? 0)
+      act(() => enabled.click())
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(onSaved).not.toHaveBeenCalled()
+      expect(enabled.checked).toBe(false)
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(2)
+      for (const [request] of saveSettingsBundleMock.mock.calls) {
+        const changes = request.ompConfig.agentChanges
+        expect(Object.keys(changes)).toEqual([name])
+        expect(JSON.parse(JSON.stringify(changes))).toEqual({
+          [name]: { enabled: false, expectedEnabled: true },
+        })
+      }
+      expect(onSaved).toHaveBeenCalledOnce()
+      expect(save.disabled).toBe(true)
+      expect(enabled.checked).toBe(false)
+      expect(mode.value).toBe(modelOverride === null ? "inherit" : "override")
+      expect(row.querySelectorAll(".model-picker-trigger")).toHaveLength(modelOverride?.length ?? 0)
+      expect(
+        container.querySelector<HTMLInputElement>(
+          '[data-agent="ordinary-reviewer"] input[type="checkbox"]',
+        )!.checked,
+      ).toBe(true)
+    },
+  )
 
   it("configures agent models through the picker and clears overrides to inherit", async () => {
     const agent = {
@@ -1437,6 +2011,70 @@ describe("SettingsPanel configuration generations", () => {
         fallbackChains: { "custom-chain": ["catalog/second", "catalog/first"] },
       }),
     )
+  })
+
+  it.each(["ru", "en"] as const)(
+    "preserves an invalid literal fallback key for validation and correction in %s",
+    async (language) => {
+      const snapshot = {
+        ...ompConfig,
+        fallbackChains: { default: ["catalog/one", "catalog/two"], smol: ["catalog/three"] },
+      }
+      const nextSettings = { ...settings, language }
+      saveSettingsBundleMock.mockRejectedValueOnce(new Error("Synthetic invalid fallback key"))
+      await renderPanel(runtime, nextSettings, false, snapshot)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      changeField(".fallback-chain-key input", "__proto__")
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      const request = saveSettingsBundleMock.mock.calls[0][0]
+      expect(Object.hasOwn(request.ompConfig.fallbackChains, "__proto__")).toBe(true)
+      expect(JSON.parse(JSON.stringify(request)).ompConfig.fallbackChains).toEqual({
+        ["__proto__"]: ["catalog/one", "catalog/two"],
+        smol: ["catalog/three"],
+      })
+      expect(onSaved).not.toHaveBeenCalled()
+      expect(container.querySelector('[role="alert"]')!.textContent).toContain(
+        "Synthetic invalid fallback key",
+      )
+      const keyInput = container.querySelector<HTMLInputElement>(".fallback-chain-key input")!
+      expect(keyInput.value).toBe("__proto__")
+      expect(save.disabled).toBe(false)
+
+      const corrected = {
+        ...snapshot,
+        fallbackChains: { "catalog/main": ["catalog/one", "catalog/two"], smol: ["catalog/three"] },
+      }
+      saveSettingsBundleMock.mockResolvedValueOnce(saveResult(corrected, runtime, nextSettings))
+      changeField(".fallback-chain-key input", "catalog/main")
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(2)
+      expect(saveSettingsBundleMock.mock.calls[1][0].ompConfig.fallbackChains).toEqual(
+        corrected.fallbackChains,
+      )
+      expect(onSaved).toHaveBeenCalledTimes(1)
+      expect(save.disabled).toBe(true)
+    },
+  )
+
+  it("rejects duplicate literal fallback keys before submitting a replacement map", async () => {
+    const snapshot = {
+      ...ompConfig,
+      fallbackChains: { default: ["catalog/one"], smol: ["catalog/two"] },
+    }
+    await renderPanel(runtime, settings, false, snapshot)
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+    changeField(".fallback-chain:nth-child(1) .fallback-chain-key input", "__proto__")
+    changeField(".fallback-chain:nth-child(2) .fallback-chain-key input", " __proto__ ")
+    await act(async () =>
+      container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+    )
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(container.querySelector('[role="alert"]')!.textContent).toContain(
+      "Модель или роль резервной цепочки не должна повторяться.",
+    )
+    expect(container.querySelectorAll(".fallback-chain")).toHaveLength(2)
   })
 
   it("adds and removes fallback chains and entries without saving discarded selectors", async () => {
@@ -1785,6 +2423,106 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
+  it.each(
+    (["ru", "en"] as const).flatMap((language) =>
+      [false, true].map((available) => [language, available] as const),
+    ),
+  )(
+    "keeps an unsent custom provider when OMP config is unavailable (%s, runtime: %s)",
+    async (language, available) => {
+      const unavailable = { ...runtime, ompAvailable: available }
+      loadOmpConfigMock.mockRejectedValue(new Error("Synthetic config unavailable"))
+      await renderPanel(unavailable, { ...settings, language })
+      onError.mockClear()
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      const selectors = [
+        ".custom-provider-form input",
+        '.custom-provider-form input[placeholder="https://gateway.example.com/v1"]',
+        ".custom-provider-form input[type=password]",
+      ]
+      const values = ["synthetic-provider", "https://fixture.example.test/v1", "synthetic-key"]
+      selectors.forEach((selector, index) => changeField(selector, values[index]))
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(false)
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(onSaved).not.toHaveBeenCalled()
+      expect(onError).toHaveBeenCalledOnce()
+      expect(container.querySelector(".settings-save-error")?.textContent).toBe(
+        onError.mock.lastCall![0],
+      )
+      expect(container.querySelector(".settings-save-status")?.textContent).toBe("")
+      expect(
+        selectors.map((selector) => container.querySelector<HTMLInputElement>(selector)!.value),
+      ).toEqual(values)
+      expect(container.textContent).not.toContain(values[2])
+      expect(save.disabled).toBe(false)
+
+      if (available) {
+        // A later successful load does not submit the preserved draft by itself.
+        await act(async () =>
+          container.querySelector<HTMLButtonElement>(".runtime-card button")!.click(),
+        )
+        expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+        saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+        await act(async () => save.click())
+        expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.customProviderUpserts).toEqual([
+          {
+            provider: values[0],
+            baseUrl: values[1],
+            api: "openai-completions",
+            apiKey: values[2],
+          },
+        ])
+      } else {
+        // Clearing the provider draft leaves ordinary Desktop recovery available.
+        selectors.forEach((selector) => changeField(selector, ""))
+        act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+        changeExecutable("replacement-omp.exe")
+        saveSettingsBundleMock.mockResolvedValueOnce(saveResult(null, unavailable))
+        await act(async () => save.click())
+        expect(saveSettingsBundleMock.mock.lastCall![0]).toMatchObject({
+          update: { ompExecutable: "replacement-omp.exe" },
+          ompConfig: null,
+        })
+      }
+      expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
+      expect(onSaved).toHaveBeenCalledOnce()
+      expect(container.querySelector(".settings-save-error")).toBeNull()
+    },
+  )
+
+  it("restarts a pending config load without submitting the custom provider draft", async () => {
+    const initial = deferred<OmpConfigSnapshot>()
+    const retry = deferred<OmpConfigSnapshot>()
+    loadOmpConfigMock.mockReturnValueOnce(initial.promise).mockReturnValueOnce(retry.promise)
+    await renderPanel()
+    act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+    changeField(".custom-provider-form input", "synthetic-provider")
+    changeField(
+      '.custom-provider-form input[placeholder="https://gateway.example.com/v1"]',
+      "https://fixture.example.test/v1",
+    )
+    changeField(".custom-provider-form input[type=password]", "synthetic-key")
+    const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(loadOmpConfigMock).toHaveBeenCalledTimes(2)
+    await act(async () => initial.reject(new Error("Superseded initial load")))
+    expect(onError).toHaveBeenCalledOnce()
+    expect(container.querySelector(".settings-loading-banner")).not.toBeNull()
+    await act(async () => retry.resolve(ompConfig))
+    expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+    expect(container.querySelector<HTMLInputElement>(".custom-provider-form input")!.value).toBe(
+      "synthetic-provider",
+    )
+    saveSettingsBundleMock.mockResolvedValueOnce(saveResult(ompConfig))
+    await act(async () => save.click())
+    expect(saveSettingsBundleMock).toHaveBeenCalledOnce()
+    expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig.customProviderUpserts).toHaveLength(1)
+    expect(onSaved).toHaveBeenCalledOnce()
+  })
+
   it("loads the returned runtime when Save makes OMP available", async () => {
     const unavailable = { ...runtime, ompAvailable: false, ompVersion: null }
     const fresh = deferred<OmpConfigSnapshot>()
@@ -1995,6 +2733,113 @@ describe("SettingsPanel configuration generations", () => {
     },
   )
 
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "keeps saved credential name %s as a blank placeholder through failure and retry",
+    async (key) => {
+      const configured = { ...settings, providerEnvKeys: [key, "KEEP_API_KEY"] }
+      const savedSettings = { ...configured, appFontSize: 20 }
+      saveSettingsBundleMock
+        .mockRejectedValueOnce(new Error("Synthetic secret write failure"))
+        .mockResolvedValueOnce(saveResult(ompConfig, runtime, configured))
+        .mockResolvedValueOnce(saveResult(null, runtime, savedSettings))
+      await renderPanel(runtime, configured, false, ompConfig)
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      expect(save.disabled).toBe(true)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      expect(
+        [...container.querySelectorAll(".provider-key-row code")].map((node) => node.textContent),
+      ).toContain(key)
+      addKey(key, "synthetic-replacement")
+      const expected = { [key]: "synthetic-replacement", KEEP_API_KEY: "" }
+      await act(async () => save.click())
+      expect(container.querySelector(".settings-save-error")).not.toBeNull()
+      expect(save.disabled).toBe(false)
+      expect(
+        JSON.parse(JSON.stringify(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv)),
+      ).toEqual(expected)
+      await act(async () => save.click())
+      expect(save.disabled).toBe(true)
+      expect(container.querySelector(".settings-save-error")).toBeNull()
+      expect(container.textContent).not.toContain("synthetic-replacement")
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-general")!.click())
+      changeField("#app-font-size", "20")
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock.mock.lastCall![0].update).not.toHaveProperty("providerEnv")
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toBeNull()
+    },
+  )
+
+  it.each(["constructor", "__proto__", "toString", "hasOwnProperty"])(
+    "keeps newly acknowledged credential name %s in an open panel's later save",
+    async (key) => {
+      const configured = { ...settings, providerEnvKeys: ["KEEP_API_KEY"] }
+      const committed = { ...configured, providerEnvKeys: [...configured.providerEnvKeys, key] }
+      await renderPanel(runtime, configured, false, ompConfig)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      addKey("NEW_API_KEY", "synthetic-newer")
+      await renderPanel(runtime, committed, false, ompConfig)
+      expect(
+        [...container.querySelectorAll(".provider-key-row code")].map((node) => node.textContent),
+      ).toContain(key)
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(ompConfig, runtime, {
+          ...committed,
+          providerEnvKeys: [...committed.providerEnvKeys, "NEW_API_KEY"],
+        }),
+      )
+      await act(async () =>
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.click(),
+      )
+      expect(
+        JSON.parse(JSON.stringify(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv)),
+      ).toEqual({ KEEP_API_KEY: "", [key]: "", NEW_API_KEY: "synthetic-newer" })
+      expect(container.textContent).not.toContain("synthetic-newer")
+    },
+  )
+
+  it.each(
+    ["constructor", "__proto__", "toString", "hasOwnProperty"].flatMap((key) =>
+      (["add", "replace", "remove"] as const).map((mutation) => ({ key, mutation })),
+    ),
+  )(
+    "keeps a newer credential $mutation for $key after an older save",
+    async ({ key, mutation }) => {
+      const pending = deferred<SettingsSavePayload>()
+      const configured = {
+        ...settings,
+        providerEnvKeys: mutation === "add" ? ["KEEP_API_KEY"] : ["KEEP_API_KEY", key],
+      }
+      saveSettingsBundleMock.mockReturnValueOnce(pending.promise)
+      await renderPanel(runtime, configured, false, ompConfig)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      addKey("KEEP_API_KEY", "synthetic-submitted")
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      act(() => save.click())
+      expect(save.disabled).toBe(true)
+      if (mutation === "remove") {
+        const row = [...container.querySelectorAll(".provider-key-row")].find(
+          (node) => node.querySelector("code")?.textContent === key,
+        )!
+        act(() => row.querySelector<HTMLButtonElement>("button")!.click())
+      } else addKey(key, "synthetic-newer")
+      await act(async () => pending.resolve(saveResult(ompConfig, runtime, configured)))
+      expect(save.disabled).toBe(false)
+      const expected =
+        mutation === "remove"
+          ? { KEEP_API_KEY: "" }
+          : { KEEP_API_KEY: "", [key]: "synthetic-newer" }
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(ompConfig, runtime, { ...configured, providerEnvKeys: Object.keys(expected) }),
+      )
+      await act(async () => save.click())
+      expect(
+        JSON.parse(JSON.stringify(saveSettingsBundleMock.mock.lastCall![0].update.providerEnv)),
+      ).toEqual(expected)
+      expect(container.textContent).not.toContain("synthetic-newer")
+      expect(container.textContent).not.toContain("synthetic-submitted")
+    },
+  )
+
   it("keeps newer config drafts after a verified credential-only save", async () => {
     const pending = deferred<SettingsSavePayload>()
     const savedSettings = { ...settings, providerEnvKeys: ["NEW_API_KEY"] }
@@ -2059,6 +2904,72 @@ describe("SettingsPanel configuration generations", () => {
       ),
     ).toEqual(["openai"])
   })
+
+  it.each(["ru", "en"] as const)(
+    "reports provider-removal confirmation failures without changing the draft (%s)",
+    async (language) => {
+      confirmMock.mockReset()
+      const configured = { ...settings, language }
+      const snapshot = {
+        ...ompConfig,
+        proxyProviders: ["codex-lb"],
+        disabledProviders: ["codex-lb"],
+      }
+      await renderPanel(runtime, configured, false, snapshot)
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
+      const remove = container.querySelector<HTMLButtonElement>(".provider-remove-button")!
+      const save = container.querySelector<HTMLButtonElement>(".settings-actions .primary")!
+      for (const reason of [
+        new Error("Synthetic provider dialog failure"),
+        "Dialog unavailable",
+        undefined,
+      ]) {
+        const pending = deferred<boolean>()
+        confirmMock.mockReturnValueOnce(pending.promise)
+        act(() => remove.click())
+        await act(async () => pending.reject(reason))
+        expect(onError).toHaveBeenLastCalledWith(
+          reason instanceof Error
+            ? reason.message
+            : (reason ?? (language === "en" ? "Unknown error" : "Неизвестная ошибка")),
+        )
+        expect(container.querySelector(".provider-remove-button")).toBe(remove)
+        expect(save.disabled).toBe(true)
+        expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+        expect(onSaved).not.toHaveBeenCalled()
+      }
+      expect(onError).toHaveBeenCalledTimes(3)
+      confirmMock.mockResolvedValueOnce(false)
+      await act(async () => remove.click())
+      expect(container.querySelector(".provider-remove-button")).toBe(remove)
+      expect(save.disabled).toBe(true)
+      confirmMock.mockResolvedValueOnce(true)
+      await act(async () => remove.click())
+      expect(confirmMock).toHaveBeenCalledTimes(5)
+      expect(container.querySelector(".provider-remove-button")).toBeNull()
+      expect(save.disabled).toBe(false)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      saveSettingsBundleMock.mockResolvedValueOnce(
+        saveResult(
+          {
+            ...snapshot,
+            credentials: snapshot.credentials.filter((item) => item.provider !== "codex-lb"),
+            proxyProviders: [],
+            disabledProviders: [],
+          },
+          runtime,
+          configured,
+        ),
+      )
+      await act(async () => save.click())
+      expect(saveSettingsBundleMock).toHaveBeenCalledTimes(1)
+      expect(saveSettingsBundleMock.mock.lastCall![0].ompConfig).toMatchObject({
+        removedCustomProviders: ["codex-lb"],
+        proxyProviders: [],
+        disabledProviders: [],
+      })
+    },
+  )
 
   it.each([null, 5])("preserves explicit operational reset against baseline %s", async (value) => {
     const snapshot: OmpConfigSnapshot = {
