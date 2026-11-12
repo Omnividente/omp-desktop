@@ -3075,7 +3075,10 @@ fn collect_jsonl_files(
 
     for (entry, file_type) in entries {
         let path = entry.path();
-        if entry.file_name().to_string_lossy().starts_with(".omp-delete-")
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".omp-delete-")
             && file_type.as_ref().map_or(true, |kind| kind.is_dir())
         {
             continue;

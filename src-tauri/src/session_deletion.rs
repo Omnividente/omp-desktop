@@ -46,7 +46,9 @@ where
     // Retaining metadata on an uncertain outcome is conservative, not a claim of rollback.
     match retain_settings() {
         Ok(()) => Err(message),
-        Err(error) => Err(format!("{message}; не удалось сохранить настройки: {error}")),
+        Err(error) => Err(format!(
+            "{message}; не удалось сохранить настройки: {error}"
+        )),
     }
 }
 
@@ -115,6 +117,7 @@ fn read_intent(directory: &Path) -> Result<Intent, String> {
         || components.next().is_some()
         || !source
             .extension()
+            .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"))
     {
         return Err(problem(&path, "некорректное имя сессии или версия журнала"));
@@ -148,7 +151,10 @@ fn atomic_metadata_name(name: &std::ffi::OsStr) -> bool {
     let Some(name) = name.to_str().and_then(|name| name.strip_prefix(".atomic-")) else {
         return false;
     };
-    let Some((pid, nonce)) = name.strip_suffix(".tmp").and_then(|name| name.split_once('-')) else {
+    let Some((pid, nonce)) = name
+        .strip_suffix(".tmp")
+        .and_then(|name| name.split_once('-'))
+    else {
         return false;
     };
     pid.parse::<u32>().is_ok() && nonce.parse::<u64>().is_ok()
@@ -158,7 +164,9 @@ fn check_inventory(directory: &Path, intent: &Intent) -> Result<(), String> {
     for entry in fs::read_dir(directory).map_err(|error| problem(directory, error))? {
         let entry = entry.map_err(|error| problem(directory, error))?;
         let name = entry.file_name();
-        let kind = entry.file_type().map_err(|error| problem(directory, error))?;
+        let kind = entry
+            .file_type()
+            .map_err(|error| problem(directory, error))?;
         if name == "intent.json" || name == "session" || atomic_metadata_name(&name) {
             if !kind.is_file() {
                 return Err(problem(&entry.path(), "ожидался обычный файл"));
@@ -166,7 +174,10 @@ fn check_inventory(directory: &Path, intent: &Intent) -> Result<(), String> {
         } else if name == "artifacts" && intent.artifacts && (kind.is_dir() || kind.is_symlink()) {
             // A staged artifact symlink is moved/unlinked, never followed.
         } else {
-            return Err(problem(&entry.path(), "неизвестный объект; данные сохранены"));
+            return Err(problem(
+                &entry.path(),
+                "неизвестный объект; данные сохранены",
+            ));
         }
     }
     Ok(())
@@ -232,7 +243,10 @@ fn finish_directory(directory: &Path) -> Result<(), String> {
     // Rename out of the recoverable namespace while the last marker still exists.
     // An interruption during final metadata cleanup cannot create an invalid active journal.
     let parent = directory.parent().unwrap();
-    let done = parent.join(format!("{PRIVATE_PREFIX}done-{:032x}", rand::random::<u128>()));
+    let done = parent.join(format!(
+        "{PRIVATE_PREFIX}done-{:032x}",
+        rand::random::<u128>()
+    ));
     move_new(directory, &done).map_err(|error| problem(directory, error))?;
     sync_parent_directory(parent).map_err(|error| problem(&done, error))?;
     for entry in fs::read_dir(&done).map_err(|error| problem(&done, error))? {
@@ -260,6 +274,34 @@ fn rollback(directory: &Path, intent: &Intent) -> Result<(), String> {
     }
     let parent = directory.parent().unwrap();
     let source = parent.join(&intent.source);
+    // Validate both members BEFORE moving either one out of the hidden transaction.
+    for (staged, original, required, directory_kind) in [
+        (
+            directory.join("artifacts"),
+            source.with_extension(""),
+            intent.artifacts,
+            true,
+        ),
+        (directory.join("session"), source.clone(), true, false),
+    ] {
+        if !required {
+            continue;
+        }
+        let present = if exists(&staged).map_err(|error| problem(&staged, error))? {
+            staged
+        } else {
+            original
+        };
+        let metadata = fs::symlink_metadata(&present).map_err(|error| problem(&present, error))?;
+        let valid = if directory_kind {
+            metadata.is_dir() || metadata.file_type().is_symlink()
+        } else {
+            metadata.is_file() && !metadata.file_type().is_symlink()
+        };
+        if !valid {
+            return Err(problem(&present, "тип восстановляемых данных изменился"));
+        }
+    }
     for (staged, original) in [
         (directory.join("artifacts"), source.with_extension("")),
         (directory.join("session"), source.clone()),
@@ -281,7 +323,10 @@ fn rollback(directory: &Path, intent: &Intent) -> Result<(), String> {
         } else if (staged.ends_with("session") || intent.artifacts)
             && !exists(&original).map_err(|error| problem(&original, error))?
         {
-            return Err(problem(&original, "исходные данные не найдены; журнал сохранён"));
+            return Err(problem(
+                &original,
+                "исходные данные не найдены; журнал сохранён",
+            ));
         }
     }
     finish_directory(directory)
@@ -290,6 +335,11 @@ fn rollback(directory: &Path, intent: &Intent) -> Result<(), String> {
 fn cleanup(directory: &Path) -> Result<(), String> {
     check_inventory(directory, &read_intent(directory)?)?;
     let artifact = directory.join("artifacts");
+    if exists(&artifact).map_err(|error| problem(&artifact, error))?
+        && !exists(&directory.join("session")).map_err(|error| problem(directory, error))?
+    {
+        return Err(problem(directory, "артефакты без staged JSONL; данные сохранены"));
+    }
     match fs::symlink_metadata(&artifact) {
         Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
             fs::remove_dir_all(&artifact).map_err(|error| problem(&artifact, error))?;
@@ -315,7 +365,9 @@ fn delete_with<F>(file: &Path, mut checkpoint: F) -> Result<DeleteOutcome, Strin
 where
     F: FnMut(&str) -> Result<(), String>,
 {
-    let parent = file.parent().ok_or_else(|| problem(file, "нет родительского каталога"))?;
+    let parent = file
+        .parent()
+        .ok_or_else(|| problem(file, "нет родительского каталога"))?;
     let artifact = file.with_extension("");
     let artifacts = match fs::symlink_metadata(&artifact) {
         Ok(metadata) => metadata.is_dir() || metadata.file_type().is_symlink(),
@@ -328,7 +380,10 @@ where
         artifacts,
         phase: Phase::Prepared,
     };
-    let build = parent.join(format!("{PRIVATE_PREFIX}build-{:032x}", rand::random::<u128>()));
+    let build = parent.join(format!(
+        "{PRIVATE_PREFIX}build-{:032x}",
+        rand::random::<u128>()
+    ));
     fs::create_dir(&build).map_err(|error| problem(&build, error))?;
     let preparation = harden_private_directory(&build)
         .map_err(|error| problem(&build, error))
@@ -357,18 +412,22 @@ where
     if let Err(error) = staged {
         return match rollback(&directory, &intent) {
             Ok(()) => Err(error),
-            Err(recovery) => Ok(DeleteOutcome::RecoveryRequired(format!("{error}; {recovery}"))),
+            Err(recovery) => Ok(DeleteOutcome::RecoveryRequired(format!(
+                "{error}; {recovery}"
+            ))),
         };
     }
     intent.phase = Phase::Committed;
     if let Err(error) = write_intent(&directory, &intent) {
         return match read_intent(&directory) {
-            Ok(actual) if actual.phase == Phase::Committed => Ok(DeleteOutcome::Committed(Some(format!(
-                "Удаление зафиксировано; требуется проверка журнала: {error}"
-            )))),
+            Ok(actual) if actual.phase == Phase::Committed => Ok(DeleteOutcome::Committed(Some(
+                format!("Удаление зафиксировано; требуется проверка журнала: {error}"),
+            ))),
             Ok(actual) => match rollback(&directory, &actual) {
                 Ok(()) => Err(error),
-                Err(recovery) => Ok(DeleteOutcome::RecoveryRequired(format!("{error}; {recovery}"))),
+                Err(recovery) => Ok(DeleteOutcome::RecoveryRequired(format!(
+                    "{error}; {recovery}"
+                ))),
             },
             Err(recovery) => Ok(DeleteOutcome::RecoveryRequired(format!(
                 "Исход удаления не определён; данные и журнал сохранены: {error}; {recovery}"
@@ -376,7 +435,9 @@ where
         };
     }
     if let Err(error) = checkpoint("committed").and_then(|()| cleanup(&directory)) {
-        return Ok(DeleteOutcome::Committed(Some(format!("Сессия удалена; очистка отложена: {error}"))));
+        return Ok(DeleteOutcome::Committed(Some(format!(
+            "Сессия удалена; очистка отложена: {error}"
+        ))));
     }
     Ok(DeleteOutcome::Committed(None))
 }
@@ -395,13 +456,17 @@ pub(crate) fn recover_tree(
         return;
     };
     let entries: Vec<_> = entries.flatten().collect();
-    let artifact_names: HashSet<_> = entries.iter().filter_map(|entry| {
-        let path = entry.path();
-        path.extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"))
-            .then(|| path.file_stem().map(|name| name.to_os_string()))
-            .flatten()
-    }).collect();
+    let artifact_names: HashSet<_> = entries
+        .iter()
+        .filter_map(|entry| {
+            let path = entry.path();
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"))
+                .then(|| path.file_stem().map(|name| name.to_os_string()))
+                .flatten()
+        })
+        .collect();
     for entry in entries {
         let name = entry.file_name();
         let text = name.to_string_lossy();
@@ -443,7 +508,11 @@ pub(crate) fn recover_directory(
         let directory = entry.path();
         let mut candidate_source = None;
         let recovery = (|| {
-            if !entry.file_type().map_err(|error| problem(&directory, error))?.is_dir() {
+            if !entry
+                .file_type()
+                .map_err(|error| problem(&directory, error))?
+                .is_dir()
+            {
                 return Err(problem(&directory, "журнал не является каталогом"));
             }
             let intent = match read_intent(&directory) {
@@ -453,7 +522,12 @@ pub(crate) fn recover_directory(
                     // Suppress this directory's JSONLs rather than expose a partial pair.
                     if let Ok(entries) = fs::read_dir(parent) {
                         for item in entries.flatten() {
-                            if item.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("jsonl")) {
+                            if item
+                                .path()
+                                .extension()
+                                .and_then(|extension| extension.to_str())
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("jsonl"))
+                            {
                                 blocked.insert(item.path());
                             }
                         }
@@ -464,7 +538,10 @@ pub(crate) fn recover_directory(
             let source = parent.join(&intent.source);
             candidate_source = Some(source.clone());
             if counts.get(&intent.source).copied().unwrap_or(0) != 1 {
-                return Err(problem(&source, "несколько журналов удаления; данные сохранены"));
+                return Err(problem(
+                    &source,
+                    "несколько журналов удаления; данные сохранены",
+                ));
             }
             // Recovery locks the SAME existing sidecar, without creating an inode or
             // clearing/reclaiming stale ownership metadata. Original JSONL may be absent.
@@ -475,14 +552,21 @@ pub(crate) fn recover_directory(
                 name.push(".omp-desktop.lock");
                 let file = open_regular(Path::new(&name), true)
                     .map_err(|error| problem(&source, error))?;
-                file.try_lock_exclusive().map_err(|error| problem(&source, error))?;
+                file.try_lock_exclusive()
+                    .map_err(|error| problem(&source, error))?;
                 Some(file)
             };
             let stem = source.file_stem().unwrap().to_string_lossy();
             let import_prefix = format!(".{stem}.import-txn.");
             if fs::read_dir(parent)
                 .map_err(|error| problem(parent, error))?
-                .any(|item| item.map_or(true, |item| item.file_name().to_string_lossy().starts_with(&import_prefix)))
+                .any(|item| {
+                    item.map_or(true, |item| {
+                        item.file_name()
+                            .to_string_lossy()
+                            .starts_with(&import_prefix)
+                    })
+                })
             {
                 return Err(problem(&source, "конфликт журналов импорта и удаления"));
             }
@@ -525,10 +609,18 @@ mod tests {
             let session = root.join("history.jsonl");
             let artifact = root.join("history").join("tool.log");
             fs::create_dir_all(artifact.parent().unwrap()).unwrap();
-            fs::write(&session, b"{\"type\":\"session\",\"id\":\"test\",\"cwd\":\"/synthetic\"}\n").unwrap();
+            fs::write(
+                &session,
+                b"{\"type\":\"session\",\"id\":\"test\",\"cwd\":\"/synthetic\"}\n",
+            )
+            .unwrap();
             fs::write(&artifact, b"original artifact").unwrap();
             drop(SessionLease::acquire(&session, SessionLeasePurpose::Delete, false).unwrap());
-            Self { root, session, artifact }
+            Self {
+                root,
+                session,
+                artifact,
+            }
         }
 
         fn transactions(&self) -> Vec<PathBuf> {
@@ -542,7 +634,10 @@ mod tests {
 
         fn preserved(&self) {
             assert_eq!(fs::read(&self.artifact).unwrap(), b"original artifact");
-            assert_eq!(fs::read(&self.session).unwrap(), b"{\"type\":\"session\",\"id\":\"test\",\"cwd\":\"/synthetic\"}\n");
+            assert_eq!(
+                fs::read(&self.session).unwrap(),
+                b"{\"type\":\"session\",\"id\":\"test\",\"cwd\":\"/synthetic\"}\n"
+            );
         }
 
         fn recover(&self) -> (Vec<SessionScanWarning>, HashSet<PathBuf>) {
@@ -564,7 +659,11 @@ mod tests {
         for failure in ["prepared", "artifacts", "session"] {
             let fixture = Fixture::new();
             let result = delete_with(&fixture.session, |stage| {
-                if stage == failure { Err("injected failure".into()) } else { Ok(()) }
+                if stage == failure {
+                    Err("injected failure".into())
+                } else {
+                    Ok(())
+                }
             });
             assert!(result.is_err(), "{failure}: {result:?}");
             fixture.preserved();
@@ -581,7 +680,8 @@ mod tests {
                     assert_ne!(stage, interruption, "injected interruption");
                     Ok(())
                 });
-            })).is_err());
+            }))
+            .is_err());
             assert_eq!(fixture.transactions().len(), 1);
             let (warnings, blocked) = fixture.recover();
             assert!(warnings.is_empty() && blocked.is_empty());
@@ -594,13 +694,21 @@ mod tests {
     fn committed_cleanup_failure_is_success_with_warning_and_is_recoverable() {
         let fixture = Fixture::new();
         let result = delete_with(&fixture.session, |stage| {
-            if stage == "committed" { Err("cleanup unavailable".into()) } else { Ok(()) }
-        }).unwrap();
+            if stage == "committed" {
+                Err("cleanup unavailable".into())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
         assert!(matches!(result, DeleteOutcome::Committed(Some(_))));
         assert!(!fixture.session.exists() && !fixture.artifact.exists());
         let directory = fixture.transactions().pop().unwrap();
         assert!(directory.join("session").is_file());
-        assert_eq!(fs::read(directory.join("artifacts/tool.log")).unwrap(), b"original artifact");
+        assert_eq!(
+            fs::read(directory.join("artifacts/tool.log")).unwrap(),
+            b"original artifact"
+        );
         let (warnings, blocked) = fixture.recover();
         assert!(warnings.is_empty() && blocked.is_empty());
         assert!(fixture.transactions().is_empty());
@@ -616,21 +724,26 @@ mod tests {
                 return Err("injected collision".into());
             }
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         assert!(matches!(result, DeleteOutcome::RecoveryRequired(_)));
         let (warnings, blocked) = fixture.recover();
         assert!(!warnings.is_empty() && blocked.contains(&fixture.session));
         assert_eq!(fs::read(&fixture.session).unwrap(), b"new writer");
         let directory = fixture.transactions().pop().unwrap();
         assert!(directory.join("session").is_file());
-        assert_eq!(fs::read(directory.join("artifacts/tool.log")).unwrap(), b"original artifact");
+        assert_eq!(
+            fs::read(directory.join("artifacts/tool.log")).unwrap(),
+            b"original artifact"
+        );
     }
 
     #[test]
     fn active_or_missing_recovery_sidecar_preserves_transaction() {
         for missing in [false, true] {
             let fixture = Fixture::new();
-            let lease = SessionLease::acquire(&fixture.session, SessionLeasePurpose::Delete, false).unwrap();
+            let lease = SessionLease::acquire(&fixture.session, SessionLeasePurpose::Delete, false)
+                .unwrap();
             let _ = catch_unwind(AssertUnwindSafe(|| {
                 let _ = delete_with(&fixture.session, |stage| {
                     assert_ne!(stage, "session", "injected interruption");
@@ -675,9 +788,15 @@ mod tests {
                 Ok(())
             });
         }));
-        fs::write(fixture.root.join(".history.import-txn.synthetic"), b"synthetic").unwrap();
+        fs::write(
+            fixture.root.join(".history.import-txn.synthetic"),
+            b"synthetic",
+        )
+        .unwrap();
         assert!(!fixture.recover().0.is_empty());
-        assert!(fixture.transactions()[0].join("artifacts/tool.log").is_file());
+        assert!(fixture.transactions()[0]
+            .join("artifacts/tool.log")
+            .is_file());
     }
 
     #[test]
@@ -735,12 +854,16 @@ mod tests {
         for suffix in ["one", "two"] {
             let directory = fixture.root.join(format!("{PREFIX}{suffix}"));
             fs::create_dir(&directory).unwrap();
-            write_intent(&directory, &Intent {
-                version: 1,
-                source: "history.jsonl".into(),
-                artifacts: true,
-                phase: Phase::Prepared,
-            }).unwrap();
+            write_intent(
+                &directory,
+                &Intent {
+                    version: 1,
+                    source: "history.jsonl".into(),
+                    artifacts: true,
+                    phase: Phase::Prepared,
+                },
+            )
+            .unwrap();
         }
         let (warnings, blocked) = fixture.recover();
         assert_eq!(warnings.len(), 2);
@@ -756,15 +879,24 @@ mod tests {
             Ok(DeleteOutcome::RecoveryRequired("journal retained".into())),
         ] {
             let mut retained = false;
-            assert!(settle(outcome, || { retained = true; Ok(()) }).is_err());
+            assert!(settle(outcome, || {
+                retained = true;
+                Ok(())
+            })
+            .is_err());
             assert!(retained);
         }
-        let warning = settle(Ok(DeleteOutcome::Committed(Some("cleanup pending".into()))), || {
-            panic!("committed deletion must not restore settings")
-        }).unwrap();
+        let warning = settle(
+            Ok(DeleteOutcome::Committed(Some("cleanup pending".into()))),
+            || panic!("committed deletion must not restore settings"),
+        )
+        .unwrap();
         assert_eq!(warning.as_deref(), Some("cleanup pending"));
-        assert!(settle(Err("failed".into()), || Err("settings failed".into()))
-            .unwrap_err().contains("settings failed"));
+        assert!(
+            settle(Err("failed".into()), || Err("settings failed".into()))
+                .unwrap_err()
+                .contains("settings failed")
+        );
     }
 
     #[cfg(unix)]
@@ -792,8 +924,13 @@ mod tests {
     fn unknown_staged_entries_prevent_cleanup() {
         let fixture = Fixture::new();
         delete_with(&fixture.session, |stage| {
-            if stage == "committed" { Err("pause".into()) } else { Ok(()) }
-        }).unwrap();
+            if stage == "committed" {
+                Err("pause".into())
+            } else {
+                Ok(())
+            }
+        })
+        .unwrap();
         let directory = fixture.transactions().pop().unwrap();
         fs::write(directory.join("unexpected"), b"retain").unwrap();
         assert!(!fixture.recover().0.is_empty());
@@ -804,9 +941,13 @@ mod tests {
     #[test]
     fn scanner_never_exposes_staged_history_or_artifact_jsonls() {
         let fixture = Fixture::new();
-        fs::write(fixture.artifact.parent().unwrap().join("nested.jsonl"),
-            b"{\"type\":\"session\",\"id\":\"artifact\",\"cwd\":\"/synthetic\"}\n").unwrap();
-        let lease = SessionLease::acquire(&fixture.session, SessionLeasePurpose::Delete, false).unwrap();
+        fs::write(
+            fixture.artifact.parent().unwrap().join("nested.jsonl"),
+            b"{\"type\":\"session\",\"id\":\"artifact\",\"cwd\":\"/synthetic\"}\n",
+        )
+        .unwrap();
+        let lease =
+            SessionLease::acquire(&fixture.session, SessionLeasePurpose::Delete, false).unwrap();
         let _ = catch_unwind(AssertUnwindSafe(|| {
             let _ = delete_with(&fixture.session, |stage| {
                 assert_ne!(stage, "session", "injected interruption");
@@ -842,7 +983,10 @@ mod tests {
         let mut blocked = HashSet::new();
         recover_tree(&fixture.root, 0, &mut warnings, &mut blocked);
         assert!(warnings.is_empty() && blocked.is_empty());
-        assert_eq!(fs::read(&session).unwrap(), fs::read(&fixture.session).unwrap());
+        assert_eq!(
+            fs::read(&session).unwrap(),
+            fs::read(&fixture.session).unwrap()
+        );
     }
 
     #[test]
@@ -854,7 +998,11 @@ mod tests {
                 Ok(())
             });
         }));
-        fs::write(fixture.transactions()[0].join(".atomic-123-456.tmp"), b"partial metadata").unwrap();
+        fs::write(
+            fixture.transactions()[0].join(".atomic-123-456.tmp"),
+            b"partial metadata",
+        )
+        .unwrap();
         assert!(fixture.recover().0.is_empty());
         fixture.preserved();
         assert!(fixture.transactions().is_empty());
@@ -863,9 +1011,45 @@ mod tests {
     #[test]
     fn ordinary_jsonl_with_internal_prefix_remains_discoverable() {
         let fixture = Fixture::new();
-        fs::rename(&fixture.session, fixture.root.join(".omp-delete-notes.jsonl")).unwrap();
+        fs::rename(
+            &fixture.session,
+            fixture.root.join(".omp-delete-notes.jsonl"),
+        )
+        .unwrap();
         let (sessions, _) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].id, "test");
+    }
+
+    #[test]
+    fn missing_history_keeps_artifacts_hidden_in_both_recovery_phases() {
+        for committed in [false, true] {
+            let fixture = Fixture::new();
+            let nested = fixture.artifact.parent().unwrap().join("nested.jsonl");
+            fs::copy(&fixture.session, nested).unwrap();
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                let _ = delete_with(&fixture.session, |stage| {
+                    assert_ne!(stage, "session", "injected interruption");
+                    Ok(())
+                });
+            }));
+            let directory = fixture.transactions().pop().unwrap();
+            fs::remove_file(directory.join("session")).unwrap();
+            if committed {
+                let mut intent = read_intent(&directory).unwrap();
+                intent.phase = Phase::Committed;
+                write_intent(&directory, &intent).unwrap();
+            }
+            let (warnings, blocked) = fixture.recover();
+            assert!(!warnings.is_empty() && blocked.contains(&fixture.session));
+            assert!(!fixture.artifact.exists());
+            assert_eq!(
+                fs::read(directory.join("artifacts/tool.log")).unwrap(),
+                b"original artifact"
+            );
+            let (sessions, warnings) = crate::sessions::scan_deletion_fixture(&fixture.root).unwrap();
+            assert!(sessions.is_empty() && !warnings.is_empty());
+            assert!(directory.join("artifacts/nested.jsonl").is_file());
+        }
     }
 }

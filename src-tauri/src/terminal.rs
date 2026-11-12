@@ -755,7 +755,9 @@ impl TerminalState {
     ) -> Result<String, String> {
         let deletion = self.prepare_inactive_session_deletion(path, root, force_session_lease)?;
         let key = deletion.key().to_owned();
-        if let crate::session_deletion::DeleteOutcome::RecoveryRequired(message) = deletion.commit()? {
+        if let crate::session_deletion::DeleteOutcome::RecoveryRequired(message) =
+            deletion.commit()?
+        {
             return Err(message);
         }
         Ok(key)
