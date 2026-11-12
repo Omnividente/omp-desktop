@@ -1668,8 +1668,9 @@ function App() {
         "{path}",
         () => session.filePath,
       )}\r`
-      await launchSession(session, prompt)
+      // This navigation owns the current reader, not one opened while launch/input is pending.
       closeTranscript()
+      await launchSession(session, prompt)
     },
     [closeTranscript, lang, launchSession],
   )
