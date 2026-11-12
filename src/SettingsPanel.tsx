@@ -12,6 +12,7 @@ import {
 } from "./api"
 import { Icon } from "./Icon"
 import {
+  resolveLang,
   roleDescription,
   roleLabel,
   statusDescription,
@@ -20,6 +21,7 @@ import {
   thinkingLevelLabel,
   type Lang,
 } from "./i18n"
+import { localeTag } from "./uiUtils"
 import { AgentDefinitionPassport } from "./AgentDefinitionPassport"
 import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
@@ -354,7 +356,12 @@ function formatAccountCountdown(language: Lang, target: number, now: number): st
   const hours = Math.floor((remainingSeconds % 86_400) / 3_600)
   const minutes = Math.floor((remainingSeconds % 3_600) / 60)
   const seconds = remainingSeconds % 60
-  const units = language === "en" ? ["d", "h", "m", "s"] : ["д", "ч", "м", "с"]
+  const units =
+    language === "en"
+      ? ["d", "h", "m", "s"]
+      : language === "zh"
+        ? ["天", "时", "分", "秒"]
+        : ["д", "ч", "м", "с"]
   if (days > 0) return `${days}${units[0]} ${hours}${units[1]}`
   if (hours > 0) return `${hours}${units[1]} ${minutes}${units[2]}`
   if (minutes > 0) return `${minutes}${units[2]} ${seconds}${units[3]}`
@@ -362,14 +369,14 @@ function formatAccountCountdown(language: Lang, target: number, now: number): st
 }
 
 function formatAccountTimestamp(language: Lang, timestamp: number): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en" : "ru", {
+  return new Intl.DateTimeFormat(localeTag(language), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(timestamp)
 }
 
 function formatAccountPercent(language: Lang, percent: number): string {
-  return new Intl.NumberFormat(language === "en" ? "en" : "ru", {
+  return new Intl.NumberFormat(localeTag(language), {
     maximumFractionDigits: 2,
   }).format(Math.min(100, Math.max(0, percent)))
 }
@@ -392,7 +399,7 @@ export function SettingsPanel({
   onError,
   onNotice,
 }: SettingsPanelProps) {
-  const lang = (settings.language === "en" ? "en" : "ru") as Lang
+  const lang: Lang = resolveLang(settings.language)
   const panelRef = useRef<HTMLElement>(null)
 
   const [discardOpen, setDiscardOpen] = useState(false)
@@ -1166,7 +1173,7 @@ export function SettingsPanel({
       onSaved(result, saveGeneration)
       if (disposedRef.current) {
         // This result belongs to the submitted snapshot, not a reopened panel's draft.
-        const savedLanguage = result.bootstrap.settings.language === "en" ? "en" : "ru"
+        const savedLanguage = resolveLang(result.bootstrap.settings.language)
         onNotice?.(t(savedLanguage, "settingsSaveSucceeded"))
         return
       }
@@ -1557,6 +1564,7 @@ export function SettingsPanel({
                       >
                         <option value="ru">Русский</option>
                         <option value="en">English</option>
+                        <option value="zh">简体中文</option>
                       </select>
                       <Icon className="select-chevron" name="chevron" size={14} />
                     </div>

@@ -1,3 +1,5 @@
+import type { Lang } from "./i18n"
+
 export interface SettingsUnavailableDetails {
   code: "settings_unavailable"
   message: string
@@ -53,7 +55,7 @@ export interface AppSettings {
   primaryProviderPins: string[]
   proxyProviders: string[]
   railMode: RailMode
-  language: "ru" | "en"
+  language: Lang
   desktopTheme: DesktopTheme
   desktopUpdatePrereleases: boolean
   appFontFamily: string
@@ -242,7 +244,7 @@ export interface SettingsUpdate {
   terminalFontFamily?: string | null
   terminalFontSize?: number | null
   sessionRoot?: string | null
-  language?: "ru" | "en" | null
+  language?: Lang | null
   railMode?: RailMode | null
   providerEnv?: Record<string, string> | null
 }

@@ -298,7 +298,7 @@ export function ResourceHealthPanel({
             {t(language, "resourceMeasuredAt").replace(
               "{time}",
               new Date(snapshot.sampledAt).toLocaleTimeString(
-                language === "ru" ? "ru-RU" : "en-US",
+                language === "ru" ? "ru-RU" : language === "zh" ? "zh-CN" : "en-US",
               ),
             )}
           </footer>

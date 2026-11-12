@@ -578,6 +578,17 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it("renders the application shell in Simplified Chinese", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "zh" },
+    })
+    await act(async () => root.render(<App />))
+    expect(element<HTMLAnchorElement>(".workspace-skip-link").textContent).toBe("跳转到工作区")
+    expect(element<HTMLElement>("#workspace-main").getAttribute("aria-label")).toBe("工作区")
+    expect(document.documentElement.getAttribute("lang")).toBe("zh")
+  })
+
   it.each(["expanded", "collapsed", "autoHide"] as const)(
     "skips to an empty workspace with a %s project rail",
     async (railMode) => {

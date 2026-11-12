@@ -2680,10 +2680,10 @@ fn apply_handoff_session_titles(
             &mut previous_session,
             &transaction.candidate().session_title_pins,
         );
-        let archive_label = if transaction.candidate().language == "en" {
-            "archive"
-        } else {
-            "архив"
+        let archive_label = match transaction.candidate().language.as_str() {
+            "en" => "archive",
+            "zh" => "归档",
+            _ => "архив",
         };
         let previous_path_string = previous_path.to_string_lossy().into_owned();
         let active_path_string = active_path.to_string_lossy().into_owned();

@@ -10,7 +10,7 @@ import type {
 type SessionIdentity = Pick<SessionSummary, "id" | "filePath">
 
 export function localeTag(lang: Lang): string {
-  return lang === "en" ? "en" : "ru"
+  return lang === "en" ? "en" : lang === "zh" ? "zh-CN" : "ru"
 }
 
 export function formatShortcut(shortcut: string, platform: string): string {
@@ -59,6 +59,22 @@ const relativeFormatters = {
       timeZone: "UTC",
     }),
   },
+  zh: {
+    relative: new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" }),
+    date: new Intl.DateTimeFormat("zh-CN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    dateWithEra: new Intl.DateTimeFormat("zh-CN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      era: "short",
+      timeZone: "UTC",
+    }),
+  },
 } satisfies Record<
   Lang,
   {
@@ -70,7 +86,7 @@ const relativeFormatters = {
 
 export function formatRelative(timestamp: number, lang: Lang): string {
   if (!timestamp) {
-    return lang === "en" ? "no runs" : "нет запусков"
+    return lang === "en" ? "no runs" : lang === "zh" ? "无运行记录" : "нет запусков"
   }
   const { relative: relativeTime, date, dateWithEra } = relativeFormatters[lang]
   const seconds = Math.round((timestamp - Date.now()) / 1000)

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "rea
 import { errorMessage, saveTerminalCapture } from "./api"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
+import { localeTag } from "./uiUtils"
 import {
   runtimeIncidentsLatestFirst,
   type RuntimeIncident,
@@ -468,7 +469,7 @@ function formatCaptureSize(bytes: number): string {
 }
 
 function formatTimestamp(timestamp: number, language: Lang): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en" : "ru", {
+  return new Intl.DateTimeFormat(localeTag(language), {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(timestamp)

@@ -4,6 +4,7 @@ import type { SessionSummary, SessionTranscript } from "./types"
 import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
+import { localeTag } from "./uiUtils"
 import { useVirtualList } from "./useVirtualList"
 import { MarkdownContent, markdownContent } from "./MarkdownContent"
 import { TranscriptSearch } from "./transcriptSearch"
@@ -977,7 +978,7 @@ function formatTimestampLocal(timestamp: string | number, lang: Lang): string {
     typeof timestamp === "number" && timestamp < 10_000_000_000 ? timestamp * 1_000 : timestamp
   const date = new Date(numeric)
   if (Number.isNaN(date.getTime())) return String(timestamp)
-  return new Intl.DateTimeFormat(lang === "en" ? "en" : "ru", {
+  return new Intl.DateTimeFormat(localeTag(lang), {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(date)
