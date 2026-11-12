@@ -607,7 +607,7 @@ impl Drop for TerminalProcess {
         }
         if !self.exited && !self.exit_pending {
             if let Some(killer) = self.killer.as_mut() {
-                let _ = kill_terminal_process(killer.as_mut());
+                let _ = killer.kill();
             }
         }
     }
@@ -789,20 +789,6 @@ fn try_lock_session_files(state: &TerminalState) -> Option<std::sync::MutexGuard
         Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
         Err(std::sync::TryLockError::WouldBlock) => None,
     }
-}
-
-fn kill_terminal_process(killer: &mut dyn ChildKiller) -> std::io::Result<()> {
-    let result = killer.kill();
-    #[cfg(windows)]
-    if result
-        .as_ref()
-        .is_err_and(|error| error.raw_os_error() == Some(0))
-    {
-        // portable-pty 0.9.0 checks the Win32 TerminateProcess BOOL in reverse
-        // for cloned killers. Upstream main fixes this, but no fixed crate exists yet.
-        return Ok(());
-    }
-    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -2859,7 +2845,7 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
             let state = app.state::<TerminalState>();
             if let Some(process) = lock_processes(&state).get_mut(terminal_id) {
                 if let Some(killer) = process.killer.as_mut() {
-                    let _ = kill_terminal_process(killer.as_mut());
+                    let _ = killer.kill();
                 }
             }
             return true;
@@ -4418,7 +4404,8 @@ fn stop_terminal_for_restart(terminal_id: &str, terminals: &TerminalState) -> Re
                 .killer
                 .as_mut()
                 .ok_or_else(|| "Процесс OMP нельзя остановить".to_owned())?;
-            kill_terminal_process(killer.as_mut())
+            killer
+                .kill()
                 .map_err(|error| format!("Не удалось остановить процесс OMP: {error}"))?;
             process.exit_pending = true;
         }
@@ -4864,7 +4851,7 @@ fn release_terminal_io_after_wait(
     };
     if wait_failed {
         if let Some(killer) = killer.as_mut() {
-            let _ = kill_terminal_process(killer.as_mut());
+            let _ = killer.kill();
         }
     }
     if let Some(writer) = writer.as_ref() {
@@ -5652,8 +5639,7 @@ mod tests {
     };
     #[cfg(windows)]
     use super::{
-        kill_terminal_process, native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity,
-        WindowsJobObject,
+        native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity, WindowsJobObject,
     };
     #[cfg(windows)]
     use std::time::Instant;
@@ -5778,7 +5764,7 @@ mod tests {
                 return;
             };
             if !matches!(child.try_wait(), Ok(Some(_))) {
-                let _ = kill_terminal_process(self.killer.as_mut());
+                let _ = self.killer.kill();
             }
             let _ = child.wait();
         }
@@ -6595,7 +6581,7 @@ mod tests {
             "writer fixture should fill the ConPTY input buffer"
         );
 
-        kill_terminal_process(killer.as_mut()).expect("sleeping child should be killable");
+        killer.kill().expect("sleeping child should be killable");
         writer.close();
         finished_receiver
             .recv_timeout(Duration::from_secs(5))

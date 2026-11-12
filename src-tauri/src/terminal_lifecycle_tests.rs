@@ -1,7 +1,7 @@
 mod native_lifecycle {
     use super::*;
     use super::super::{
-        close_terminal_in_state, finalize_terminal_exit_in_state, kill_terminal_process,
+        close_terminal_in_state, finalize_terminal_exit_in_state,
         native_pty_system, read_terminal_chunk, release_terminal_io_after_wait,
         stop_terminal_for_restart, terminal_child_exit_event, ChildKiller, CommandBuilder,
         PtySize, SharedTerminalOutput, PTY_EXIT_FINALIZE_TIMEOUT,
@@ -136,7 +136,7 @@ mod native_lifecycle {
     impl Drop for Fixture {
         fn drop(&mut self) {
             if !self.observed_exit && self.waited.try_recv().is_err() {
-                let _ = kill_terminal_process(self.killer.as_mut());
+                let _ = self.killer.kill();
             }
             self.state.shutdown_all();
             // Only fixture-owned PTY/child/workers are touched. A watchdog failure is
@@ -187,6 +187,12 @@ mod native_lifecycle {
                     assert!(String::from_utf8_lossy(&attachment.snapshot.data).contains("NATIVE_BOUNDARY_FINAL_OUTPUT"));
                 }
                 "stop" => {
+                    #[cfg(windows)]
+                    unsafe {
+                        windows_sys::Win32::Foundation::SetLastError(
+                            windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION,
+                        );
+                    }
                     stop_terminal_for_restart(ID, &fixture.state).unwrap();
                     fixture.wait_for_real_exit_and_drain();
                     assert!(lock_processes(&fixture.state).is_empty());
