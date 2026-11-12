@@ -672,6 +672,84 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each([
+    ["expanded", "ru", ".project-actions button:first-child"],
+    ["expanded", "ru", ".project-remove"],
+    ["expanded", "en", ".project-actions button:first-child"],
+    ["expanded", "en", ".project-remove"],
+    ["autoHide", "ru", ".project-actions button:first-child"],
+    ["autoHide", "ru", ".project-remove"],
+    ["autoHide", "en", ".project-actions button:first-child"],
+    ["autoHide", "en", ".project-remove"],
+  ] as const)(
+    "keeps focus visible when collapsing %s from a project action in %s (%s)",
+    async (railMode, language, selector) => {
+      const initial = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, railMode, language },
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue(initial)
+      vi.mocked(api.saveSettingsBundle).mockResolvedValue({
+        bootstrap: { ...initial, settings: { ...initial.settings, railMode: "collapsed" } },
+        ompConfig: null,
+      })
+      await act(async () => root.render(<App />))
+      act(() => element(".rail-open-folder").focus())
+      const action = element(selector)
+      act(() => action.focus())
+      const rail = element<HTMLElement>(".project-rail")
+      expect(rail.classList.contains("is-revealed")).toBe(true)
+      expect(document.activeElement).toBe(action)
+      const selected = element(".project-item.is-active")
+      const collapse = new KeyboardEvent("keydown", {
+        code: "KeyB",
+        ctrlKey: language === "ru",
+        metaKey: language === "en",
+        bubbles: true,
+        cancelable: true,
+      })
+      await act(async () => action.dispatchEvent(collapse))
+      expect(collapse.defaultPrevented).toBe(true)
+      expect(rail.classList.contains("is-compact")).toBe(true)
+      expect(document.activeElement).toBe(element(".rail-open-folder"))
+      expect(element(".project-item.is-active")).toBe(selected)
+      expect(container.querySelector(".project-rename")).toBeNull()
+      expect(confirm).not.toHaveBeenCalled()
+      expect(open).not.toHaveBeenCalled()
+      expect(api.removeWorkspace).not.toHaveBeenCalled()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      if (railMode === "expanded") {
+        expect(api.saveSettingsBundle).toHaveBeenCalledExactlyOnceWith({
+          update: { railMode: "collapsed" },
+          ompConfig: null,
+        })
+      } else {
+        expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  it.each([".project-item.is-active", ".rail-open-folder", ".workspace-skip-link"])(
+    "does not redirect surviving focus when collapsing from %s",
+    async (selector) => {
+      vi.mocked(api.saveSettingsBundle).mockResolvedValue({
+        bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, railMode: "collapsed" } },
+        ompConfig: null,
+      })
+      await act(async () => root.render(<App />))
+      const target = element(selector)
+      act(() => target.focus())
+      await act(async () =>
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", { code: "KeyB", ctrlKey: true, bubbles: true }),
+        ),
+      )
+      expect(element(".project-rail").classList.contains("is-compact")).toBe(true)
+      expect(document.activeElement).toBe(target)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   it("skips to the live workspace without selecting, restarting, or closing a terminal", async () => {
     await mountAndResume()
     const activeTab = element(".terminal-tab.is-active")
