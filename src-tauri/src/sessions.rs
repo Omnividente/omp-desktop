@@ -1042,7 +1042,9 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
     // Valid unknown records and a complete final record without LF remain valid.
     if looks_like_codex_session(text) {
         for (index, line) in text.lines().enumerate() {
-            if !line.trim().is_empty() && serde_json::from_str::<Value>(line).is_err() {
+            if !line.trim().is_empty()
+                && serde_json::from_str::<serde::de::IgnoredAny>(line).is_err()
+            {
                 return Err(format!(
                     "[session_import_invalid_codex_json] Некорректная или незавершённая запись Codex JSONL в строке {}",
                     index + 1
@@ -3964,13 +3966,13 @@ fn load_codex_thread_names_from_path(index_path: &Path) -> HashMap<String, Strin
 }
 
 fn codex_sessions_root() -> Result<PathBuf, String> {
-    let codex_home = env::var("CODEX_HOME").ok();
+    let codex_home = env::var_os("CODEX_HOME");
     let home = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
     codex_sessions_root_from(codex_home.as_deref(), home.as_deref().map(Path::new))
 }
 
 fn codex_sessions_root_from(
-    codex_home: Option<&str>,
+    codex_home: Option<&std::ffi::OsStr>,
     home: Option<&Path>,
 ) -> Result<PathBuf, String> {
     if let Some(configured) = codex_home.filter(|value| !value.is_empty()) {
@@ -4104,7 +4106,7 @@ mod tests {
     #[test]
     fn codex_home_absent_or_empty_preserves_default_root() {
         let home = Path::new("synthetic-profile");
-        for override_value in [None, Some("")] {
+        for override_value in [None, Some(std::ffi::OsStr::new(""))] {
             assert_eq!(
                 super::codex_sessions_root_from(override_value, Some(home)).unwrap(),
                 home.join(".codex").join("sessions")
@@ -4127,7 +4129,7 @@ mod tests {
             "Default profile title",
         );
         fixture.write_session(&custom, "custom-only", "Custom profile title");
-        let root = super::codex_sessions_root_from(custom.to_str(), Some(&profile)).unwrap();
+        let root = super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
         assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
         let sessions = super::list_codex_sessions_from_root(&root).unwrap();
         assert_eq!(sessions.len(), 1);
@@ -4152,7 +4154,7 @@ mod tests {
         fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
         let custom = fixture.0.join("empty");
         fs::create_dir(&custom).unwrap();
-        let root = super::codex_sessions_root_from(custom.to_str(), Some(&profile)).unwrap();
+        let root = super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
         let sessions = super::list_codex_sessions_from_root(&root).unwrap();
         assert!(sessions.is_empty());
         assert!(!root.exists());
@@ -4164,11 +4166,11 @@ mod tests {
         let profile = fixture.0.join("profile");
         fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
         let missing = fixture.0.join("missing");
-        assert!(super::codex_sessions_root_from(missing.to_str(), Some(&profile)).is_err());
+        assert!(super::codex_sessions_root_from(Some(missing.as_os_str()), Some(&profile)).is_err());
         assert!(!missing.exists());
         let file = fixture.0.join("not-a-directory");
         fs::write(&file, "synthetic file").unwrap();
-        assert!(super::codex_sessions_root_from(file.to_str(), Some(&profile)).is_err());
+        assert!(super::codex_sessions_root_from(Some(file.as_os_str()), Some(&profile)).is_err());
         assert_eq!(fs::read_to_string(file).unwrap(), "synthetic file");
     }
 
@@ -4176,7 +4178,7 @@ mod tests {
     fn codex_home_relative_path_uses_process_directory() {
         let fixture = CodexHomeFixture::new(Path::new("target"));
         assert!(fixture.0.is_relative());
-        let root = super::codex_sessions_root_from(fixture.0.to_str(), None).unwrap();
+        let root = super::codex_sessions_root_from(Some(fixture.0.as_os_str()), None).unwrap();
         assert_eq!(root, fixture.0.canonicalize().unwrap().join("sessions"));
     }
 
@@ -4188,15 +4190,26 @@ mod tests {
         fs::create_dir(&custom).unwrap();
         let expected = custom.canonicalize().unwrap().join("sessions");
         assert_eq!(
-            super::codex_sessions_root_from(custom.to_str(), None).unwrap(),
+            super::codex_sessions_root_from(Some(custom.as_os_str()), None).unwrap(),
             expected
         );
         let link = fixture.0.join("linked-home");
         std::os::unix::fs::symlink(&custom, &link).unwrap();
         assert_eq!(
-            super::codex_sessions_root_from(link.to_str(), None).unwrap(),
+            super::codex_sessions_root_from(Some(link.as_os_str()), None).unwrap(),
             expected
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_home_native_non_utf8_path_never_falls_back_to_another_profile() {
+        use std::os::unix::ffi::OsStringExt;
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let custom = fixture.0.join(std::ffi::OsString::from_vec(b"native-home-\xff".to_vec()));
+        fs::create_dir(&custom).unwrap();
+        let root = super::codex_sessions_root_from(Some(custom.as_os_str()), None).unwrap();
+        assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
     }
 
     #[test]
