@@ -227,10 +227,9 @@ fn move_new(source: &Path, target: &Path) -> io::Result<()> {
 
 #[cfg(windows)]
 fn move_new(source: &Path, target: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
-    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
-    let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    let source = crate::sessions::windows_api_path(source)?;
+    let target = crate::sessions::windows_api_path(target)?;
     if unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH) } != 0 {
         Ok(())
     } else {

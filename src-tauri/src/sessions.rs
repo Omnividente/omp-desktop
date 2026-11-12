@@ -508,6 +508,42 @@ fn set_private_directory_permissions(path: &Path) -> io::Result<()> {
     set_private_windows_acl(path, true)
 }
 
+// Win32 ACL and rename APIs require an absolute verbatim path for long names.
+// Convert only at the FFI boundary; persisted filesystem identities stay unchanged.
+#[cfg(windows)]
+pub(crate) fn windows_api_path(path: &Path) -> io::Result<Vec<u16>> {
+    use std::{
+        os::windows::ffi::OsStrExt,
+        path::{Component, Prefix},
+    };
+
+    let absolute = std::path::absolute(path)?;
+    let (prefix, skip) = match absolute.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(_) => (r"\\?\", 0),
+            Prefix::UNC(_, _) => (r"\\?\UNC\", 2),
+            _ => ("", 0),
+        },
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Windows path has no prefix",
+            ))
+        }
+    };
+    let mut wide = Vec::with_capacity(absolute.as_os_str().len() + prefix.len() + 1);
+    wide.extend(prefix.encode_utf16());
+    wide.extend(absolute.as_os_str().encode_wide().skip(skip).map(|unit| {
+        if unit == u16::from(b'/') {
+            u16::from(b'\\')
+        } else {
+            unit
+        }
+    }));
+    wide.push(0);
+    Ok(wide)
+}
+
 #[cfg(windows)]
 fn current_process_user_sid(
     storage: &mut Vec<usize>,
@@ -588,7 +624,7 @@ fn well_known_windows_sid(
 
 #[cfg(windows)]
 fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
-    use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
+    use std::{ffi::c_void, ptr};
     use windows_sys::Win32::{
         Foundation::{LocalFree, ERROR_SUCCESS},
         Security::{
@@ -638,11 +674,7 @@ fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
         }
     }
 
-    let path = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    let path = windows_api_path(path)?;
     let mut current_user_storage = Vec::new();
     let current_user = current_process_user_sid(&mut current_user_storage)?;
     let mut system_storage = [0_u32; 17];
@@ -689,7 +721,7 @@ fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
 pub(crate) fn windows_private_acl_summary(
     path: &Path,
 ) -> io::Result<(bool, u32, bool, bool, bool)> {
-    use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
+    use std::{ffi::c_void, ptr};
     use windows_sys::Win32::{
         Foundation::{LocalFree, ERROR_SUCCESS},
         Security::{
@@ -715,11 +747,7 @@ pub(crate) fn windows_private_acl_summary(
         }
     }
 
-    let path = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    let path = windows_api_path(path)?;
     let mut dacl = ptr::null_mut();
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     let status = unsafe {
@@ -816,8 +844,6 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
 
 #[cfg(windows)]
 fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
     const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
 
@@ -830,16 +856,8 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
         ) -> i32;
     }
 
-    let temporary = temporary
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    let temporary = windows_api_path(temporary)?;
+    let destination = windows_api_path(destination)?;
     let moved = unsafe {
         MoveFileExW(
             temporary.as_ptr(),

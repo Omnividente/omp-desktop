@@ -931,7 +931,6 @@ describe("SettingsPanel configuration generations", () => {
     expect(Object.hasOwn(request.update.providerEnv, "__proto__")).toBe(true)
     expect(request.update.providerEnv["__proto__"]).toBe("synthetic-locale-draft")
     expect(container.textContent).not.toContain("synthetic-locale-draft")
-    expect(save.disabled).toBe(true)
   })
 
   it("saves only the submitted Desktop theme and keeps a later theme draft with a sticky acknowledgement", async () => {

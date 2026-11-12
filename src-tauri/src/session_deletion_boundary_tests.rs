@@ -91,12 +91,13 @@ mod boundary_tests {
         let source = directory.join("history.jsonl");
         fs::copy(&fixture.session, &source).unwrap();
         drop(SessionLease::acquire(&source, SessionLeasePurpose::Delete, false).unwrap());
-        let _ = catch_unwind(AssertUnwindSafe(|| {
-            let _ = delete_with(&source, |stage| {
+        let interruption = catch_unwind(AssertUnwindSafe(|| {
+            delete_with(&source, |stage| {
                 assert_ne!(stage, "session", "interrupted deletion");
                 Ok(())
-            });
+            })
         }));
+        assert!(interruption.is_err(), "deletion did not reach the interruption checkpoint: {interruption:?}");
         let opaque = directory.join(format!("{PREFIX}{:032x}", rand::random::<u128>()));
         fs::create_dir(&opaque).unwrap();
         fs::write(opaque.join("intent.json"), b"unreadable intent").unwrap();
