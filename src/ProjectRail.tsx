@@ -111,12 +111,15 @@ export function ProjectRail({
     }
   }, [autoHidePaused])
 
-  useEffect(
+  // A newer explicit reveal/collapse or mode change supersedes pending hover intent.
+  useLayoutEffect(
     () => () => {
       if (openTimerRef.current !== null) window.clearTimeout(openTimerRef.current)
       if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+      openTimerRef.current = null
+      closeTimerRef.current = null
     },
-    [],
+    [autoOpen, mode],
   )
 
   useEffect(() => {

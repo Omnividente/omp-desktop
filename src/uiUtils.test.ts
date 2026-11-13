@@ -98,6 +98,36 @@ describe("normalizedPath", () => {
 })
 
 describe("tabMatchesSession", () => {
+  it("does not reuse another project's import with the same source-derived id", () => {
+    const tab = terminalTab({
+      sessionId: session.id,
+      sessionPath: "C:\\Other\\session.jsonl",
+      cwd: "C:\\Other",
+    })
+
+    expect(tabMatchesSession(tab, session, "windows")).toBe(false)
+  })
+
+  it("keeps same-project id matching across Windows cwd aliases", () => {
+    const tab = terminalTab({
+      sessionId: session.id,
+      sessionPath: "C:\\Other\\session.jsonl",
+      cwd: "c:/WORK/omp/",
+    })
+
+    expect(tabMatchesSession(tab, session, "windows")).toBe(true)
+  })
+
+  it("preserves an exact path match when cwd metadata differs", () => {
+    const tab = terminalTab({
+      sessionId: "stale-session-id",
+      sessionPath: session.filePath,
+      cwd: "C:\\Other",
+    })
+
+    expect(tabMatchesSession(tab, session, "windows")).toBe(true)
+  })
+
   it("matches the session id independently of the stored path", () => {
     const tab = terminalTab({
       sessionId: session.id,
@@ -127,6 +157,37 @@ describe("tabMatchesSession", () => {
 })
 
 describe("mergeSessionIntoPayload", () => {
+  it("retains imports of the same source in different projects during discovery", () => {
+    const imported = {
+      ...session,
+      cwd: "C:/Other",
+      projectKey: "c:/other",
+      filePath: "C:/Other/session.jsonl",
+      updatedAt: session.updatedAt + 1,
+    }
+    const payload = { sessions: [session] } as BootstrapPayload
+    const merged = mergeSessionIntoPayload(payload, imported, "windows")
+
+    expect(merged.sessions).toEqual([imported, session])
+    expect(mergeSessionIntoPayload(merged, imported, "windows").sessions).toEqual([
+      imported,
+      session,
+    ])
+  })
+
+  it("replaces same-project id and same-path snapshots without duplicates", () => {
+    const moved = {
+      ...session,
+      cwd: "c:/WORK/omp/",
+      filePath: "C:/Work/OMP/moved.jsonl",
+    }
+    const payload = { sessions: [session] } as BootstrapPayload
+    expect(mergeSessionIntoPayload(payload, moved, "windows").sessions).toEqual([moved])
+
+    const samePath = { ...session, id: "new-id", cwd: "C:/Other" }
+    expect(mergeSessionIntoPayload(payload, samePath, "windows").sessions).toEqual([samePath])
+  })
+
   it("keeps the live handoff session when bootstrap is stale", () => {
     const handoff: SessionSummary = {
       ...session,

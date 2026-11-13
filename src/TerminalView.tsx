@@ -71,9 +71,9 @@ function decodeBase64(data: string): Uint8Array {
 }
 
 function canFocusTerminal(explicitlyRequested = false): boolean {
-  // Delayed recovery/attachment must not send typing from the picker to the PTY.
+  // Delayed recovery/attachment must not send typing from a modal to the PTY.
   return (
-    !document.querySelector(".terminal-tab-picker") &&
+    !document.querySelector('.terminal-tab-picker, [aria-modal="true"]') &&
     (explicitlyRequested || !document.activeElement?.closest(".terminal-meta"))
   )
 }
@@ -273,7 +273,7 @@ export function TerminalView({
     }
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown" || event.isComposing) return true
+      if (event.type !== "keydown" || event.isComposing || event.keyCode === 229) return true
       const modifier = (event.ctrlKey || event.metaKey) && !event.altKey
       const consume = () => {
         event.preventDefault()
@@ -434,6 +434,9 @@ export function TerminalView({
     const syncScrollPosition = () => {
       const bottom = atBottom()
       setScrolledUp(!bottom)
+      // Alternate screens have no scrollback. Their bottom is not evidence that
+      // the user resumed following output in the preserved normal buffer.
+      if (terminal.buffer.active.type === "alternate") return
       if (bottom) {
         if (!userScrolledDuringWrite) followingOutput = true
         restoringBottom = false
@@ -749,13 +752,14 @@ export function TerminalView({
         onReadyRef.current(tab.id)
       }
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
-      // Closing the picker before this frame must not revive its suppressed focus.
-      const focusBlockedByPicker = document.querySelector(".terminal-tab-picker") !== null
+      // Closing a modal before this frame must not revive its suppressed focus.
+      const focusBlockedByModal =
+        document.querySelector('.terminal-tab-picker, [aria-modal="true"]') !== null
       fitFrame = window.requestAnimationFrame(() => {
         fitFrame = null
         fit()
         if (
-          !focusBlockedByPicker &&
+          !focusBlockedByModal &&
           activeRef.current &&
           !tab.preserveFocusOnAttach &&
           canFocusTerminal()
@@ -821,12 +825,13 @@ export function TerminalView({
     }
     const explicitlyRequested = focusRequestSequence !== lastFocusRequestRef.current
     lastFocusRequestRef.current = focusRequestSequence
-    // Consume requests received in the picker, even if it closes before the frame.
-    const focusBlockedByPicker = document.querySelector(".terminal-tab-picker") !== null
+    // Consume requests received in a modal, even if it closes before the frame.
+    const focusBlockedByModal =
+      document.querySelector('.terminal-tab-picker, [aria-modal="true"]') !== null
     const frame = window.requestAnimationFrame(() => {
       fitRef.current?.()
       if (
-        !focusBlockedByPicker &&
+        !focusBlockedByModal &&
         (explicitlyRequested || !initialAttachment || !tab.preserveFocusOnAttach) &&
         canFocusTerminal(explicitlyRequested)
       ) {

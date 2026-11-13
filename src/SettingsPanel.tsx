@@ -11,7 +11,9 @@ import {
   settingsUnavailableDetails,
 } from "./api"
 import { Icon } from "./Icon"
+import { KeyboardShortcuts } from "./KeyboardShortcuts"
 import {
+  resolveLang,
   roleDescription,
   roleLabel,
   statusDescription,
@@ -20,6 +22,7 @@ import {
   thinkingLevelLabel,
   type Lang,
 } from "./i18n"
+import { localeTag } from "./uiUtils"
 import { AgentDefinitionPassport } from "./AgentDefinitionPassport"
 import { ModelPicker } from "./ModelPicker"
 import { useModalFocus } from "./useModalFocus"
@@ -186,8 +189,8 @@ function agentOverridesEqual(left: string[] | null, right: string[] | null): boo
   if (left === null || right === null) return false
   return left.length === right.length && left.every((selector, index) => selector === right[index])
 }
-function providerEnvDraft(keys: string[], current: Record<string, string> = {}) {
-  return Object.fromEntries(keys.map((key) => [key, current[key] ?? ""]))
+function providerEnvDraft(keys: string[]) {
+  return Object.fromEntries(keys.map((key) => [key, ""]))
 }
 
 type SubmittedConfigDraft = Pick<
@@ -233,7 +236,7 @@ function serializeFallbackChains(
   drafts: FallbackChainDraft[],
   language: Lang,
 ): Record<string, string[]> {
-  const chains: Record<string, string[]> = {}
+  const chains: Record<string, string[]> = Object.create(null)
   for (const draft of drafts) {
     const key = draft.key.trim()
     if (!key) {
@@ -347,6 +350,16 @@ function accountRouteStatusLabel(
   return t(language, "accountStatusUnknown")
 }
 
+// Usage timestamps cross a u64 bridge, whose range exceeds JavaScript Date.
+function accountTimestamp(value: number | null | undefined): number | null {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    Number.isFinite(new Date(value).getTime())
+    ? value
+    : null
+}
+
 function formatAccountCountdown(language: Lang, target: number, now: number): string {
   const remainingSeconds = Math.max(0, Math.ceil((target - now) / 1_000))
   if (remainingSeconds === 0) return t(language, "accountCountdownNow")
@@ -354,7 +367,12 @@ function formatAccountCountdown(language: Lang, target: number, now: number): st
   const hours = Math.floor((remainingSeconds % 86_400) / 3_600)
   const minutes = Math.floor((remainingSeconds % 3_600) / 60)
   const seconds = remainingSeconds % 60
-  const units = language === "en" ? ["d", "h", "m", "s"] : ["д", "ч", "м", "с"]
+  const units =
+    language === "en"
+      ? ["d", "h", "m", "s"]
+      : language === "zh"
+        ? ["天", "时", "分", "秒"]
+        : ["д", "ч", "м", "с"]
   if (days > 0) return `${days}${units[0]} ${hours}${units[1]}`
   if (hours > 0) return `${hours}${units[1]} ${minutes}${units[2]}`
   if (minutes > 0) return `${minutes}${units[2]} ${seconds}${units[3]}`
@@ -362,14 +380,14 @@ function formatAccountCountdown(language: Lang, target: number, now: number): st
 }
 
 function formatAccountTimestamp(language: Lang, timestamp: number): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en" : "ru", {
+  return new Intl.DateTimeFormat(localeTag(language), {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(timestamp)
 }
 
 function formatAccountPercent(language: Lang, percent: number): string {
-  return new Intl.NumberFormat(language === "en" ? "en" : "ru", {
+  return new Intl.NumberFormat(localeTag(language), {
     maximumFractionDigits: 2,
   }).format(Math.min(100, Math.max(0, percent)))
 }
@@ -392,7 +410,7 @@ export function SettingsPanel({
   onError,
   onNotice,
 }: SettingsPanelProps) {
-  const lang = (settings.language === "en" ? "en" : "ru") as Lang
+  const lang: Lang = resolveLang(settings.language)
   const panelRef = useRef<HTMLElement>(null)
 
   const [discardOpen, setDiscardOpen] = useState(false)
@@ -428,6 +446,8 @@ export function SettingsPanel({
   const [roleDrafts, setRoleDrafts] = useState<Record<string, string>>(() =>
     Object.fromEntries(initialOmpConfig?.roles.map((role) => [role.role, role.selector]) ?? []),
   )
+  const [agentSearch, setAgentSearch] = useState("")
+  const agentSearchRef = useRef<HTMLInputElement>(null)
   const [agentDrafts, setAgentDrafts] = useState<Record<string, AgentDraft>>({})
   const [advisorEnabled, setAdvisorEnabled] = useState(initialOmpConfig?.advisorEnabled ?? false)
   const [autoResume, setAutoResume] = useState(initialOmpConfig?.autoResume ?? false)
@@ -497,9 +517,9 @@ export function SettingsPanel({
       : undefined
     setOmpConfig(snapshot)
     setOperationDrafts({})
-    const drafts: Record<string, string> = {}
-    for (const role of snapshot?.roles ?? []) drafts[role.role] = role.selector
-    setRoleDrafts(drafts)
+    setRoleDrafts(
+      Object.fromEntries(snapshot?.roles.map((role) => [role.role, role.selector]) ?? []),
+    )
     setAgentDrafts({})
     setOpenRole(null)
     // A save advances the baseline, but controls that remain editable may have newer drafts.
@@ -649,12 +669,12 @@ export function SettingsPanel({
     const nextKeys = settings.providerEnvKeys
     providerEnvKeysRef.current = nextKeys
     setProviderEnv((current) => {
-      const next = { ...current }
+      let next = { ...current }
       for (const key of previousKeys) {
         if (!nextKeys.includes(key) && next[key] === "") delete next[key]
       }
       for (const key of nextKeys) {
-        if (!previousKeys.includes(key) && !(key in next)) next[key] = ""
+        if (!previousKeys.includes(key) && !Object.hasOwn(next, key)) next = { ...next, [key]: "" }
       }
       return next
     })
@@ -712,11 +732,19 @@ export function SettingsPanel({
   )
   const auxiliaryRoles = orderedRoles.filter((role) => !PRIMARY_MODEL_ROLES.includes(role.role))
   const agents = ompConfig?.agents ?? []
+  const agentQuery = agentSearch.trim().normalize("NFC").toLocaleLowerCase()
+  const visibleAgents = agentQuery
+    ? agents.filter((agent) =>
+        [agent.name, agent.description, agent.source].some((value) =>
+          value.normalize("NFC").toLocaleLowerCase().includes(agentQuery),
+        ),
+      )
+    : agents
   const agentChanges = useMemo(() => {
-    const changes: Record<string, OmpAgentChange> = {}
+    const changes: Record<string, OmpAgentChange> = Object.create(null)
     if (!ompConfig?.agentSettingsSupported) return changes
     for (const agent of ompConfig.agents ?? []) {
-      const draft = agentDrafts[agent.name]
+      const draft = Object.hasOwn(agentDrafts, agent.name) ? agentDrafts[agent.name] : undefined
       if (!draft) continue
       const change: OmpAgentChange = {}
       if (draft.enabled !== agent.enabled) {
@@ -735,10 +763,9 @@ export function SettingsPanel({
     setAgentDrafts((current) => ({
       ...current,
       [agent.name]: {
-        ...(current[agent.name] ?? {
-          enabled: agent.enabled,
-          modelOverride: agent.modelOverride,
-        }),
+        ...(Object.hasOwn(current, agent.name)
+          ? current[agent.name]
+          : { enabled: agent.enabled, modelOverride: agent.modelOverride }),
         ...change,
       },
     }))
@@ -747,7 +774,18 @@ export function SettingsPanel({
     () => credentials.filter((credential) => !removedCustomProviders.includes(credential.provider)),
     [credentials, removedCustomProviders],
   )
-  const accounts = useMemo(() => ompConfig?.accounts ?? [], [ompConfig?.accounts])
+  const accounts = useMemo(
+    () =>
+      (ompConfig?.accounts ?? []).map((account) => ({
+        ...account,
+        fetchedAt: accountTimestamp(account.fetchedAt),
+        limits: account.limits.map((limit) => ({
+          ...limit,
+          resetsAt: accountTimestamp(limit.resetsAt),
+        })),
+      })),
+    [ompConfig?.accounts],
+  )
   const accountGroups = useMemo(() => {
     const grouped = new Map<string, OmpAccountUsageInfo[]>()
     for (const account of accounts ?? []) {
@@ -760,10 +798,8 @@ export function SettingsPanel({
       accounts: providerAccounts,
     }))
   }, [accounts])
-  const usageAgeMs =
-    ompConfig?.usageObservedAt === null || ompConfig?.usageObservedAt === undefined
-      ? null
-      : Math.max(0, clockNow - ompConfig.usageObservedAt)
+  const usageObservedAt = accountTimestamp(ompConfig?.usageObservedAt)
+  const usageAgeMs = usageObservedAt === null ? null : Math.max(0, clockNow - usageObservedAt)
   const usageIsStale = usageAgeMs !== null && usageAgeMs > OMP_CONFIG_STALE_MS
   const refreshCooldownSeconds = Math.max(0, Math.ceil((refreshCooldownUntil - clockNow) / 1_000))
 
@@ -902,10 +938,16 @@ export function SettingsPanel({
   }
 
   const removeCustomProvider = async (provider: string) => {
-    const accepted = await confirm(
-      t(language, "removeCustomProviderConfirm").replace("{provider}", provider),
-      { title: t(language, "removeCustomProvider"), kind: "warning" },
-    )
+    let accepted: boolean
+    try {
+      accepted = await confirm(
+        t(language, "removeCustomProviderConfirm").replace("{provider}", provider),
+        { title: t(language, "removeCustomProvider"), kind: "warning" },
+      )
+    } catch (error) {
+      onError(errorMessage(error, language))
+      return
+    }
     if (!accepted) return
     setRemovedCustomProviders((current) =>
       current.includes(provider) ? current : [...current, provider],
@@ -924,8 +966,8 @@ export function SettingsPanel({
     customProviderKey.trim() !== ""
   const { hasChanges, providerEnvChanged, ompConfigChanged } = useMemo(() => {
     const generalChanged =
-      (executable.trim() || null) !== settings.ompExecutable ||
-      (sessionRoot.trim() || null) !== settings.sessionRoot ||
+      (executable.trim() ? executable : null) !== settings.ompExecutable ||
+      (sessionRoot.trim() ? sessionRoot : null) !== settings.sessionRoot ||
       language !== settings.language ||
       desktopTheme !== (settings.desktopTheme ?? "dark") ||
       desktopUpdatePrereleases !== settings.desktopUpdatePrereleases ||
@@ -944,7 +986,7 @@ export function SettingsPanel({
     let ompConfigChanged = false
     if (runtime.ompAvailable && ompConfig) {
       const rolesChanged = ompConfig.roles.some(
-        (role) => (roleDrafts[role.role] ?? role.selector) !== role.selector,
+        (role) => Object.hasOwn(roleDrafts, role.role) && roleDrafts[role.role] !== role.selector,
       )
       let fallbackChainsChanged = false
       try {
@@ -1051,6 +1093,9 @@ export function SettingsPanel({
       if (customProviderStarted && !customProviderReady) {
         throw new Error(t(language, "customProviderFieldsRequired"))
       }
+      if (customProviderReady && (!runtime.ompAvailable || ompConfig === null)) {
+        throw new Error(t(language, "customProviderConfigRequired"))
+      }
       const includeOmpConfig =
         runtime.ompAvailable &&
         ompConfig !== null &&
@@ -1085,8 +1130,8 @@ export function SettingsPanel({
       submitted = true
       const result = await saveSettingsBundle({
         update: {
-          ompExecutable: executable.trim() || null,
-          sessionRoot: sessionRoot.trim() || null,
+          ompExecutable: executable.trim() ? executable : null,
+          sessionRoot: sessionRoot.trim() ? sessionRoot : null,
           language,
           desktopTheme,
           desktopUpdatePrereleases,
@@ -1166,7 +1211,7 @@ export function SettingsPanel({
       onSaved(result, saveGeneration)
       if (disposedRef.current) {
         // This result belongs to the submitted snapshot, not a reopened panel's draft.
-        const savedLanguage = result.bootstrap.settings.language === "en" ? "en" : "ru"
+        const savedLanguage = resolveLang(result.bootstrap.settings.language)
         onNotice?.(t(savedLanguage, "settingsSaveSucceeded"))
         return
       }
@@ -1200,12 +1245,12 @@ export function SettingsPanel({
       }
       if (providerEnvChanged) {
         setProviderEnv((current) => {
-          const next = providerEnvDraft(result.bootstrap.settings.providerEnvKeys)
+          let next = providerEnvDraft(result.bootstrap.settings.providerEnvKeys)
           for (const [key, value] of Object.entries(current)) {
-            if (providerEnv[key] !== value) next[key] = value
+            if (providerEnv[key] !== value) next = { ...next, [key]: value }
           }
           for (const key of Object.keys(providerEnv)) {
-            if (!(key in current)) delete next[key]
+            if (!Object.hasOwn(current, key)) delete next[key]
           }
           return next
         })
@@ -1253,7 +1298,7 @@ export function SettingsPanel({
         onOpenChange={(open) => setOpenRole(open ? role.role : null)}
         open={openRole === role.role}
         role={role.role}
-        value={roleDrafts[role.role] ?? role.selector}
+        value={Object.hasOwn(roleDrafts, role.role) ? roleDrafts[role.role] : role.selector}
       />
       <p className={`role-health is-${role.status}`}>{statusDescription(language, role.status)}</p>
     </article>
@@ -1557,6 +1602,7 @@ export function SettingsPanel({
                       >
                         <option value="ru">Русский</option>
                         <option value="en">English</option>
+                        <option value="zh">简体中文</option>
                       </select>
                       <Icon className="select-chevron" name="chevron" size={14} />
                     </div>
@@ -1679,6 +1725,10 @@ export function SettingsPanel({
                       </button>
                     </div>
                     <p className="field-help">{t(language, "sessionRootHelp")}</p>
+                  </section>
+
+                  <section className="settings-section">
+                    <KeyboardShortcuts language={language} platform={runtime.platform} />
                   </section>
                 </>
               )}
@@ -2164,11 +2214,50 @@ export function SettingsPanel({
                             {t(language, "taskAgentsUnsupported")}
                           </p>
                         )}
-                        {agents.length === 0 && (
-                          <p className="field-help">{t(language, "taskAgentsEmpty")}</p>
-                        )}
-                        {agents.map((agent) => {
-                          const draft = agentDrafts[agent.name] ?? agent
+                        <div className="agent-search-controls">
+                          <label htmlFor="task-agent-search">
+                            {t(language, "taskAgentsSearch")}
+                          </label>
+                          <div className="agent-search-row">
+                            <input
+                              id="task-agent-search"
+                              ref={agentSearchRef}
+                              type="search"
+                              value={agentSearch}
+                              aria-describedby="task-agent-search-help"
+                              onChange={(event) => {
+                                setAgentSearch(event.target.value)
+                                setOpenRole(null)
+                              }}
+                            />
+                            <button
+                              className="button secondary"
+                              type="button"
+                              disabled={agentSearch.length === 0}
+                              onClick={() => {
+                                setAgentSearch("")
+                                setOpenRole(null)
+                                agentSearchRef.current?.focus()
+                              }}
+                            >
+                              {t(language, "clearSearch")}
+                            </button>
+                          </div>
+                          <p className="field-help" id="task-agent-search-help">
+                            {t(language, "taskAgentsSearchHelp")}
+                          </p>
+                          <p className="field-help" role="status">
+                            {agents.length === 0
+                              ? t(language, "taskAgentsEmpty")
+                              : visibleAgents.length === 0
+                                ? t(language, "taskAgentsNoMatches")
+                                : `${t(language, "taskAgentsShown")}: ${visibleAgents.length} / ${agents.length}`}
+                          </p>
+                        </div>
+                        {visibleAgents.map((agent) => {
+                          const draft = Object.hasOwn(agentDrafts, agent.name)
+                            ? agentDrafts[agent.name]
+                            : agent
                           return (
                             <article
                               className="role-row agent-row"
@@ -2343,13 +2432,13 @@ export function SettingsPanel({
                         className={`provider-account-freshness${usageIsStale ? " is-stale" : ""}`}
                       >
                         <span>
-                          {ompConfig.usageObservedAt === null
+                          {usageObservedAt === null
                             ? t(language, "accountUsageUnknown")
                             : t(language, usageIsStale ? "accountUsageStale" : "accountUsageFresh")}
                         </span>
-                        {ompConfig.usageObservedAt !== null && (
-                          <time dateTime={new Date(ompConfig.usageObservedAt).toISOString()}>
-                            {formatAccountTimestamp(language, ompConfig.usageObservedAt)}
+                        {usageObservedAt !== null && (
+                          <time dateTime={new Date(usageObservedAt).toISOString()}>
+                            {formatAccountTimestamp(language, usageObservedAt)}
                           </time>
                         )}
                       </div>

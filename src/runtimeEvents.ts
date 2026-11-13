@@ -35,17 +35,17 @@ export function runtimeFeedbackDedupeKey(
   const scope = [event.terminalId, event.kind, event.modelRole ?? ""]
 
   if (feedback.kind === "fallback") {
-    return [
+    return JSON.stringify([
       "runtime-fallback",
       ...scope,
       event.fallbackRole ?? "",
       event.fallbackFrom ?? "",
       event.fallbackTo ?? event.model ?? "",
       feedback.model,
-    ].join("|")
+    ])
   }
 
-  return ["runtime-error", ...scope, feedback.message].join("|")
+  return JSON.stringify(["runtime-error", ...scope, feedback.message])
 }
 
 function providerFromSelector(selector: string | null | undefined): string | null {
@@ -71,10 +71,9 @@ export function suppressTransientProxyError(
     return false
   }
 
+  // Local PTY, watcher, and persistence failures are not proxy-account retries.
   const failed =
-    event.kind === "modelError" ||
-    event.kind === "runtimeError" ||
-    (event.kind === "activity" && event.activity === "error")
+    event.kind === "modelError" || (event.kind === "activity" && event.activity === "error")
   if (!failed) return false
 
   const provider = providerFromSelector(event.model ?? currentModel)

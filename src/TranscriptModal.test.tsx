@@ -6,6 +6,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { readSessionTranscript, openContentLink } from "./api"
 import { TranscriptModal } from "./TranscriptModal"
 import { useTranscript } from "./useTranscript"
+import { t, type Lang } from "./i18n"
 import { SEARCH_HIGHLIGHT_LIMIT } from "./transcriptSearch"
 import type { SessionSummary, SessionTranscript } from "./types"
 
@@ -45,8 +46,14 @@ let rowHeights: Map<number, number>
 let viewportWidth: number
 let resizeObservers: Set<() => void>
 
-function Harness({ hideSearchedEntries = false }: { hideSearchedEntries?: boolean }) {
-  const state = useTranscript("en")
+function Harness({
+  hideSearchedEntries = false,
+  lang = "en",
+}: {
+  hideSearchedEntries?: boolean
+  lang?: Lang
+}) {
+  const state = useTranscript(lang)
   const { loadTranscript } = state
   useEffect(() => {
     void loadTranscript(session)
@@ -66,7 +73,7 @@ function Harness({ hideSearchedEntries = false }: { hideSearchedEntries?: boolea
       </button>
       {state.transcriptSession && (
         <TranscriptModal
-          lang="en"
+          lang={lang}
           {...state}
           initialPosition={state.transcriptInitialPosition}
           transcriptSession={state.transcriptSession}
@@ -372,6 +379,21 @@ it("hides session details while reloading and after a failed read", async () => 
   vi.mocked(readSessionTranscript).mockResolvedValue(transcript)
   await click("Reread file")
   expect(container.querySelector<HTMLDetailsElement>(".session-details")?.open).toBe(false)
+})
+
+it("copies the loaded history-file path rather than the selected row's path", async () => {
+  const filePath = " /synthetic/loaded e\u0301/$&/history.jsonl "
+  vi.mocked(readSessionTranscript).mockResolvedValue({
+    ...transcript,
+    session: { ...session, filePath },
+  })
+  await click("Open transcript")
+  await act(async () => container.querySelector<HTMLElement>(".session-details summary")!.click())
+  const reads = vi.mocked(readSessionTranscript).mock.calls.length
+  await click("Copy history file path")
+  expect(writeText).toHaveBeenCalledExactlyOnceWith(filePath)
+  expect(readSessionTranscript).toHaveBeenCalledTimes(reads)
+  expect(openContentLink).not.toHaveBeenCalled()
 })
 
 it("does not carry expanded details to another history", async () => {
@@ -847,6 +869,83 @@ it("preserves a tall visible row through width invalidation, clamps shrinking co
   expect(container.querySelector('article[data-virtual-index="179"]')).not.toBeNull()
 })
 
+it.each([
+  { key: "Enter", shiftKey: false, isComposing: true, keyCode: 13, nextCount: "2 / 3" },
+  { key: "Enter", shiftKey: true, isComposing: true, keyCode: 13, nextCount: "3 / 3" },
+  { key: "Escape", shiftKey: false, isComposing: true, keyCode: 27, nextCount: "0 / 0" },
+  { key: "Enter", shiftKey: false, isComposing: false, keyCode: 229, nextCount: "2 / 3" },
+  { key: "Enter", shiftKey: true, isComposing: false, keyCode: 229, nextCount: "3 / 3" },
+  { key: "Escape", shiftKey: false, isComposing: false, keyCode: 229, nextCount: "0 / 0" },
+])(
+  "leaves marked search $key (shift=$shiftKey, composing=$isComposing, code=$keyCode) untouched",
+  async ({ key, shiftKey, isComposing, keyCode, nextCount }) => {
+    await searchFor("needle")
+    const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+    const scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+    const previousTop = scroll.scrollTop
+    const reads = vi.mocked(readSessionTranscript).mock.calls.length
+    act(() => input.focus())
+    const marked = new KeyboardEvent("keydown", {
+      key,
+      shiftKey,
+      isComposing,
+      keyCode,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => input.dispatchEvent(marked))
+    await flushFrames()
+    expect(marked.defaultPrevented).toBe(false)
+    expect(input.value).toBe("needle")
+    expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 3")
+    expect(currentOccurrence()?.dataset.matchIndex).toBe("0")
+    expect(scroll.scrollTop).toBe(previousTop)
+    expect(document.activeElement).toBe(input)
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(readSessionTranscript).toHaveBeenCalledTimes(reads)
+
+    const ordinary = new KeyboardEvent("keydown", {
+      key,
+      shiftKey,
+      bubbles: true,
+      cancelable: true,
+    })
+    await act(async () => input.dispatchEvent(ordinary))
+    await flushFrames()
+    expect(ordinary.defaultPrevented).toBe(true)
+    expect(input.value).toBe(key === "Escape" ? "" : "needle")
+    expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe(nextCount)
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(document.activeElement).toBe(input)
+    expect(readSessionTranscript).toHaveBeenCalledTimes(reads)
+  },
+)
+
+it("does not close an empty transcript search for a keyCode 229 Escape", async () => {
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
+  act(() => input.focus())
+  const marked = new KeyboardEvent("keydown", {
+    key: "Escape",
+    keyCode: 229,
+    bubbles: true,
+    cancelable: true,
+  })
+  await act(async () => input.dispatchEvent(marked))
+  expect(marked.defaultPrevented).toBe(false)
+  expect(input.value).toBe("")
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(document.activeElement).toBe(input)
+
+  const ordinary = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })
+  await act(async () => input.dispatchEvent(ordinary))
+  expect(ordinary.defaultPrevented).toBe(true)
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+})
+
 it("clears a focused transcript query on Escape before Escape closes the reader", async () => {
   await searchFor("needle")
   const input = container.querySelector<HTMLInputElement>('input[type="search"]')!
@@ -974,6 +1073,47 @@ it("consumes menu-item Tab in both directions but leaves outside Tab navigation 
   } finally {
     document.removeEventListener("keydown", downstream)
   }
+})
+
+it("keeps the transcript open when its link menu receives IME-marked keys", async () => {
+  await searchFor("needle")
+  await click("Next match")
+  await click("Next match")
+  const link = container.querySelector<HTMLAnchorElement>('a[href="local://needle.txt"]')!
+  act(() => {
+    link.focus()
+    link.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }))
+  })
+  const item = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!
+  expect(item).not.toBeNull()
+  for (const target of [link, item]) {
+    act(() => target.focus())
+    for (const key of ["Escape", "Tab", "ArrowDown", "ArrowUp"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        keyCode: 229,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => target.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(target)
+      expect(document.querySelector('[role="menu"]')).not.toBeNull()
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+    }
+  }
+  expect(openContentLink).not.toHaveBeenCalled()
+  expect(writeText).not.toHaveBeenCalled()
+  const escape = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })
+  act(() => item.dispatchEvent(escape))
+  expect(escape.defaultPrevented).toBe(true)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(document.activeElement).toBe(link)
 })
 
 it("navigates and wraps a million-match entry with bounded replacement windows through reindex and clear", async () => {
@@ -1408,3 +1548,101 @@ it.each([
     expect(writeText).toHaveBeenCalledTimes(1)
   },
 )
+
+it.each(["en", "ru"] as const)(
+  "keeps a refused search editable and recovers without rereading (%s)",
+  async (lang) => {
+    await act(async () => root.render(<Harness lang={lang} />))
+    await flushFrames()
+    await searchFor("needle")
+    await click(t(lang, "transcriptNextMatch"))
+    expect(currentOccurrence()).not.toBeNull()
+    const scroll = container.querySelector<HTMLElement>(".transcript-scroll")!
+    const previousTop = scroll.scrollTop
+    const reads = vi.mocked(readSessionTranscript).mock.calls.length
+    const query = "a".repeat(50_000)
+    const exec = RegExp.prototype.exec
+    vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (this: RegExp, text: string) {
+      if (this.source === query) throw new SyntaxError("synthetic compiler limit")
+      return exec.call(this, text)
+    })
+
+    await searchFor(query)
+    expect(scroll.scrollTop).toBe(previousTop)
+    const input = container.querySelector<HTMLInputElement>("input[type=search]")!
+    expect(input.value).toBe(query)
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")?.textContent).toBe(
+      t(lang, "transcriptSearchUnavailable"),
+    )
+    expect(container.textContent).not.toContain(t(lang, "transcriptNoMatches"))
+    expect(container.querySelector(".transcript-find-navigation [role=status]")).toBeNull()
+    expect(container.querySelectorAll("mark")).toHaveLength(0)
+    for (const label of ["transcriptPreviousMatch", "transcriptNextMatch"] as const) {
+      expect(
+        container.querySelector<HTMLButtonElement>(`[aria-label="${t(lang, label)}"]`)?.disabled,
+      ).toBe(true)
+    }
+    const top = scroll.scrollTop
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    })
+    await flushFrames()
+    expect(scroll.scrollTop).toBe(top)
+    await click(t(lang, "transcriptMatchCase"))
+    expect(input.value).toBe(query)
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")).not.toBeNull()
+
+    await searchFor("needle")
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")).toBeNull()
+    expect(container.querySelector(".transcript-find-navigation [role=status]")?.textContent).toBe(
+      "1 / 3",
+    )
+    expect(currentOccurrence()).not.toBeNull()
+    expect(vi.mocked(readSessionTranscript).mock.calls.length).toBe(reads)
+    expect(writeText).not.toHaveBeenCalled()
+    expect(openContentLink).not.toHaveBeenCalled()
+
+    await searchFor(query)
+    await click(t(lang, "clearSearch"))
+    expect(input.value).toBe("")
+    expect(container.querySelector(".transcript-find-navigation [role=alert]")).toBeNull()
+    expect(container.querySelector(".transcript-find-navigation [role=status]")?.textContent).toBe(
+      "0 / 0",
+    )
+    expect(container.querySelectorAll("mark")).toHaveLength(0)
+    await click(t(lang, "close"))
+    expect(container.querySelector('[role="dialog"]')).toBeNull()
+  },
+)
+
+it("preserves reader actions after an offscreen Markdown failure", async () => {
+  const source = "> ".repeat(8000) + "UNIQUE_FALLBACK_NEEDLE"
+  const entries = transcript.entries.map((entry, index) =>
+    index === 120 ? { ...entry, text: source, dialogueText: source } : entry,
+  )
+  vi.mocked(readSessionTranscript).mockResolvedValue({ ...transcript, entries })
+  await click("Reread file")
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull()
+  expect(container.querySelector('[data-virtual-index="120"]')).toBeNull()
+  await searchFor("UNIQUE_FALLBACK_NEEDLE")
+  expect(currentOccurrence()?.textContent).toBe("UNIQUE_FALLBACK_NEEDLE")
+  expect(container.querySelector('[data-virtual-index="120"] .markdown-source')?.textContent).toBe(
+    source,
+  )
+  const failedEntry = container.querySelector<HTMLElement>('[data-virtual-index="120"]')!
+  const copyText = failedEntry.querySelector<HTMLButtonElement>('[aria-label="Copy text"]')!
+  const copyMarkdown = failedEntry.querySelector<HTMLButtonElement>('[aria-label="Copy Markdown"]')!
+  await act(async () => copyText.click())
+  expect(writeText).toHaveBeenLastCalledWith(source)
+  await act(async () => copyMarkdown.click())
+  expect(writeText).toHaveBeenLastCalledWith(source)
+  await click("Source")
+  expect(container.querySelector('[data-virtual-index="120"] .markdown-source')?.textContent).toBe(
+    source,
+  )
+  await click("Formatted")
+  expect(currentOccurrence()?.textContent).toBe("UNIQUE_FALLBACK_NEEDLE")
+  await click("Close")
+  expect(container.querySelector('[role="dialog"]')).toBeNull()
+  expect(container.querySelector("button")?.textContent).toBe("Open transcript")
+})

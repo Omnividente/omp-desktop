@@ -75,6 +75,13 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      - name: Test terminal UTF-8 adaptation
+        run: npm run test:xterm-utf8
+
+      # Build-time xterm adaptations must compose against the locked npm bundle.
+      - name: Build frontend
+        run: npm run build
+
       - name: Test release asset gate
         run: npm run test:release-assets
 
@@ -89,6 +96,14 @@ jobs:
       - name: Test Rust
         working-directory: src-tauri
         run: cargo test
+
+      - name: Test isolated native PTY lifecycle
+        working-directory: src-tauri
+        run: cargo test --lib terminal::tests::native_lifecycle::native_pty_exit_stop_reclose_boundary -- --ignored --exact --test-threads=1
+
+      - name: Test interrupted deletion and settings recovery
+        working-directory: src-tauri
+        run: cargo test --lib session_deletion::tests::boundary_tests::interrupted_deletion_and_settings_restart_matrix -- --ignored --exact --test-threads=1
 
       - name: Check updater E2E feature
         working-directory: src-tauri

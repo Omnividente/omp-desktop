@@ -33,7 +33,7 @@ export function ContentActionMenu({ left, top, actions, onDismiss }: ContentActi
       if (!(event.target instanceof Node) || !menuRef.current?.contains(event.target)) dismiss()
     }
     const keyboard = (event: KeyboardEvent) => {
-      if (event.isComposing) return
+      if (event.isComposing || event.keyCode === 229) return
       if (event.key === "Escape") {
         event.preventDefault()
         event.stopPropagation()

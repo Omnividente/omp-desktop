@@ -15,6 +15,7 @@ import type {
   BootstrapPayload,
   DesktopUpdateStatus,
   ResourceHealthSnapshot,
+  SessionTranscript,
   SettingsSavePayload,
   ImportBatchPayload,
   ImportSessionRequest,
@@ -27,6 +28,7 @@ import type {
 
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
+const terminalReady = vi.hoisted(() => new Map<string, (terminalId: string) => void>())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
@@ -74,17 +76,22 @@ vi.mock("./TerminalView", () => ({
     tab,
     active,
     focusRequestSequence,
+    onReady,
   }: {
     tab: TerminalTab
     active: boolean
     focusRequestSequence: number
-  }) => (
-    <div
-      data-terminal-id={tab.id}
-      data-active={active}
-      data-focus-sequence={focusRequestSequence}
-    />
-  ),
+    onReady: (terminalId: string) => void
+  }) => {
+    terminalReady.set(tab.id, onReady)
+    return (
+      <div
+        data-terminal-id={tab.id}
+        data-active={active}
+        data-focus-sequence={focusRequestSequence}
+      />
+    )
+  },
 }))
 
 ;(
@@ -486,6 +493,74 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
   })
 
+  it.each(["other", "current", "round-trip", "session"] as const)(
+    "keeps an explicit %s tab choice when a pending terminal starts",
+    async (choice) => {
+      await mountAndResume()
+      const second = { ...started, terminalId: "terminal-2", processId: 102 }
+      vi.mocked(api.startTerminal).mockResolvedValueOnce(second)
+      await act(async () => element(".new-tab-button").click())
+      const firstPane = element('[data-terminal-id="terminal-1"]')
+      const secondPane = element('[data-terminal-id="terminal-2"]')
+      const pending = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+      await act(async () => element(".new-tab-button").click())
+      const tabSelector = ".terminal-tab > button:first-child"
+      const tabButtons = [...container.querySelectorAll<HTMLButtonElement>(tabSelector)]
+      expect(tabButtons).toHaveLength(2)
+      expect(tabButtons.every((button) => !button.disabled)).toBe(true)
+      if (choice === "session") {
+        await act(async () => element(".session-select").click())
+      } else {
+        await act(async () => tabButtons[choice === "current" ? 1 : 0].click())
+        if (choice === "round-trip") await act(async () => tabButtons[1].click())
+      }
+      const expected = choice === "current" || choice === "round-trip" ? secondPane : firstPane
+      expect(expected.getAttribute("data-active")).toBe("true")
+      await act(async () =>
+        pending.resolve({ ...started, terminalId: "terminal-3", processId: 103 }),
+      )
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(3)
+      expect(element('[data-terminal-id="terminal-1"]')).toBe(firstPane)
+      expect(element('[data-terminal-id="terminal-2"]')).toBe(secondPane)
+      expect(expected.getAttribute("data-active")).toBe("true")
+      const thirdPane = element('[data-terminal-id="terminal-3"]')
+      expect(thirdPane.getAttribute("data-active")).toBe("false")
+      expect(api.startTerminal).toHaveBeenCalledTimes(3)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+      const thirdTab = container.querySelectorAll<HTMLButtonElement>(tabSelector)[2]
+      await act(async () => thirdTab.click())
+      expect(thirdPane.getAttribute("data-active")).toBe("true")
+    },
+  )
+
+  it("still activates a pending launch after its early session discovery", async () => {
+    await mountAndResume()
+    const pending = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+    await act(async () => element(".new-tab-button").click())
+    const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")
+    expect(subscription).toBeDefined()
+    const receive = subscription![1] as EventCallback<PtySessionEvent>
+    const discovered = {
+      ...bootstrap.sessions[0],
+      id: "early-session",
+      title: "Early synthetic session",
+      filePath: "C:/fixture/sessions/early.jsonl",
+    }
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: "terminal-2", session: discovered },
+      }),
+    )
+    await act(async () => pending.resolve({ ...started, terminalId: "terminal-2", processId: 102 }))
+    expect(element('[data-terminal-id="terminal-2"]').getAttribute("data-active")).toBe("true")
+    expect(element(".terminal-tab.is-active").textContent).toContain(discovered.title)
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
@@ -594,6 +669,84 @@ describe("App lifecycle serialization", () => {
       expect(container.querySelector(".empty-workspace")).not.toBeNull()
       expect(api.startTerminal).not.toHaveBeenCalled()
       expect(open).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each([
+    ["expanded", "ru", ".project-actions button:first-child"],
+    ["expanded", "ru", ".project-remove"],
+    ["expanded", "en", ".project-actions button:first-child"],
+    ["expanded", "en", ".project-remove"],
+    ["autoHide", "ru", ".project-actions button:first-child"],
+    ["autoHide", "ru", ".project-remove"],
+    ["autoHide", "en", ".project-actions button:first-child"],
+    ["autoHide", "en", ".project-remove"],
+  ] as const)(
+    "keeps focus visible when collapsing %s from a project action in %s (%s)",
+    async (railMode, language, selector) => {
+      const initial = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, railMode, language },
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue(initial)
+      vi.mocked(api.saveSettingsBundle).mockResolvedValue({
+        bootstrap: { ...initial, settings: { ...initial.settings, railMode: "collapsed" } },
+        ompConfig: null,
+      })
+      await act(async () => root.render(<App />))
+      act(() => element(".rail-open-folder").focus())
+      const action = element(selector)
+      act(() => action.focus())
+      const rail = element<HTMLElement>(".project-rail")
+      expect(rail.classList.contains("is-revealed")).toBe(true)
+      expect(document.activeElement).toBe(action)
+      const selected = element(".project-item.is-active")
+      const collapse = new KeyboardEvent("keydown", {
+        code: "KeyB",
+        ctrlKey: language === "ru",
+        metaKey: language === "en",
+        bubbles: true,
+        cancelable: true,
+      })
+      await act(async () => action.dispatchEvent(collapse))
+      expect(collapse.defaultPrevented).toBe(true)
+      expect(rail.classList.contains("is-compact")).toBe(true)
+      expect(document.activeElement).toBe(element(".rail-open-folder"))
+      expect(element(".project-item.is-active")).toBe(selected)
+      expect(container.querySelector(".project-rename")).toBeNull()
+      expect(confirm).not.toHaveBeenCalled()
+      expect(open).not.toHaveBeenCalled()
+      expect(api.removeWorkspace).not.toHaveBeenCalled()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      if (railMode === "expanded") {
+        expect(api.saveSettingsBundle).toHaveBeenCalledExactlyOnceWith({
+          update: { railMode: "collapsed" },
+          ompConfig: null,
+        })
+      } else {
+        expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+      }
+    },
+  )
+
+  it.each([".project-item.is-active", ".rail-open-folder", ".workspace-skip-link"])(
+    "does not redirect surviving focus when collapsing from %s",
+    async (selector) => {
+      vi.mocked(api.saveSettingsBundle).mockResolvedValue({
+        bootstrap: { ...bootstrap, settings: { ...bootstrap.settings, railMode: "collapsed" } },
+        ompConfig: null,
+      })
+      await act(async () => root.render(<App />))
+      const target = element(selector)
+      act(() => target.focus())
+      await act(async () =>
+        target.dispatchEvent(
+          new KeyboardEvent("keydown", { code: "KeyB", ctrlKey: true, bubbles: true }),
+        ),
+      )
+      expect(element(".project-rail").classList.contains("is-compact")).toBe(true)
+      expect(document.activeElement).toBe(target)
+      expect(api.startTerminal).not.toHaveBeenCalled()
     },
   )
 
@@ -944,6 +1097,7 @@ describe("App lifecycle serialization", () => {
     previousDocumentLanguage = document.documentElement.getAttribute("lang")
     vi.clearAllMocks()
     invokeMock.mockReset()
+    terminalReady.clear()
     vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
@@ -1176,6 +1330,100 @@ describe("App lifecycle serialization", () => {
     })
     await act(async () => root.render(<App />))
   }
+
+  it.each(
+    (["ctrlKey", "metaKey"] as const).flatMap((modifier) =>
+      (["KeyN", "KeyW", "KeyB", "KeyO"] as const).map((code) => ({ modifier, code })),
+    ),
+  )(
+    "blocks $modifier $code during Settings recovery and restores it after Retry",
+    async ({ modifier, code }) => {
+      await mountAndResume()
+      vi.mocked(confirm).mockResolvedValue(false)
+      vi.mocked(open).mockResolvedValue(null)
+      vi.mocked(api.saveSettingsBundle).mockResolvedValue({ bootstrap, ompConfig: null })
+      vi.mocked(api.startTerminal).mockResolvedValue({ ...started, terminalId: "terminal-2" })
+      vi.mocked(api.bootstrap).mockRejectedValueOnce({
+        code: "settings_unavailable",
+        message: "Settings unavailable",
+        details: "Synthetic background read failure",
+        settingsPath: "C:/fixture/settings.json",
+        backupPath: null,
+        failureStage: "read",
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(
+          ([event]) => event === "single-instance",
+        )![1] as EventCallback<SingleInstanceEvent>
+      await act(async () =>
+        receive({ event: "single-instance", id: 41, payload: { workspace: null, error: null } }),
+      )
+      const screen = element<HTMLElement>(".settings-recovery-screen")
+      expect(document.activeElement).toBe(screen)
+      expect(container.querySelector(".terminal-pane")).toBeNull()
+      const shortcut = () =>
+        new KeyboardEvent("keydown", {
+          code,
+          [modifier]: true,
+          shiftKey: code === "KeyO",
+          bubbles: true,
+          cancelable: true,
+        })
+      for (const pending of [false, true]) {
+        const retry = pending ? deferred<BootstrapPayload>() : null
+        if (retry) {
+          vi.mocked(api.bootstrap).mockReturnValueOnce(retry.promise)
+          act(() => element(".settings-recovery-actions button:nth-child(2)").click())
+        }
+        try {
+          const event = shortcut()
+          await act(async () => screen.dispatchEvent(event))
+          expect(event.defaultPrevented).toBe(false)
+          expect(api.startTerminal).toHaveBeenCalledTimes(1)
+          expect(confirm).not.toHaveBeenCalled()
+          expect(open).not.toHaveBeenCalled()
+          expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+          const commands = invokeMock.mock.calls.map(([command]) => command)
+          expect(commands).not.toContain("close_terminal")
+          expect(container.querySelector(".settings-recovery-screen")).toBe(screen)
+        } finally {
+          if (retry) await act(async () => retry.resolve(bootstrap))
+        }
+      }
+      expect(container.querySelector(".settings-recovery-screen")).toBeNull()
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+      const event = shortcut()
+      await act(async () => element(".app-shell").dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(true)
+      if (code === "KeyN") expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      else if (code === "KeyW") expect(confirm).toHaveBeenCalledTimes(1)
+      else if (code === "KeyO") expect(open).toHaveBeenCalledTimes(1)
+      else
+        expect(api.saveSettingsBundle).toHaveBeenCalledExactlyOnceWith({
+          update: { railMode: "collapsed" },
+          ompConfig: null,
+        })
+    },
+  )
+
+  it.each(["ctrlKey", "metaKey"] as const)(
+    "does not open a project picker from initial Settings recovery with %s",
+    async (modifier) => {
+      await mountSettingsRecovery()
+      const event = new KeyboardEvent("keydown", {
+        code: "KeyO",
+        [modifier]: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+      })
+      await act(async () => element(".settings-recovery-screen").dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(open).not.toHaveBeenCalled()
+      expect(api.addWorkspace).not.toHaveBeenCalled()
+    },
+  )
 
   it("reports a rejected recovery confirmation without sending defaults", async () => {
     await mountSettingsRecovery()
@@ -2785,6 +3033,117 @@ describe("App lifecycle serialization", () => {
     expect(container.querySelector(".codex-import-panel")).toBeNull()
   })
 
+  describe("Codex discovery ownership", () => {
+    type Discovery = Awaited<ReturnType<typeof api.listCodexSessions>>
+    const discovered = (id: string): Discovery => [
+      {
+        id,
+        title: `Discovery ${id}`,
+        cwd: "C:/fixture/project",
+        filePath: `C:/fixture/codex/${id}.jsonl`,
+        createdAt: "2026-11-09T00:00:00.000Z",
+        updatedAt: 1,
+        model: null,
+        preview: "Synthetic discovery",
+      },
+    ]
+    const openImport = () => element('[title="Импорт из Codex"]').click()
+    const closeImport = () => element(".codex-import-panel .settings-header button").click()
+    const selectedInput = () => element<HTMLInputElement>(".codex-item input")
+
+    async function discoveryFixture() {
+      const scans: ReturnType<typeof deferred<Discovery>>[] = []
+      const list = vi.spyOn(api, "listCodexSessions").mockImplementation(() => {
+        const scan = deferred<Discovery>()
+        scans.push(scan)
+        return scan.promise
+      })
+      await act(async () =>
+        root.render(
+          <StrictMode>
+            <App />
+          </StrictMode>,
+        ),
+      )
+      expect(list).not.toHaveBeenCalled()
+      await act(async () => openImport())
+      expect(list).toHaveBeenCalledTimes(1)
+      return { scans, list }
+    }
+
+    it("preserves a newer scan and selection when a closed scan resolves late", async () => {
+      const { scans, list } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      expect(list).toHaveBeenCalledTimes(2)
+      await act(async () => scans[1].resolve(discovered("new")))
+      await act(async () => selectedInput().click())
+      expect(selectedInput().checked).toBe(true)
+      await act(async () => scans[0].resolve(discovered("old")))
+      expect(element(".codex-list").textContent).toContain("Discovery new")
+      expect(element(".codex-list").textContent).not.toContain("Discovery old")
+      expect(selectedInput().checked).toBe(true)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(false)
+      expect(invokeMock.mock.calls.filter(([command]) => command === "import_sessions")).toEqual([])
+    })
+
+    it("keeps the current scan loading after an obsolete scan finishes", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      await act(async () => scans[0].resolve(discovered("old")))
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("true")
+      expect(container.querySelectorAll(".codex-item")).toHaveLength(0)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+      await act(async () => scans[1].resolve(discovered("current")))
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("false")
+      expect(element(".codex-list").textContent).toContain("Discovery current")
+    })
+
+    it("ignores an obsolete scan error but reports the current error", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      await act(async () => scans[0].reject(new Error("Obsolete discovery failure")))
+      expect(container.textContent).not.toContain("Obsolete discovery failure")
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("true")
+      await act(async () => scans[1].reject(new Error("Current discovery failure")))
+      expect(container.textContent).toContain("Current discovery failure")
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("false")
+    })
+
+    it("does not report a scan failure after the import dialog closes", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => closeImport())
+      await act(async () => scans[0].reject(new Error("Closed discovery failure")))
+      expect(container.querySelector(".codex-import-panel")).toBeNull()
+      expect(container.textContent).not.toContain("Closed discovery failure")
+    })
+
+    it("clears a previous selection before a reopened scan can fail", async () => {
+      const { scans } = await discoveryFixture()
+      await act(async () => scans[0].resolve(discovered("previous")))
+      await act(async () => selectedInput().click())
+      await act(async () => closeImport())
+      await act(async () => openImport())
+      expect(container.querySelectorAll(".codex-item")).toHaveLength(0)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+      await act(async () => scans[1].reject(new Error("Current discovery failure")))
+      expect(container.querySelectorAll(".codex-item")).toHaveLength(0)
+      expect(element<HTMLButtonElement>(".codex-import-panel .primary").disabled).toBe(true)
+    })
+
+    it("leaves an already open import view and selection alone on repeated open", async () => {
+      const { scans, list } = await discoveryFixture()
+      await act(async () => scans[0].resolve(discovered("selected")))
+      await act(async () => selectedInput().click())
+      await act(async () => openImport())
+      expect(list).toHaveBeenCalledTimes(1)
+      expect(selectedInput().checked).toBe(true)
+      expect(element(".codex-list").getAttribute("aria-busy")).toBe("false")
+    })
+  })
+
   async function openImportFeedbackFixture(count = 4) {
     const sources = Array.from({ length: count }, (_, index) => `C:/fixture/codex/${index}.jsonl`)
     const batches: ImportSessionRequest[][] = []
@@ -3060,6 +3419,156 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each(["success", "failure"] as const)(
+    "keeps Settings in control after a superseded Home history %s",
+    async (outcome) => {
+      const pending = deferred<SessionTranscript>()
+      invokeMock.mockImplementation((command: string) => {
+        if (command === "read_session_transcript") return pending.promise
+        throw new Error(`Unexpected Home reader command: ${command}`)
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".recent-read").click())
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(invokeMock).toHaveBeenCalledWith(
+        "read_session_transcript",
+        { path: bootstrap.sessions[0].filePath },
+        undefined,
+      )
+      await act(async () => element('[title="Настройки"]').click())
+      const input = element<HTMLInputElement>("#app-font-family")
+      act(() => input.focus())
+      await act(async () => {
+        if (outcome === "failure") pending.reject(new Error("Superseded Home history"))
+        else
+          pending.resolve({
+            session: bootstrap.sessions[0],
+            entries: [],
+            updatedAt: 1,
+            truncated: false,
+            malformedRecords: 0,
+            incompleteLastRecord: false,
+          })
+      })
+      expect(container.querySelector(".transcript-panel")).toBeNull()
+      expect(container.querySelectorAll('[aria-modal="true"]')).toHaveLength(1)
+      expect(document.activeElement).toBe(input)
+      expect(container.textContent).not.toContain("Superseded Home history")
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+    },
+  )
+
+  it("keeps old history dismissed after Settings closes and allows a fresh read", async () => {
+    const pending = deferred<SessionTranscript>()
+    const loaded: SessionTranscript = {
+      session: bootstrap.sessions[0],
+      entries: [],
+      updatedAt: 1,
+      truncated: false,
+      malformedRecords: 0,
+      incompleteLastRecord: false,
+    }
+    let reads = 0
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "read_session_transcript") {
+        reads++
+        return reads === 1 ? pending.promise : Promise.resolve(loaded)
+      }
+      throw new Error(`Unexpected Home reader command: ${command}`)
+    })
+    await act(async () => root.render(<App />))
+    const read = element(".recent-read")
+    await act(async () => read.click())
+    await act(async () => element(".runtime-pill").click())
+    await act(async () => element(".settings-actions .secondary").click())
+    expect(container.querySelector('[aria-modal="true"]')).toBeNull()
+    await act(async () => pending.resolve(loaded))
+    expect(container.querySelector(".transcript-panel")).toBeNull()
+    await act(async () => read.click())
+    expect(reads).toBe(2)
+    expect(element(".transcript-panel").textContent).toContain(loaded.session.title)
+    expect(api.startTerminal).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["en", "new"],
+    ["ru", "new"],
+    ["en", "pending"],
+    ["ru", "pending"],
+    ["en", "ready"],
+    ["ru", "ready"],
+  ] as const)(
+    "preserves the literal reread path in terminal input (%s, %s)",
+    async (language, lifecycle) => {
+      const paths = [
+        "C:/fixture/ordinary.jsonl",
+        "C:/fixture/price-$$5.jsonl",
+        "/synthetic/A $& B/history.jsonl",
+        "C:/fixture/A $` B.jsonl",
+        "/synthetic/A $' B/history.jsonl",
+        "/synthetic/Проект 👩🏽‍💻 {path} $1/history.jsonl",
+      ]
+      for (const filePath of paths) {
+        const session = { ...bootstrap.sessions[0], filePath }
+        vi.mocked(api.bootstrap).mockResolvedValue({
+          ...bootstrap,
+          settings: { ...bootstrap.settings, language },
+          sessions: [session],
+        })
+        vi.mocked(api.startTerminal).mockClear()
+        invokeMock.mockClear().mockImplementation((command: string) => {
+          if (command === "write_terminal") return Promise.resolve()
+          if (command === "read_session_transcript") {
+            return Promise.resolve({
+              session,
+              entries: [],
+              updatedAt: 1,
+              truncated: false,
+              malformedRecords: 0,
+              incompleteLastRecord: false,
+            })
+          }
+          throw new Error(`Unexpected reread fixture command: ${command}`)
+        })
+        terminalReady.clear()
+        await act(async () => root.render(<App />))
+        if (lifecycle !== "new") {
+          await act(async () => element(".recent-resume").click())
+          if (lifecycle === "ready") {
+            await act(async () => terminalReady.get(started.terminalId)!(started.terminalId))
+          }
+        }
+        await act(async () => element(".session-transcript").click())
+        await act(async () => element(".transcript-reread-button").click())
+        expect(container.querySelector(".transcript-panel")).toBeNull()
+        expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+          session.cwd,
+          filePath,
+          120,
+          36,
+          null,
+          false,
+        )
+        const writes = () =>
+          invokeMock.mock.calls.filter(([command]) => command === "write_terminal")
+        expect(writes()).toHaveLength(lifecycle === "ready" ? 1 : 0)
+        await act(async () => terminalReady.get(started.terminalId)!(started.terminalId))
+        await act(async () => terminalReady.get(started.terminalId)!(started.terminalId))
+        expect(writes()).toEqual([
+          [
+            "write_terminal",
+            {
+              terminalId: started.terminalId,
+              data: `${t(language, "transcriptRereadPrompt").split("{path}").join(filePath)}\r`,
+            },
+            undefined,
+          ],
+        ])
+        await act(async () => root.render(null))
+      }
+    },
+  )
   it("closes a transcript when external refresh removes its session", async () => {
     vi.mocked(api.bootstrap)
       .mockResolvedValueOnce(bootstrap)
@@ -3666,6 +4175,68 @@ describe("App lifecycle serialization", () => {
       ).toBeGreaterThan(before)
       expect(container.querySelector(".terminal-tab-picker input")).toBe(input)
       expect(document.activeElement).toBe(input)
+    },
+  )
+
+  it.each(["error", "string"] as const)(
+    "reports a rejected recovery confirmation (%s) without marking the input as sent",
+    async (failureKind) => {
+      const initial = config("Initial")
+      const alternate = config("Alternate").models[0]
+      vi.mocked(api.loadOmpConfig).mockResolvedValue({
+        ...initial,
+        models: [...initial.models, alternate],
+      })
+      const recovery = {
+        terminalId: started.terminalId,
+        generation: 3,
+        token: "synthetic-confirmation-recovery",
+        byteCount: 25,
+        state: "pending" as const,
+      }
+      vi.mocked(api.switchTerminal).mockRejectedValue({
+        code: "terminal_switch_input_recovery",
+        message: "Preserved draft",
+        recovery,
+      })
+      const confirmation = deferred<boolean>()
+      vi.mocked(confirm).mockReturnValueOnce(confirmation.promise)
+      await mountAndResume()
+      await act(async () => {
+        const selector = element<HTMLSelectElement>(".session-model-select")
+        selector.value = alternate.selector
+        selector.dispatchEvent(new Event("change", { bubbles: true }))
+      })
+      const buttons = () =>
+        element(".switch-input-recovery-actions").querySelectorAll<HTMLButtonElement>("button")
+      const focusSequence = element<HTMLElement>("[data-terminal-id]").dataset.focusSequence
+      await act(async () => buttons()[0].click())
+      expect(api.sendSwitchInputRecovery).not.toHaveBeenCalled()
+      const message = "Synthetic recovery confirmation unavailable"
+      await act(async () =>
+        confirmation.reject(failureKind === "error" ? new Error(message) : message),
+      )
+      expect(container.querySelector(".error-toast")?.textContent).toContain(message)
+      expect(container.querySelector(".switch-input-recovery.is-failedSend")).toBeNull()
+      expect(buttons()[0].disabled).toBe(false)
+      expect(buttons()[1].disabled).toBe(false)
+      expect(element<HTMLElement>("[data-terminal-id]").dataset.focusSequence).toBe(focusSequence)
+      expect(api.sendSwitchInputRecovery).not.toHaveBeenCalled()
+      expect(api.discardSwitchInputRecovery).not.toHaveBeenCalled()
+
+      vi.mocked(confirm).mockResolvedValueOnce(false)
+      await act(async () => buttons()[0].click())
+      expect(api.sendSwitchInputRecovery).not.toHaveBeenCalled()
+      expect(buttons()[0].disabled).toBe(false)
+
+      await act(async () => buttons()[0].click())
+      expect(api.sendSwitchInputRecovery).toHaveBeenCalledExactlyOnceWith(
+        started.terminalId,
+        recovery.generation,
+        recovery.token,
+      )
+      expect(api.discardSwitchInputRecovery).not.toHaveBeenCalled()
+      expect(container.querySelector(".switch-input-recovery")).toBeNull()
     },
   )
 
@@ -4879,6 +5450,83 @@ describe("App lifecycle serialization", () => {
     expect(fixture.batches[1].map((x) => x.path)).toEqual([fixture.sources[1]])
     expect(api.startTerminal).not.toHaveBeenCalled()
   })
+
+  it.each(["en", "ru"] as const)(
+    "preserves literal names in removal and deletion confirmations (%s)",
+    async (language) => {
+      const labels = [
+        "Ordinary name",
+        "Price $$5",
+        "A $& B",
+        "A $` B",
+        "A $' B",
+        "Проект 👩🏽‍💻 {name} {title} $1",
+      ]
+      vi.mocked(confirm).mockResolvedValue(false)
+      for (const label of labels) {
+        vi.mocked(api.bootstrap).mockResolvedValue({
+          ...bootstrap,
+          settings: { ...bootstrap.settings, language },
+          workspaces: [{ ...bootstrap.workspaces[0], name: label }],
+          sessions: [{ ...bootstrap.sessions[0], title: label }],
+        })
+        await act(async () => root.render(<App />))
+        await act(async () => element(".project-item-row.is-active .project-remove").click())
+        const projectTemplate = t(language, "removeProjectConfirm").split("{name}")
+        expect(confirm).toHaveBeenLastCalledWith(projectTemplate.join(label), {
+          title: t(language, "removeProject"),
+          kind: "warning",
+        })
+        await act(async () => element(".session-delete").click())
+        const sessionTemplate = t(language, "deleteSessionConfirm").split("{title}")
+        expect(confirm).toHaveBeenLastCalledWith(sessionTemplate.join(label), {
+          title: t(language, "deleteSession"),
+          kind: "warning",
+        })
+        await act(async () => root.render(null))
+      }
+      expect(confirm).toHaveBeenCalledTimes(labels.length * 2)
+      expect(api.removeWorkspace).not.toHaveBeenCalled()
+      expect(api.deleteSession).not.toHaveBeenCalled()
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["en", "ru"] as const)(
+    "keeps confirmed removal and deletion bound to their original paths (%s)",
+    async (language) => {
+      const name = "Synthetic $& $$ $` $' {name} {title}"
+      const target = {
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language },
+        workspaces: [{ ...bootstrap.workspaces[0], name }],
+        sessions: [{ ...bootstrap.sessions[0], title: name }],
+      }
+      vi.mocked(api.bootstrap).mockResolvedValue(target)
+      vi.mocked(api.removeWorkspace).mockResolvedValue({
+        ...target,
+        workspaces: [],
+        sessions: [],
+      })
+      vi.mocked(api.deleteSession).mockResolvedValue({ ...target, sessions: [] })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".project-item-row.is-active .project-remove").click())
+      expect(confirm).toHaveBeenLastCalledWith(
+        t(language, "removeProjectConfirm").split("{name}").join(name),
+        { title: t(language, "removeProject"), kind: "warning" },
+      )
+      expect(api.removeWorkspace).toHaveBeenCalledExactlyOnceWith(target.workspaces[0].path)
+      await act(async () => root.render(null))
+      await act(async () => root.render(<App />))
+      await act(async () => element(".session-delete").click())
+      expect(confirm).toHaveBeenLastCalledWith(
+        t(language, "deleteSessionConfirm").split("{title}").join(name),
+        { title: t(language, "deleteSession"), kind: "warning" },
+      )
+      expect(api.deleteSession).toHaveBeenCalledExactlyOnceWith(target.sessions[0].filePath, false)
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
 
   it("reports a rejected workspace removal dialog without mutating the workspace", async () => {
     const projects = workspacePayload("A", "B")

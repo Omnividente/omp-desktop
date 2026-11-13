@@ -208,6 +208,10 @@ pub(crate) fn apply_session_title_pin(
     session: &mut SessionSummary,
     pins: &BTreeMap<String, String>,
 ) {
+    if pins.is_empty() {
+        session.pinned_title = None;
+        return;
+    }
     session.pinned_title = pins
         .get(&path_key(&session.file_path))
         .or_else(|| pins.get(&lexical_path_key(&session.file_path)))
@@ -221,6 +225,10 @@ pub(crate) fn apply_session_primary_provider_pin(
     session: &mut SessionSummary,
     pins: &BTreeSet<String>,
 ) {
+    if pins.is_empty() {
+        session.primary_provider_pinned = false;
+        return;
+    }
     session.primary_provider_pinned = pins.contains(&path_key(&session.file_path))
         || pins.contains(&lexical_path_key(&session.file_path));
 }
@@ -500,6 +508,42 @@ fn set_private_directory_permissions(path: &Path) -> io::Result<()> {
     set_private_windows_acl(path, true)
 }
 
+// Win32 ACL and rename APIs require an absolute verbatim path for long names.
+// Convert only at the FFI boundary; persisted filesystem identities stay unchanged.
+#[cfg(windows)]
+pub(crate) fn windows_api_path(path: &Path) -> io::Result<Vec<u16>> {
+    use std::{
+        os::windows::ffi::OsStrExt,
+        path::{Component, Prefix},
+    };
+
+    let absolute = std::path::absolute(path)?;
+    let (prefix, skip) = match absolute.components().next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(_) => (r"\\?\", 0),
+            Prefix::UNC(_, _) => (r"\\?\UNC\", 2),
+            _ => ("", 0),
+        },
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Windows path has no prefix",
+            ))
+        }
+    };
+    let mut wide = Vec::with_capacity(absolute.as_os_str().len() + prefix.len() + 1);
+    wide.extend(prefix.encode_utf16());
+    wide.extend(absolute.as_os_str().encode_wide().skip(skip).map(|unit| {
+        if unit == u16::from(b'/') {
+            u16::from(b'\\')
+        } else {
+            unit
+        }
+    }));
+    wide.push(0);
+    Ok(wide)
+}
+
 #[cfg(windows)]
 fn current_process_user_sid(
     storage: &mut Vec<usize>,
@@ -580,7 +624,7 @@ fn well_known_windows_sid(
 
 #[cfg(windows)]
 fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
-    use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
+    use std::{ffi::c_void, ptr};
     use windows_sys::Win32::{
         Foundation::{LocalFree, ERROR_SUCCESS},
         Security::{
@@ -630,11 +674,7 @@ fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
         }
     }
 
-    let path = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    let path = windows_api_path(path)?;
     let mut current_user_storage = Vec::new();
     let current_user = current_process_user_sid(&mut current_user_storage)?;
     let mut system_storage = [0_u32; 17];
@@ -681,7 +721,7 @@ fn set_private_windows_acl(path: &Path, directory: bool) -> io::Result<()> {
 pub(crate) fn windows_private_acl_summary(
     path: &Path,
 ) -> io::Result<(bool, u32, bool, bool, bool)> {
-    use std::{ffi::c_void, os::windows::ffi::OsStrExt, ptr};
+    use std::{ffi::c_void, ptr};
     use windows_sys::Win32::{
         Foundation::{LocalFree, ERROR_SUCCESS},
         Security::{
@@ -707,11 +747,7 @@ pub(crate) fn windows_private_acl_summary(
         }
     }
 
-    let path = path
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    let path = windows_api_path(path)?;
     let mut dacl = ptr::null_mut();
     let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
     let status = unsafe {
@@ -792,12 +828,12 @@ pub(crate) fn windows_private_acl_summary(
 }
 
 #[cfg(unix)]
-fn sync_parent_directory(parent: &Path) -> io::Result<()> {
+pub(crate) fn sync_parent_directory(parent: &Path) -> io::Result<()> {
     fs::File::open(parent)?.sync_all()
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
+pub(crate) fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
@@ -808,8 +844,6 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
 
 #[cfg(windows)]
 fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-
     const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
     const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
 
@@ -822,16 +856,8 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
         ) -> i32;
     }
 
-    let temporary = temporary
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect::<Vec<_>>();
+    let temporary = windows_api_path(temporary)?;
+    let destination = windows_api_path(destination)?;
     let moved = unsafe {
         MoveFileExW(
             temporary.as_ptr(),
@@ -872,7 +898,11 @@ pub fn validated_session_file(path: &str, session_root: &Path) -> Result<PathBuf
     Ok(file)
 }
 
-pub fn delete_session(path: &str, session_root: &Path, lease: &SessionLease) -> Result<(), String> {
+pub(crate) fn delete_session(
+    path: &str,
+    session_root: &Path,
+    lease: &SessionLease,
+) -> Result<crate::session_deletion::DeleteOutcome, String> {
     let _import_guard = IMPORT_TRANSACTION_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -896,26 +926,7 @@ pub fn delete_session(path: &str, session_root: &Path, lease: &SessionLease) -> 
         ));
     }
 
-    let artifact_dir = file.with_extension("");
-    if let Ok(metadata) = fs::symlink_metadata(&artifact_dir) {
-        if metadata.file_type().is_symlink() {
-            fs::remove_file(&artifact_dir).map_err(|error| {
-                format!(
-                    "Не удалось удалить ссылку на артефакты {}: {error}",
-                    artifact_dir.display()
-                )
-            })?;
-        } else if metadata.is_dir() {
-            fs::remove_dir_all(&artifact_dir).map_err(|error| {
-                format!(
-                    "Не удалось удалить артефакты {}: {error}",
-                    artifact_dir.display()
-                )
-            })?;
-        }
-    }
-    fs::remove_file(&file)
-        .map_err(|error| format!("Не удалось удалить сессию {}: {error}", file.display()))
+    crate::session_deletion::delete(&file)
 }
 
 pub fn import_sessions(
@@ -953,7 +964,7 @@ fn import_session_inactive(
     active_paths: &HashSet<String>,
 ) -> Result<ImportItemResult, String> {
     let source = validated_external_import_source(&request.path)?;
-    let target = canonical_project_path(request.target_cwd.trim())?;
+    let target = canonical_project_path(&request.target_cwd)?;
     let target_cwd = target.to_string_lossy().into_owned();
     let bytes = read_bounded_import_source(&source)?;
     let _import_guard = IMPORT_TRANSACTION_LOCK
@@ -1009,7 +1020,22 @@ fn import_size_error() -> String {
 }
 
 fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
-    let file = fs::File::open(source)
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // A validated regular file can become a FIFO before open. Reach the
+        // descriptor check below without waiting for a FIFO writer.
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options
+        .open(source)
         .map_err(|error| format!("Не удалось открыть {}: {error}", source.display()))?;
     let metadata = file.metadata().map_err(|error| {
         format!(
@@ -1017,7 +1043,7 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
             source.display()
         )
     })?;
-    if !metadata.is_file() {
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err("Импортировать можно только обычный JSONL-файл, не ссылку".to_owned());
     }
     if metadata.len() > MAX_IMPORT_BYTES {
@@ -1031,9 +1057,24 @@ fn read_bounded_import_source(source: &Path) -> Result<Vec<u8>, String> {
     }
     // Reject before recovery or destination writes can turn corrupt bytes into
     // apparently valid history through the importers' lossy text projection.
-    std::str::from_utf8(&bytes).map_err(|_| {
+    let text = std::str::from_utf8(&bytes).map_err(|_| {
         "[session_import_invalid_encoding] Файл сессии содержит некорректный UTF-8".to_owned()
     })?;
+    // Codex conversion omits unreadable records. Reject the captured snapshot
+    // before recovery or writes can replace intact history with a partial copy.
+    // Valid unknown records and a complete final record without LF remain valid.
+    if looks_like_codex_session(text) {
+        for (index, line) in text.lines().enumerate() {
+            if !line.trim().is_empty()
+                && serde_json::from_str::<serde::de::IgnoredAny>(line).is_err()
+            {
+                return Err(format!(
+                    "[session_import_invalid_codex_json] Некорректная или незавершённая запись Codex JSONL в строке {}",
+                    index + 1
+                ));
+            }
+        }
+    }
     Ok(bytes)
 }
 
@@ -1740,14 +1781,17 @@ fn render_json_value(value: &Value) -> String {
 }
 
 pub fn list_codex_sessions() -> Result<Vec<CodexSessionSummary>, String> {
-    let root = codex_sessions_root();
+    list_codex_sessions_from_root(&codex_sessions_root()?)
+}
+
+fn list_codex_sessions_from_root(root: &Path) -> Result<Vec<CodexSessionSummary>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
 
     let mut files = Vec::new();
-    collect_jsonl_files(&root, 0, 8, &mut files, &mut Vec::new())?;
-    let thread_names = load_codex_thread_names();
+    collect_jsonl_files(root, 0, 8, &mut files, &mut Vec::new())?;
+    let thread_names = load_codex_thread_names_from_root(root);
     let sessions = files
         .into_iter()
         .filter_map(|path| {
@@ -1798,6 +1842,12 @@ fn import_destination(
     blocked: &HashSet<PathBuf>,
 ) -> Result<ImportDestination, String> {
     let destination_directory = session_root.join(encode_session_dir_name(target_cwd));
+    if blocked.contains(&destination_directory) {
+        return Err(
+            "[session_import_recovery_pending] Каталог содержит неопознанный журнал удаления"
+                .to_owned(),
+        );
+    }
     fs::create_dir_all(&destination_directory).map_err(|error| {
         format!(
             "Не удалось создать {}: {error}",
@@ -2587,6 +2637,7 @@ fn recover_imports_in_directory(
     active_paths: &HashSet<String>,
     held_lease: Option<&SessionLease>,
 ) {
+    crate::session_deletion::recover_directory(directory, warnings, blocked, held_lease);
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return,
@@ -2613,6 +2664,9 @@ fn recover_imports_in_directory(
         let Some(destination) = transaction_destination(&marker) else {
             continue;
         };
+        if blocked.contains(&destination) {
+            continue;
+        }
         let recovery = ensure_import_inactive(&destination, active_paths)
             .and_then(|()| recover_import_transaction(&marker, held_lease));
         if let Err(message) = recovery {
@@ -2956,6 +3010,14 @@ struct SessionScan {
     warnings: Vec<SessionScanWarning>,
 }
 
+#[cfg(test)]
+pub(crate) fn scan_deletion_fixture(
+    root: &Path,
+) -> Result<(Vec<SessionSummary>, Vec<SessionScanWarning>), String> {
+    let scan = scan_sessions(root)?;
+    Ok((scan.sessions, scan.warnings))
+}
+
 fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
     match fs::metadata(root) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => {
@@ -2981,9 +3043,10 @@ fn scan_sessions(root: &Path) -> Result<SessionScan, String> {
 
     let mut scan = SessionScan::default();
     let mut blocked = HashSet::new();
+    crate::session_deletion::recover_tree(root, 0, &mut scan.warnings, &mut blocked);
     recover_interrupted_imports(root, &mut scan.warnings, &mut blocked);
     let mut files = Vec::new();
-    collect_jsonl_files(root, 0, 3, &mut files, &mut scan.warnings)?;
+    collect_jsonl_files_guarded(root, 0, 3, &mut files, &mut scan.warnings, &blocked)?;
     let current_files = files
         .iter()
         .filter(|path| !blocked.contains(*path))
@@ -3029,6 +3092,24 @@ fn collect_jsonl_files(
     max_depth: usize,
     files: &mut Vec<PathBuf>,
     warnings: &mut Vec<SessionScanWarning>,
+) -> Result<(), String> {
+    collect_jsonl_files_guarded(
+        directory,
+        depth,
+        max_depth,
+        files,
+        warnings,
+        &HashSet::new(),
+    )
+}
+
+fn collect_jsonl_files_guarded(
+    directory: &Path,
+    depth: usize,
+    max_depth: usize,
+    files: &mut Vec<PathBuf>,
+    warnings: &mut Vec<SessionScanWarning>,
+    blocked: &HashSet<PathBuf>,
 ) -> Result<(), String> {
     let directory_entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -3077,6 +3158,14 @@ fn collect_jsonl_files(
 
     for (entry, file_type) in entries {
         let path = entry.path();
+        if blocked.contains(&path) {
+            continue;
+        }
+        if crate::session_deletion::is_private_directory_name(&entry.file_name())
+            && file_type.as_ref().map_or(true, |kind| kind.is_dir())
+        {
+            continue;
+        }
         let is_import_sidecar = entry
             .file_name()
             .to_str()
@@ -3108,7 +3197,7 @@ fn collect_jsonl_files(
         };
 
         if file_type.is_dir() && depth < max_depth {
-            collect_jsonl_files(&path, depth + 1, max_depth, files, warnings)?;
+            collect_jsonl_files_guarded(&path, depth + 1, max_depth, files, warnings, blocked)?;
             continue;
         }
 
@@ -3843,7 +3932,15 @@ fn load_codex_thread_names() -> HashMap<String, String> {
     if let Some(names) = TEST_CODEX_THREAD_NAMES.with(|names| names.borrow().clone()) {
         return names;
     }
-    let Some(index_path) = codex_sessions_root()
+    let Ok(root) = codex_sessions_root() else {
+        // An invalid explicit home must not read titles from a different profile.
+        return HashMap::new();
+    };
+    load_codex_thread_names_from_root(&root)
+}
+
+fn load_codex_thread_names_from_root(root: &Path) -> HashMap<String, String> {
+    let Some(index_path) = root
         .parent()
         .map(|directory| directory.join("session_index.jsonl"))
     else {
@@ -3897,11 +3994,31 @@ fn load_codex_thread_names_from_path(index_path: &Path) -> HashMap<String, Strin
     names
 }
 
-fn codex_sessions_root() -> PathBuf {
-    if let Some(home) = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME")) {
-        return PathBuf::from(home).join(".codex").join("sessions");
+fn codex_sessions_root() -> Result<PathBuf, String> {
+    let codex_home = env::var_os("CODEX_HOME");
+    let home = env::var_os("USERPROFILE").or_else(|| env::var_os("HOME"));
+    codex_sessions_root_from(codex_home.as_deref(), home.as_deref().map(Path::new))
+}
+
+fn codex_sessions_root_from(
+    codex_home: Option<&std::ffi::OsStr>,
+    home: Option<&Path>,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = codex_home.filter(|value| !value.is_empty()) {
+        // Match Codex: explicit homes must exist, relative paths use the process cwd,
+        // and whitespace is part of the path. Never fall back to a different profile.
+        let root = Path::new(configured)
+            .canonicalize()
+            .map_err(|error| format!("Не удалось открыть каталог CODEX_HOME: {error}"))?;
+        if !root.is_dir() {
+            return Err("CODEX_HOME должен указывать на каталог".to_owned());
+        }
+        return Ok(root.join("sessions"));
     }
-    PathBuf::from(".codex").join("sessions")
+    Ok(home
+        .unwrap_or_else(|| Path::new(""))
+        .join(".codex")
+        .join("sessions"))
 }
 
 trait IfEmpty {
@@ -3979,6 +4096,155 @@ mod tests {
             previous, active, &mut pins
         ));
         assert_eq!(pins, BTreeSet::from([path_key(active)]));
+    }
+
+    struct CodexHomeFixture(std::path::PathBuf);
+
+    impl CodexHomeFixture {
+        fn new(base: &Path) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = base.join(format!("omp-codex-home-{}-{nonce}", std::process::id()));
+            fs::create_dir_all(&root).unwrap();
+            Self(root)
+        }
+
+        fn write_session(&self, home: &Path, id: &str, title: &str) {
+            assert!(home.starts_with(&self.0));
+            let sessions = home.join("sessions").join("2026").join("11").join("11");
+            fs::create_dir_all(&sessions).unwrap();
+            let record = serde_json::json!({
+                "type": "session_meta",
+                "timestamp": "2026-11-11T09:00:00Z",
+                "payload": { "id": id, "cwd": "/synthetic/project" }
+            });
+            fs::write(sessions.join(format!("{id}.jsonl")), record.to_string()).unwrap();
+            let index = serde_json::json!({ "id": id, "thread_name": title });
+            fs::write(home.join("session_index.jsonl"), index.to_string()).unwrap();
+        }
+    }
+
+    impl Drop for CodexHomeFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn codex_home_absent_or_empty_preserves_default_root() {
+        let home = Path::new("synthetic-profile");
+        for override_value in [None, Some(std::ffi::OsStr::new(""))] {
+            assert_eq!(
+                super::codex_sessions_root_from(override_value, Some(home)).unwrap(),
+                home.join(".codex").join("sessions")
+            );
+            assert_eq!(
+                super::codex_sessions_root_from(override_value, None).unwrap(),
+                Path::new(".codex").join("sessions")
+            );
+        }
+    }
+
+    #[test]
+    fn codex_home_override_discovers_only_its_sessions_and_indexed_titles() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let profile = fixture.0.join("profile");
+        let custom = fixture.0.join("custom home 東京");
+        fixture.write_session(
+            &profile.join(".codex"),
+            "default-only",
+            "Default profile title",
+        );
+        fixture.write_session(&custom, "custom-only", "Custom profile title");
+        let root =
+            super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
+        assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
+        let sessions = super::list_codex_sessions_from_root(&root).unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].id, "custom-only");
+        assert_eq!(sessions[0].title, "Custom profile title");
+        assert!(Path::new(&sessions[0].file_path).starts_with(&root));
+        let names = super::load_codex_thread_names_from_root(&root);
+        assert_eq!(names.get("custom-only").unwrap(), "Custom profile title");
+        assert!(!names.contains_key("default-only"));
+
+        let default_root = super::codex_sessions_root_from(None, Some(&profile)).unwrap();
+        let defaults = super::list_codex_sessions_from_root(&default_root).unwrap();
+        assert_eq!(defaults.len(), 1);
+        assert_eq!(defaults[0].id, "default-only");
+        assert_eq!(defaults[0].title, "Default profile title");
+    }
+
+    #[test]
+    fn codex_home_existing_empty_override_does_not_use_default_history() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let profile = fixture.0.join("profile");
+        fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
+        let custom = fixture.0.join("empty");
+        fs::create_dir(&custom).unwrap();
+        let root =
+            super::codex_sessions_root_from(Some(custom.as_os_str()), Some(&profile)).unwrap();
+        let sessions = super::list_codex_sessions_from_root(&root).unwrap();
+        assert!(sessions.is_empty());
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn codex_home_invalid_override_is_an_error_not_a_default_profile_scan() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let profile = fixture.0.join("profile");
+        fixture.write_session(&profile.join(".codex"), "default-only", "Default title");
+        let missing = fixture.0.join("missing");
+        assert!(
+            super::codex_sessions_root_from(Some(missing.as_os_str()), Some(&profile)).is_err()
+        );
+        assert!(!missing.exists());
+        let file = fixture.0.join("not-a-directory");
+        fs::write(&file, "synthetic file").unwrap();
+        assert!(super::codex_sessions_root_from(Some(file.as_os_str()), Some(&profile)).is_err());
+        assert_eq!(fs::read_to_string(file).unwrap(), "synthetic file");
+    }
+
+    #[test]
+    fn codex_home_relative_path_uses_process_directory() {
+        let fixture = CodexHomeFixture::new(Path::new("target"));
+        assert!(fixture.0.is_relative());
+        let root = super::codex_sessions_root_from(Some(fixture.0.as_os_str()), None).unwrap();
+        assert_eq!(root, fixture.0.canonicalize().unwrap().join("sessions"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_home_preserves_literal_edge_spaces_and_resolves_symlinks() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let custom = fixture.0.join(" custom home ");
+        fs::create_dir(&custom).unwrap();
+        let expected = custom.canonicalize().unwrap().join("sessions");
+        assert_eq!(
+            super::codex_sessions_root_from(Some(custom.as_os_str()), None).unwrap(),
+            expected
+        );
+        let link = fixture.0.join("linked-home");
+        std::os::unix::fs::symlink(&custom, &link).unwrap();
+        assert_eq!(
+            super::codex_sessions_root_from(Some(link.as_os_str()), None).unwrap(),
+            expected
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_home_native_non_utf8_path_never_falls_back_to_another_profile() {
+        use std::os::unix::ffi::OsStringExt;
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let custom = fixture
+            .0
+            .join(std::ffi::OsString::from_vec(b"native-home-\xff".to_vec()));
+        fs::create_dir(&custom).unwrap();
+        let root = super::codex_sessions_root_from(Some(custom.as_os_str()), None).unwrap();
+        assert_eq!(root, custom.canonicalize().unwrap().join("sessions"));
     }
 
     #[test]
@@ -5428,6 +5694,227 @@ mod tests {
     }
 
     #[test]
+    fn invalid_codex_json_fails_before_creating_history() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-json-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("codex.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"session_id": "codex-json", "cwd": "/synthetic/project"}
+        });
+        for tail in [
+            "{malformed}\n",
+            "{\"type\":\"response_item\",\"payload\":",
+            "{\"type\":\"future_metadata\",\"payload\":}\n",
+        ] {
+            let bytes = format!("{header}\n\n{tail}").into_bytes();
+            fs::write(&source, &bytes).unwrap();
+            for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+                let result = import_sessions(
+                    &[ImportSessionRequest {
+                        path: source.to_string_lossy().into_owned(),
+                        target_cwd: project.to_string_lossy().into_owned(),
+                        mode,
+                    }],
+                    &session_root,
+                    &HashSet::new(),
+                );
+                assert_eq!(result[0].status, ImportItemStatus::Failed);
+                assert_eq!(result[0].destination_path, None);
+                let message = result[0].message.as_deref().unwrap();
+                assert!(message.starts_with("[session_import_invalid_codex_json]"));
+                assert!(message.ends_with("строке 3"));
+                assert!(!message.contains(tail.trim()));
+                assert_eq!(fs::read(&source).unwrap(), bytes);
+                assert!(!session_root.exists());
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_codex_json_update_preserves_history_and_allows_explicit_retry() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-json-update-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        let source = root.join("codex.jsonl");
+        fs::create_dir_all(&project).unwrap();
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"session_id": "codex-json-update", "cwd": "/synthetic/project"}
+        });
+        let answer = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "kept answer"}]
+            }
+        });
+        let valid = format!("{header}\n{answer}\n");
+        fs::write(&source, &valid).unwrap();
+        let mut request = ImportSessionRequest {
+            path: source.to_string_lossy().into_owned(),
+            target_cwd: project.to_string_lossy().into_owned(),
+            mode: ImportMode::Skip,
+        };
+        let first = import_session(&request, &session_root).unwrap();
+        assert_eq!(first.status, ImportItemStatus::Imported);
+        let destination = first.destination_path.unwrap();
+        let original = fs::read(&destination).unwrap();
+        let sidecar = Path::new(&destination).with_extension("");
+        fs::create_dir_all(&sidecar).unwrap();
+        fs::write(sidecar.join("kept.txt"), "existing artifact").unwrap();
+        let parent = Path::new(&destination).parent().unwrap();
+        let original_entries = fs::read_dir(parent)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<BTreeSet<_>>();
+        for tail in [
+            "{malformed-answer}\n",
+            "{\"type\":\"response_item\",\"payload\":",
+        ] {
+            let corrupt = format!("{header}\n{tail}");
+            fs::write(&source, &corrupt).unwrap();
+            for mode in [ImportMode::Update, ImportMode::Skip, ImportMode::Copy] {
+                request.mode = mode;
+                let result = import_sessions(&[request.clone()], &session_root, &HashSet::new());
+                assert_eq!(result[0].status, ImportItemStatus::Failed);
+                assert_eq!(result[0].destination_path, None);
+                assert!(result[0]
+                    .message
+                    .as_deref()
+                    .unwrap()
+                    .starts_with("[session_import_invalid_codex_json]"));
+                assert_eq!(fs::read(&source).unwrap(), corrupt.as_bytes());
+                assert_eq!(fs::read(&destination).unwrap(), original);
+                assert_eq!(
+                    fs::read_to_string(sidecar.join("kept.txt")).unwrap(),
+                    "existing artifact"
+                );
+                let entries = fs::read_dir(parent)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().file_name())
+                    .collect::<BTreeSet<_>>();
+                assert_eq!(entries, original_entries);
+            }
+        }
+        fs::write(&source, valid.replace("kept answer", "completed answer")).unwrap();
+        request.mode = ImportMode::Update;
+        let retried = import_session(&request, &session_root).unwrap();
+        assert_eq!(retried.status, ImportItemStatus::Updated);
+        assert_eq!(
+            retried.destination_path.as_deref(),
+            Some(destination.as_str())
+        );
+        let transcript = read_session_transcript(&destination, &session_root).unwrap();
+        assert!(transcript
+            .entries
+            .iter()
+            .any(|entry| entry.text == "completed answer"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn codex_json_validation_preserves_valid_records_and_mixed_batch_results() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-codex-json-batch-{}-{nonce}",
+            std::process::id()
+        ));
+        let project = root.join("project");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&project).unwrap();
+        let header = serde_json::json!({
+            "type": "session_meta",
+            "payload": {"session_id": "codex-json-batch", "cwd": "/synthetic/project"}
+        });
+        let answer = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message", "role": "assistant",
+                "content": [{"type": "output_text", "text": "Кириллица 😀 �"}]
+            }
+        });
+        let unknown = serde_json::json!({"type": "future_metadata", "payload": [1, true, null]});
+        let fixtures = [
+            ("invalid.jsonl", format!("{header}\n{{malformed}}\n")),
+            (
+                "valid.jsonl",
+                format!("{header}\r\n \t\r\n{unknown}\r\nnull\r\n{answer}"),
+            ),
+            (
+                "omp.jsonl",
+                concat!(
+                    "{\"type\":\"session\",\"id\":\"omp-json-control\",\"cwd\":\"/synthetic/project\"}\n",
+                    "{malformed-omp}\n"
+                )
+                .to_owned(),
+            ),
+        ];
+        let requests = fixtures
+            .iter()
+            .map(|(name, text)| {
+                let source = root.join(name);
+                fs::write(&source, text).unwrap();
+                ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: project.to_string_lossy().into_owned(),
+                    mode: ImportMode::Skip,
+                }
+            })
+            .collect::<Vec<_>>();
+        let results = import_sessions(&requests, &session_root, &HashSet::new());
+        assert_eq!(results.len(), fixtures.len());
+        assert_eq!(results[0].status, ImportItemStatus::Failed);
+        for index in [1, 2] {
+            assert_eq!(results[index].status, ImportItemStatus::Imported);
+            assert_eq!(results[index].message, None);
+        }
+        let codex = read_session_transcript(
+            results[1].destination_path.as_deref().unwrap(),
+            &session_root,
+        )
+        .unwrap();
+        assert!(codex
+            .entries
+            .iter()
+            .any(|entry| entry.text == "Кириллица 😀 �"));
+        assert_eq!(codex.malformed_records, 0);
+        let omp_path = results[2].destination_path.as_deref().unwrap();
+        assert!(fs::read_to_string(omp_path)
+            .unwrap()
+            .contains("{malformed-omp}\n"));
+        let omp = read_session_transcript(omp_path, &session_root).unwrap();
+        assert_eq!(omp.malformed_records, 1);
+        for (name, text) in fixtures {
+            assert_eq!(fs::read(root.join(name)).unwrap(), text.as_bytes());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn invalid_utf8_import_fails_before_creating_history() {
         let _isolated_names = IsolatedCodexThreadNames::new();
         let nonce = SystemTime::now()
@@ -5714,6 +6201,167 @@ mod tests {
                     .iter()
                     .any(|entry| entry.text == expected));
             }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_preserves_literal_target_folder_and_neighbor_history() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-literal-target-{}-{nonce}",
+            std::process::id()
+        ));
+        let neighbor = root.join("project");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&neighbor).unwrap();
+        let original = concat!(
+            r#"{"type":"session","id":"literal-target","cwd":"/synthetic/source"}"#,
+            "\n"
+        );
+        let updated = format!(
+            "{original}{}\n",
+            r#"{"type":"message","id":"new-message","message":{"role":"user","content":"new source"}}"#
+        );
+        for (suffix_index, suffix) in ["\u{00a0}", "\u{2003}"].iter().enumerate() {
+            let target = root.join(format!("project{suffix}"));
+            fs::create_dir_all(&target).unwrap();
+            let target_cwd = super::canonical_project_path(target.to_str().unwrap())
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert_ne!(
+                target.canonicalize().unwrap(),
+                neighbor.canonicalize().unwrap()
+            );
+            for (mode_index, mode) in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy]
+                .into_iter()
+                .enumerate()
+            {
+                let session_root = root.join(format!("sessions-{suffix_index}-{mode_index}"));
+                fs::write(&source, original).unwrap();
+                let neighbor_import = import_session(
+                    &ImportSessionRequest {
+                        path: source.to_string_lossy().into_owned(),
+                        target_cwd: neighbor.to_string_lossy().into_owned(),
+                        mode: ImportMode::Skip,
+                    },
+                    &session_root,
+                )
+                .unwrap();
+                let neighbor_path = neighbor_import.destination_path.unwrap();
+                let neighbor_bytes = fs::read(&neighbor_path).unwrap();
+                fs::write(&source, &updated).unwrap();
+                let result = import_session(
+                    &ImportSessionRequest {
+                        path: source.to_string_lossy().into_owned(),
+                        target_cwd: target.to_string_lossy().into_owned(),
+                        mode,
+                    },
+                    &session_root,
+                )
+                .unwrap();
+                let destination = result.destination_path.unwrap();
+                assert_eq!(
+                    Path::new(&destination).parent().unwrap(),
+                    session_root.join(encode_session_dir_name(&target_cwd))
+                );
+                let body = fs::read_to_string(&destination).unwrap();
+                let header = body
+                    .lines()
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+                    .find(|value| value["type"] == "session")
+                    .unwrap();
+                assert_eq!(header["cwd"].as_str(), Some(target_cwd.as_str()));
+                assert!(body.contains("new source"));
+                assert_eq!(fs::read(&neighbor_path).unwrap(), neighbor_bytes);
+                assert_eq!(
+                    fs::read_dir(Path::new(&neighbor_path).parent().unwrap())
+                        .unwrap()
+                        .count(),
+                    1
+                );
+                assert_eq!(fs::read_to_string(&source).unwrap(), updated);
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_accepts_literal_target_without_a_trimmed_neighbor() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-literal-only-{}-{nonce}",
+            std::process::id()
+        ));
+        let target = root.join("project\u{00a0}");
+        let source = root.join("source.jsonl");
+        fs::create_dir_all(&target).unwrap();
+        fs::write(
+            &source,
+            r#"{"type":"session","id":"literal-only","cwd":"/synthetic/source"}"#,
+        )
+        .unwrap();
+        assert!(!root.join("project").exists());
+        for (index, mode) in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy]
+            .into_iter()
+            .enumerate()
+        {
+            let result = import_session(
+                &ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: target.to_string_lossy().into_owned(),
+                    mode,
+                },
+                &root.join(format!("sessions-{index}")),
+            );
+            assert!(result.is_ok());
+        }
+        assert!(!root.join("project").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn import_rejects_missing_literal_target_without_using_a_neighbor() {
+        let _isolated_names = IsolatedCodexThreadNames::new();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-missing-literal-{}-{nonce}",
+            std::process::id()
+        ));
+        let neighbor = root.join("project");
+        let target = root.join("project\u{00a0}");
+        let source = root.join("source.jsonl");
+        let session_root = root.join("sessions");
+        fs::create_dir_all(&neighbor).unwrap();
+        let bytes = r#"{"type":"session","id":"missing-literal","cwd":"/synthetic/source"}"#;
+        fs::write(&source, bytes).unwrap();
+        assert!(!target.exists());
+        for mode in [ImportMode::Skip, ImportMode::Update, ImportMode::Copy] {
+            let result = import_sessions(
+                &[ImportSessionRequest {
+                    path: source.to_string_lossy().into_owned(),
+                    target_cwd: target.to_string_lossy().into_owned(),
+                    mode,
+                }],
+                &session_root,
+                &HashSet::new(),
+            );
+            assert_eq!(result[0].status, ImportItemStatus::Failed);
+            assert_eq!(result[0].destination_path, None);
+            assert!(!session_root.exists());
+            assert_eq!(fs::read_to_string(&source).unwrap(), bytes);
         }
         fs::remove_dir_all(root).unwrap();
     }
@@ -6779,6 +7427,122 @@ mod tests {
         fs::remove_dir_all(root).expect("fixture should be removable");
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn import_source_rejects_fifo_replacement_without_waiting_for_writer() {
+        use std::ffi::CString;
+        use std::os::unix::{ffi::OsStrExt, fs::OpenOptionsExt};
+        use std::sync::mpsc;
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-import-fifo-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let source = root.join("source.jsonl");
+        for with_writer in [false, true] {
+            fs::write(&source, b"{\"type\":\"session\",\"id\":\"synthetic\"}\n").unwrap();
+            let validated = validated_external_import_source(source.to_str().unwrap()).unwrap();
+            fs::remove_file(&source).unwrap();
+            let c_path = CString::new(source.as_os_str().as_bytes()).unwrap();
+            // SAFETY: this is a valid NUL-terminated path in our owned test directory.
+            assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+            let mut peer = with_writer.then(|| {
+                let mut file = fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .custom_flags(libc::O_NONBLOCK)
+                    .open(&source)
+                    .unwrap();
+                file.write_all(b"{\"type\":\"session\"}\n").unwrap();
+                file
+            });
+            let (sender, receiver) = mpsc::channel();
+            let worker = thread::spawn(move || {
+                sender
+                    .send(super::read_bounded_import_source(&validated))
+                    .unwrap();
+            });
+            // Watchdog for a blocking open, not a filesystem speed assertion.
+            let result = receiver.recv_timeout(Duration::from_secs(5));
+            if result.is_err() && peer.is_none() {
+                // Linux allows RDWR FIFO open without another peer. Release a
+                // regressed blocking reader before joining it and failing.
+                peer = Some(
+                    fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .custom_flags(libc::O_NONBLOCK)
+                        .open(&source)
+                        .unwrap(),
+                );
+            }
+            worker.join().unwrap();
+            drop(peer);
+            fs::remove_file(&source).unwrap();
+            if result.is_err() {
+                fs::remove_dir(&root).unwrap();
+            }
+            assert!(result
+                .expect("import reader waited for a FIFO writer")
+                .unwrap_err()
+                .contains("обычный JSONL-файл"));
+        }
+        fs::remove_dir(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_source_rejects_symlink_replacement_after_validation() {
+        let fixture = CodexHomeFixture::new(&std::env::temp_dir());
+        let source = fixture.0.join("source.jsonl");
+        let unrelated = fixture.0.join("unrelated.jsonl");
+        fs::write(&source, b"original").unwrap();
+        fs::write(&unrelated, b"unrelated data").unwrap();
+        let validated = validated_external_import_source(source.to_str().unwrap()).unwrap();
+        fs::remove_file(&source).unwrap();
+        std::os::unix::fs::symlink(&unrelated, &source).unwrap();
+        assert!(super::read_bounded_import_source(&validated).is_err());
+        assert_eq!(fs::read(&unrelated).unwrap(), b"unrelated data");
+        assert!(fs::symlink_metadata(&source)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn import_source_reader_preserves_regular_file_guards() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let source = std::env::temp_dir().join(format!(
+            "omp-desktop-import-reader-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        for bytes in [b"{\"type\":\"session\"}\n".as_slice(), b""] {
+            fs::write(&source, bytes).unwrap();
+            assert_eq!(super::read_bounded_import_source(&source).unwrap(), bytes);
+            assert_eq!(fs::read(&source).unwrap(), bytes);
+        }
+        fs::write(&source, [0xff]).unwrap();
+        assert!(super::read_bounded_import_source(&source)
+            .unwrap_err()
+            .starts_with("[session_import_invalid_encoding]"));
+        assert_eq!(fs::read(&source).unwrap(), [0xff]);
+        let file = fs::File::create(&source).unwrap();
+        file.set_len(MAX_IMPORT_BYTES + 1).unwrap();
+        drop(file);
+        assert!(super::read_bounded_import_source(&source)
+            .unwrap_err()
+            .contains("256 MiB"));
+        fs::remove_file(source).unwrap();
+    }
+
     #[test]
     fn import_rejects_files_above_the_explicit_memory_budget() {
         let nonce = SystemTime::now()
@@ -6865,3 +7629,7 @@ mod tests {
         fs::remove_dir_all(root).expect("fixture should be removable");
     }
 }
+
+#[cfg(test)]
+#[path = "empty_pin_tests.rs"]
+mod empty_pin_tests;

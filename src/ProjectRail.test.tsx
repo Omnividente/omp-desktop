@@ -816,3 +816,156 @@ describe("ProjectRail project order", () => {
     expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith("z")
   })
 })
+
+describe("ProjectRail superseded hover timers", () => {
+  let container: HTMLDivElement
+  let root: Root
+  const changed = vi.fn()
+  const render = (autoOpen: boolean, mode: "autoHide" | "expanded" | "collapsed" = "autoHide") => {
+    act(() =>
+      root.render(
+        <>
+          <button className="outside-rail">Outside rail</button>
+          <ProjectRail
+            autoHidePaused={false}
+            autoOpen={autoOpen}
+            mode={mode}
+            modeSaving={false}
+            workspaces={[workspace]}
+            selectedWorkspace={workspace}
+            sessionList={sessionList()}
+            renamingWorkspaceKey={null}
+            workspaceNameValue=""
+            workspaceBusyKey={null}
+            onAutoOpenChange={changed}
+            onModeChange={vi.fn()}
+            onOpenFolder={vi.fn()}
+            onSelectWorkspace={vi.fn()}
+            onStartWorkspaceRename={vi.fn()}
+            onSubmitWorkspaceRename={vi.fn()}
+            onWorkspaceNameChange={vi.fn()}
+            onWorkspaceRenameKeyDown={vi.fn()}
+            onRemoveWorkspace={vi.fn()}
+          />
+        </>,
+      ),
+    )
+  }
+  const enter = () => {
+    act(() =>
+      container.querySelector(".project-rail")!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: null,
+        }),
+      ),
+    )
+  }
+  const leave = () => {
+    act(() =>
+      container.querySelector(".project-rail")!.dispatchEvent(
+        new MouseEvent("mouseout", {
+          bubbles: true,
+          relatedTarget: container.querySelector(".outside-rail"),
+        }),
+      ),
+    )
+  }
+  beforeEach(() => {
+    vi.useFakeTimers()
+    changed.mockClear()
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it("keeps a newer controlled reopen after a pending pointer leave", () => {
+    render(true)
+    act(() => container.querySelector<HTMLButtonElement>(".outside-rail")!.focus())
+    leave()
+    render(false)
+    render(true)
+    act(() => vi.advanceTimersByTime(320))
+    expect(changed).not.toHaveBeenCalled()
+    expect(container.querySelector(".project-rail")!.classList.contains("is-revealed")).toBe(true)
+  })
+
+  it("keeps a newer controlled collapse after a pending pointer enter", () => {
+    render(false)
+    enter()
+    render(true)
+    render(false)
+    act(() => vi.advanceTimersByTime(220))
+    expect(changed).not.toHaveBeenCalled()
+    expect(container.querySelector(".project-rail")!.classList.contains("is-compact")).toBe(true)
+  })
+
+  it.each(["expanded", "collapsed"] as const)(
+    "discards pending pointer enter when mode changes to %s",
+    (mode) => {
+      render(false)
+      enter()
+      render(false, mode)
+      act(() => vi.advanceTimersByTime(220))
+      expect(changed).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["expanded", "collapsed"] as const)(
+    "discards pending pointer leave when mode changes to %s",
+    (mode) => {
+      render(true)
+      leave()
+      render(true, mode)
+      act(() => vi.advanceTimersByTime(320))
+      expect(changed).not.toHaveBeenCalled()
+    },
+  )
+
+  it("preserves ordinary hover delays without newer controlled state", () => {
+    render(false)
+    enter()
+    act(() => vi.advanceTimersByTime(219))
+    expect(changed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(changed).toHaveBeenLastCalledWith(true)
+    render(true)
+    changed.mockClear()
+    leave()
+    act(() => vi.advanceTimersByTime(319))
+    expect(changed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(changed).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
+  it("invalidates an already queued old callback without cancelling a newer timer", () => {
+    const scheduled = vi.spyOn(window, "setTimeout")
+    render(true)
+    leave()
+    const obsolete = scheduled.mock.calls.find(([, delay]) => delay === 320)![0]
+    expect(typeof obsolete).toBe("function")
+    render(false)
+    render(true)
+    leave()
+    act(() => {
+      if (typeof obsolete === "function") obsolete()
+    })
+    expect(changed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(320))
+    expect(changed).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
+  it("clears a pending timer when unmounted", () => {
+    render(false)
+    enter()
+    act(() => root.render(null))
+    act(() => vi.advanceTimersByTime(220))
+    expect(changed).not.toHaveBeenCalled()
+  })
+})

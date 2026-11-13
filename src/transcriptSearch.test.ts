@@ -1,5 +1,45 @@
-import { expect, it } from "vitest"
-import { SEARCH_HIGHLIGHT_LIMIT, TranscriptSearch } from "./transcriptSearch"
+import { expect, it, vi } from "vitest"
+import {
+  SEARCH_HIGHLIGHT_LIMIT,
+  TranscriptSearch,
+  tryCreateTranscriptSearch,
+} from "./transcriptSearch"
+
+it("keeps literal ASCII spans around Unicode and isolated surrogates", () => {
+  for (let code = 0; code < 128; code++) {
+    const query = String.fromCharCode(code)
+    const text = `😀${query}\ud800${query}\udc00${query}`
+    const search = new TranscriptSearch([{ text: "" }, { text }], query, true)
+    expect(search.count).toBe(3)
+    expect(search.entryIndex(0)).toBe(1)
+    expect(search.matchesForEntry(1, 0)).toEqual([
+      { start: 2, end: 3, index: 0 },
+      { start: 4, end: 5, index: 1 },
+      { start: 6, end: 7, index: 2 },
+    ])
+  }
+})
+
+it("keeps nonoverlapping ASCII matches exact across chunks and bounded windows", () => {
+  const search = new TranscriptSearch(
+    [{ text: "a" }, { text: "a".repeat(10_001) }, { text: "aa" }],
+    "aa",
+    true,
+  )
+  expect(search.count).toBe(5001)
+  for (const index of [0, 4095, 4096, 4999]) {
+    expect(search.entryIndex(index)).toBe(1)
+    const window = search.matchesForEntry(1, index)
+    expect(window).toHaveLength(SEARCH_HIGHLIGHT_LIMIT)
+    expect(window.find((match) => match.index === index)).toEqual({
+      start: index * 2,
+      end: index * 2 + 2,
+      index,
+    })
+  }
+  expect(search.entryIndex(5000)).toBe(2)
+  expect(search.matchesForEntry(2, 5000)).toEqual([{ start: 0, end: 2, index: 5000 }])
+})
 
 it("optionally distinguishes code identifiers while keeping literal UTF-16 match spans", () => {
   const contents = [{ text: "😀PATH path Path PATH.* path.*" }]
@@ -170,4 +210,56 @@ it("keeps a million occurrences navigable through fresh bounded first, distant a
   const cleared = new TranscriptSearch(contents, "")
   expect(cleared.count).toBe(0)
   expect(cleared.matchesForEntry(0, -1)).toEqual([])
+})
+
+it.each([false, true])(
+  "recovers from engine rejection of a large literal query (matchCase=%s)",
+  (matchCase) => {
+    const query = "a".repeat(50_000)
+    const search = tryCreateTranscriptSearch([{ text: `prefix ${query} suffix` }], query, matchCase)
+    // Engines may support different pattern sizes. Either return the complete search or refuse it.
+    if (search !== null) {
+      expect(search.count).toBe(1)
+      expect(search.matchesForEntry(0, 0)).toEqual([{ start: 7, end: 50_007, index: 0 }])
+    }
+  },
+)
+
+it("does not publish partial matches when regex execution fails after an earlier entry", () => {
+  const exec = RegExp.prototype.exec
+  const spy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (
+    this: RegExp,
+    text: string,
+  ) {
+    if (this.source === "needle" && text === "later entry")
+      throw new SyntaxError("synthetic compiler limit")
+    return exec.call(this, text)
+  })
+  let search: TranscriptSearch | null
+  try {
+    search = tryCreateTranscriptSearch([{ text: "needle" }, { text: "later entry" }], "needle")
+  } finally {
+    spy.mockRestore()
+  }
+  expect(search).toBeNull()
+  expect(tryCreateTranscriptSearch([{ text: "needle" }], "needle")?.count).toBe(1)
+  expect(tryCreateTranscriptSearch([{ text: "needle" }], "absent")?.count).toBe(0)
+  expect(tryCreateTranscriptSearch([{ text: "needle" }], "")?.count).toBe(0)
+})
+
+it("does not disguise unrelated failures as a refused search", () => {
+  const exec = RegExp.prototype.exec
+  const failure = new TypeError("synthetic unrelated failure")
+  const spy = vi.spyOn(RegExp.prototype, "exec").mockImplementation(function (
+    this: RegExp,
+    text: string,
+  ) {
+    if (this.source === "needle") throw failure
+    return exec.call(this, text)
+  })
+  try {
+    expect(() => tryCreateTranscriptSearch([{ text: "needle" }], "needle")).toThrow(failure)
+  } finally {
+    spy.mockRestore()
+  }
 })

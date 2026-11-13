@@ -607,7 +607,7 @@ impl Drop for TerminalProcess {
         }
         if !self.exited && !self.exit_pending {
             if let Some(killer) = self.killer.as_mut() {
-                let _ = kill_terminal_process(killer.as_mut());
+                let _ = killer.kill();
             }
         }
     }
@@ -626,7 +626,7 @@ impl PreparedSessionDeletion<'_> {
         &self.key
     }
 
-    pub(crate) fn commit(self) -> Result<(), String> {
+    pub(crate) fn commit(self) -> Result<crate::session_deletion::DeleteOutcome, String> {
         crate::sessions::delete_session(&self.canonical, &self.root, &self._lease)
     }
 }
@@ -755,7 +755,7 @@ impl TerminalState {
     ) -> Result<String, String> {
         let deletion = self.prepare_inactive_session_deletion(path, root, force_session_lease)?;
         let key = deletion.key().to_owned();
-        deletion.commit()?;
+        crate::session_deletion::settle(deletion.commit(), || Ok(()))?;
         Ok(key)
     }
 }
@@ -789,20 +789,6 @@ fn try_lock_session_files(state: &TerminalState) -> Option<std::sync::MutexGuard
         Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
         Err(std::sync::TryLockError::WouldBlock) => None,
     }
-}
-
-fn kill_terminal_process(killer: &mut dyn ChildKiller) -> std::io::Result<()> {
-    let result = killer.kill();
-    #[cfg(windows)]
-    if result
-        .as_ref()
-        .is_err_and(|error| error.raw_os_error() == Some(0))
-    {
-        // portable-pty 0.9.0 checks the Win32 TerminateProcess BOOL in reverse
-        // for cloned killers. Upstream main fixes this, but no fixed crate exists yet.
-        return Ok(());
-    }
-    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -2680,10 +2666,10 @@ fn apply_handoff_session_titles(
             &mut previous_session,
             &transaction.candidate().session_title_pins,
         );
-        let archive_label = if transaction.candidate().language == "en" {
-            "archive"
-        } else {
-            "архив"
+        let archive_label = match transaction.candidate().language.as_str() {
+            "en" => "archive",
+            "zh" => "归档",
+            _ => "архив",
         };
         let previous_path_string = previous_path.to_string_lossy().into_owned();
         let active_path_string = active_path.to_string_lossy().into_owned();
@@ -2859,7 +2845,7 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
             let state = app.state::<TerminalState>();
             if let Some(process) = lock_processes(&state).get_mut(terminal_id) {
                 if let Some(killer) = process.killer.as_mut() {
-                    let _ = kill_terminal_process(killer.as_mut());
+                    let _ = killer.kill();
                 }
             }
             return true;
@@ -4418,7 +4404,8 @@ fn stop_terminal_for_restart(terminal_id: &str, terminals: &TerminalState) -> Re
                 .killer
                 .as_mut()
                 .ok_or_else(|| "Процесс OMP нельзя остановить".to_owned())?;
-            kill_terminal_process(killer.as_mut())
+            killer
+                .kill()
                 .map_err(|error| format!("Не удалось остановить процесс OMP: {error}"))?;
             process.exit_pending = true;
         }
@@ -4447,7 +4434,11 @@ pub fn close_terminal(
     terminal_id: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    let process = lock_processes(&terminals).remove(&terminal_id);
+    close_terminal_in_state(&terminal_id, &terminals)
+}
+
+fn close_terminal_in_state(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
+    let process = lock_processes(terminals).remove(terminal_id);
     drop(process);
     Ok(())
 }
@@ -4654,27 +4645,22 @@ fn run_output_pipeline<Output, Exit>(
     exit(event);
 }
 
-fn finalize_terminal_exit(
-    app: &AppHandle,
+fn finalize_terminal_exit_in_state(
+    state: &TerminalState,
     terminal_id: &str,
     output: &SharedTerminalOutput,
-    event: PtyExitEvent,
-) {
-    let runtime_error = event
-        .output_truncated
-        .then(|| event.error.clone())
-        .flatten();
+    event: &PtyExitEvent,
+) -> bool {
     let session_lease = {
-        let state = app.state::<TerminalState>();
-        let mut processes = lock_processes(&state);
+        let mut processes = lock_processes(state);
         let Some(process) = processes
             .get_mut(terminal_id)
             .filter(|process| Arc::ptr_eq(&process.output, output))
         else {
-            return;
+            return false;
         };
         if process.exited {
-            return;
+            return false;
         }
         process.exit_pending = false;
         process.exited = true;
@@ -4688,10 +4674,24 @@ fn finalize_terminal_exit(
         process.session_lease.take()
     };
     drop(session_lease);
+    true
+}
 
+fn finalize_terminal_exit(
+    app: &AppHandle,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    event: PtyExitEvent,
+) {
+    if !finalize_terminal_exit_in_state(&app.state::<TerminalState>(), terminal_id, output, &event)
+    {
+        return;
+    }
     if lock_terminal_output(output).has_attachment() {
-        if let Some(error) = runtime_error {
-            emit_runtime_error(app, terminal_id, error);
+        if event.output_truncated {
+            if let Some(error) = event.error.clone() {
+                emit_runtime_error(app, terminal_id, error);
+            }
         }
         let _ = app.emit("pty-exit", event);
     }
@@ -4736,6 +4736,16 @@ fn forward_output_batches(
     let _ = finalized_sender.send(());
 }
 
+fn read_terminal_chunk(reader: &mut dyn Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match reader.read(buffer) {
+            // An interrupted read consumes no bytes and does not end the PTY stream.
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
+}
+
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
@@ -4769,7 +4779,7 @@ fn spawn_reader(
         .spawn(move || {
             let mut buffer = [0_u8; 8192];
             loop {
-                match reader.read(&mut buffer) {
+                match read_terminal_chunk(reader.as_mut(), &mut buffer) {
                     Ok(0) => break,
                     Ok(read) => {
                         if output_sender.send(buffer[..read].to_vec()).is_err() {
@@ -4796,6 +4806,63 @@ fn spawn_reader(
     })
 }
 
+fn terminal_child_exit_event(
+    terminal_id: &str,
+    status: std::io::Result<portable_pty::ExitStatus>,
+) -> PtyExitEvent {
+    match status {
+        Ok(status) => PtyExitEvent {
+            terminal_id: terminal_id.to_owned(),
+            exit_code: Some(status.exit_code()),
+            success: status.success(),
+            error: status.signal().map(|signal| format!("Сигнал: {signal}")),
+            output_truncated: false,
+        },
+        Err(error) => PtyExitEvent {
+            terminal_id: terminal_id.to_owned(),
+            exit_code: None,
+            success: false,
+            error: Some(error.to_string()),
+            output_truncated: false,
+        },
+    }
+}
+
+fn release_terminal_io_after_wait(
+    state: &TerminalState,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    wait_failed: bool,
+) -> bool {
+    let (master, writer, mut killer) = {
+        let mut processes = lock_processes(state);
+        let Some(process) = processes
+            .get_mut(terminal_id)
+            .filter(|process| Arc::ptr_eq(&process.output, output))
+        else {
+            return false;
+        };
+        process.exit_pending = true;
+        (
+            process.master.take(),
+            process.writer.take(),
+            process.killer.take(),
+        )
+    };
+    if wait_failed {
+        if let Some(killer) = killer.as_mut() {
+            let _ = killer.kill();
+        }
+    }
+    if let Some(writer) = writer.as_ref() {
+        writer.close();
+    }
+    drop(writer);
+    drop(master);
+    drop(killer);
+    true
+}
+
 fn spawn_waiter<F>(
     app: AppHandle,
     terminal_id: String,
@@ -4810,22 +4877,7 @@ where
         .spawn(move || {
             let status = wait();
             let wait_failed = status.is_err();
-            let event = match status {
-                Ok(status) => PtyExitEvent {
-                    terminal_id: terminal_id.clone(),
-                    exit_code: Some(status.exit_code()),
-                    success: status.success(),
-                    error: status.signal().map(|signal| format!("Сигнал: {signal}")),
-                    output_truncated: false,
-                },
-                Err(error) => PtyExitEvent {
-                    terminal_id: terminal_id.clone(),
-                    exit_code: None,
-                    success: false,
-                    error: Some(error.to_string()),
-                    output_truncated: false,
-                },
-            };
+            let event = terminal_child_exit_event(&terminal_id, status);
 
             // Preserve the last breadcrumb for very short-lived sessions without
             // putting filesystem work back into the PTY output hot path. A pin
@@ -4842,34 +4894,14 @@ where
                 }
             }
 
-            let (master, writer, mut killer) = {
-                let state = app.state::<TerminalState>();
-                let mut processes = lock_processes(&state);
-                let Some(process) = processes
-                    .get_mut(&terminal_id)
-                    .filter(|process| Arc::ptr_eq(&process.output, &exit_signal.output))
-                else {
-                    return;
-                };
-                process.exit_pending = true;
-                (
-                    process.master.take(),
-                    process.writer.take(),
-                    process.killer.take(),
-                )
-            };
-
-            if wait_failed {
-                if let Some(killer) = killer.as_mut() {
-                    let _ = kill_terminal_process(killer.as_mut());
-                }
+            if !release_terminal_io_after_wait(
+                &app.state::<TerminalState>(),
+                &terminal_id,
+                &exit_signal.output,
+                wait_failed,
+            ) {
+                return;
             }
-            if let Some(writer) = writer.as_ref() {
-                writer.close();
-            }
-            drop(writer);
-            drop(master);
-            drop(killer);
 
             let fallback_event = event.clone();
             if let Err(error) = exit_signal.event_sender.send(event) {
@@ -5607,8 +5639,7 @@ mod tests {
     };
     #[cfg(windows)]
     use super::{
-        kill_terminal_process, native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity,
-        WindowsJobObject,
+        native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity, WindowsJobObject,
     };
     #[cfg(windows)]
     use std::time::Instant;
@@ -5733,7 +5764,7 @@ mod tests {
                 return;
             };
             if !matches!(child.try_wait(), Ok(Some(_))) {
-                let _ = kill_terminal_process(self.killer.as_mut());
+                let _ = self.killer.kill();
             }
             let _ = child.wait();
         }
@@ -6078,6 +6109,108 @@ mod tests {
             .err()
             .expect("future sequence must be rejected");
         assert!(error.starts_with("[terminal_sequence_invalid] "));
+    }
+
+    struct ScriptedPtyReader {
+        reads: std::vec::IntoIter<io::Result<Vec<u8>>>,
+        calls: usize,
+    }
+
+    impl io::Read for ScriptedPtyReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.calls += 1;
+            let bytes = self.reads.next().expect("unexpected read")?;
+            assert!(bytes.len() <= buffer.len());
+            buffer[..bytes.len()].copy_from_slice(&bytes);
+            Ok(bytes.len())
+        }
+    }
+
+    #[test]
+    fn terminal_reader_retries_interruptions_without_losing_output() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(vec![0xf0, 0x9f]),
+                Err(io::ErrorKind::Interrupted.into()),
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(vec![0x99, 0x82, b'\n']),
+                Ok(Vec::new()),
+            ]
+            .into_iter(),
+            calls: 0,
+        };
+        let mut buffer = [0_u8; 8192];
+        let mut output = Vec::new();
+        loop {
+            let read = super::read_terminal_chunk(&mut reader, &mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            output.extend_from_slice(&buffer[..read]);
+        }
+        assert_eq!(output, [0xf0, 0x9f, 0x99, 0x82, b'\n']);
+        assert_eq!(reader.calls, 6);
+    }
+
+    #[test]
+    fn terminal_reader_preserves_immediate_eof() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![Ok(Vec::new()), Ok(b"not read".to_vec())].into_iter(),
+            calls: 0,
+        };
+        assert_eq!(
+            super::read_terminal_chunk(&mut reader, &mut [0_u8; 32]).unwrap(),
+            0
+        );
+        assert_eq!(reader.calls, 1);
+        assert_eq!(reader.reads.len(), 1);
+    }
+
+    #[test]
+    fn terminal_reader_preserves_eof_after_interruption() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![Err(io::ErrorKind::Interrupted.into()), Ok(Vec::new())].into_iter(),
+            calls: 0,
+        };
+        assert_eq!(
+            super::read_terminal_chunk(&mut reader, &mut [0_u8; 32]).unwrap(),
+            0
+        );
+        assert_eq!(reader.calls, 2);
+    }
+
+    #[test]
+    fn terminal_reader_returns_other_errors_without_retrying() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::Other,
+        ] {
+            let mut reader = ScriptedPtyReader {
+                reads: vec![
+                    Ok(b"before".to_vec()),
+                    Err(io::ErrorKind::Interrupted.into()),
+                    Err(io::Error::new(kind, "synthetic read failure")),
+                    Ok(b"not read".to_vec()),
+                ]
+                .into_iter(),
+                calls: 0,
+            };
+            let mut buffer = [0_u8; 32];
+            assert_eq!(
+                super::read_terminal_chunk(&mut reader, &mut buffer).unwrap(),
+                6
+            );
+            assert_eq!(&buffer[..6], b"before");
+            let error = super::read_terminal_chunk(&mut reader, &mut buffer).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.to_string(), "synthetic read failure");
+            assert_eq!(reader.calls, 3);
+            assert_eq!(reader.reads.len(), 1);
+        }
     }
 
     struct BlockingWriter {
@@ -6448,7 +6581,7 @@ mod tests {
             "writer fixture should fill the ConPTY input buffer"
         );
 
-        kill_terminal_process(killer.as_mut()).expect("sleeping child should be killable");
+        killer.kill().expect("sleeping child should be killable");
         writer.close();
         finished_receiver
             .recv_timeout(Duration::from_secs(5))
@@ -8913,4 +9046,6 @@ mod tests {
             vec!["network_unavailable"]
         );
     }
+
+    include!("terminal_lifecycle_tests.rs");
 }
