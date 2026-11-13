@@ -56,7 +56,8 @@ pub fn sample_resource_health(
     paths: Vec<ResourcePath>,
     terminal_processes: Vec<(String, u32)>,
 ) -> Result<ResourceHealthSnapshot, String> {
-    let mut system = System::new();
+    let mut system = System::new()
+        .map_err(|error| format!("Не удалось получить сведения о системе: {error}"))?;
     system.refresh_memory_specifics(MemoryRefreshKind::nothing().with_ram().with_swap());
 
     let available_severity = memory_severity(system.available_memory(), system.total_memory());
