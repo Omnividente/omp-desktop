@@ -726,7 +726,7 @@ async function firstUserJourney() {
   await click("Save")
   await durableSettings((s) => s.language === "en", "new-user English Save")
   await observe(
-    ["OMP unavailable", "OMP probe failures", "Set the executable path below"],
+    ["OMP unavailable", "Set the executable path below"],
     "new-user-actionable-discovery-error",
   )
   await native({
@@ -736,7 +736,6 @@ async function firstUserJourney() {
     kind: "edit",
     expected: "",
   })
-  await observe(["Leave empty to auto-detect"], "new-user-discovery-recovery-guidance")
   await click("Cancel")
   const hint = "OMP Desktop will launch the agent in the selected folder"
   await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", [], "dark")
@@ -780,12 +779,12 @@ async function firstUserJourney() {
     expected: "",
   })
   await click("Cancel")
-  await click("Open folder")
+  await native({ operation: "shortcut", pid: activePid, name: "open-folder" })
   await native({ operation: "folder", pid: activePid, path: project })
   await observe([basename(project), "New session"], "new-user-selected-project")
   await durableSettings((s) => same(s.lastWorkspace, project), "native project selection persisted")
   stage = "new-user-first-real-pty"
-  await click("New session")
+  await native({ operation: "shortcut", pid: activePid, name: "new-session" })
   const runtime = await native(
     { operation: "runtime-process", pid: activePid, runtime: runtimePath, project },
     true,

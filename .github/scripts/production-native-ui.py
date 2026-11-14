@@ -61,6 +61,9 @@ def main(q):
     windows = sys.platform == "win32"
     if windows:
         import psutil
+        import win32api
+        import win32con
+        import win32gui
         from pywinauto import Desktop
         candidates = []
         for w in Desktop(backend="uia").windows(title="OMP Desktop", visible_only=True):
@@ -73,6 +76,10 @@ def main(q):
         if q.get("pid"):
             require(pid == q["pid"])
         if q["operation"] != "folder":
+            area = win32api.GetMonitorInfo(win32api.MonitorFromWindow(window.handle, win32con.MONITOR_DEFAULTTONEAREST))["Work"]
+            window.restore()
+            win32gui.SetWindowPos(window.handle, 0, area[0], area[1], area[2] - area[0], area[3] - area[1],
+                                 win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE)
             window.set_focus()
         require(window.is_visible() and not window.is_minimized())
         bounds = window.rectangle()
@@ -103,7 +110,7 @@ def main(q):
 
         def select(n, index):
             n.set_focus()
-            n.type_keys("{HOME}" + "{DOWN}" * index + "{ENTER}", set_foreground=True)
+            n.type_keys("%{DOWN}{HOME}" + "{DOWN}" * index + "{ENTER}", set_foreground=True)
 
         def value(n):
             if n.element_info.control_type == "Edit":
@@ -149,6 +156,7 @@ def main(q):
                 keys("^a^c")
                 return copied_text(clipboard_text)
             finally:
+                keys("{RIGHT}")
                 window.click_input(coords=point)
                 clear_clipboard()
 
@@ -241,7 +249,7 @@ def main(q):
 
         def select(n, index):
             require(n.queryComponent().grabFocus())
-            run("xdotool", "key", "--clearmodifiers", "Home", *( ["Down"] * index), "Return")
+            run("xdotool", "key", "--clearmodifiers", "alt+Down", "Home", *( ["Down"] * index), "Return")
 
         def value(n):
             if n.getRoleName() in {"entry", "text"}:
@@ -281,6 +289,7 @@ def main(q):
                 keys(["ctrl+a", "ctrl+c"])
                 return copied_text(lambda: run("xclip", "-selection", "clipboard", "-out"))
             finally:
+                keys(["Right"])
                 focus_header()
                 clear_clipboard()
 
@@ -345,6 +354,10 @@ def main(q):
         identity["value"] = actual
     elif operation == "edit":
         edit(control(q["name"], "edit"), q["text"])
+    elif operation == "shortcut":
+        shortcuts = {"open-folder": ("^+o", ["ctrl+shift+o"]), "new-session": ("^n", ["ctrl+n"])}
+        require(q["name"] in shortcuts)
+        keys(shortcuts[q["name"]][0 if windows else 1])
     elif operation == "folder":
         path = Path(q["path"]).resolve(strict=True)
         require(within(root, path) and path.is_dir())
