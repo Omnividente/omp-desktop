@@ -98,7 +98,8 @@ def main(q):
             types = {"button": "Button", "tab": "TabItem", "combo": "ComboBox", "edit": "Edit"}
             found = [n for n in nodes() if name(n) == label
                      and n.element_info.control_type == types[kind]]
-            require(len(found) == 1 and found[0].is_enabled())
+            require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
+            require(found[0].is_enabled(), "native-control-disabled")
             node = found[0]
             if not visible(node):
                 node.iface_scroll_item.ScrollIntoView()
@@ -130,13 +131,22 @@ def main(q):
             # Click the owned visible lower console, never inject DOM focus hooks.
             window.click_input(coords=(int(bounds.width() * .65), int(bounds.height() * .78)))
 
-        def header_text(labels):
+        def rendered_text(labels):
             import win32clipboard
-            controls = [n for n in nodes() if name(n) in labels and visible(n)
-                        and n.element_info.control_type == "Button"]
-            require(len(controls) == 1, "native-version-control-count")
-            rect = controls[0].rectangle()
-            point = (rect.left - bounds.left - 3, (rect.top + rect.bottom) // 2 - bounds.top)
+            current_nodes = nodes()
+            # UIA_AriaRolePropertyId identifies the actual active HTML dialog.
+            dialogs = [n for n in current_nodes if visible(n)
+                       and n.element_info.element.GetCurrentPropertyValue(30101) == "dialog"]
+            require(len(dialogs) <= 1, "native-rendered-dialog-count")
+            if dialogs:
+                rect = dialogs[0].rectangle()
+                point = (rect.left - bounds.left + 32, rect.top - bounds.top + 32)
+            else:
+                controls = [n for n in current_nodes if name(n) in labels and visible(n)
+                            and n.element_info.control_type == "Button"]
+                require(len(controls) == 1, "native-version-control-count")
+                rect = controls[0].rectangle()
+                point = (rect.left - bounds.left - 3, (rect.top + rect.bottom) // 2 - bounds.top)
             require(0 <= point[0] < bounds.width() and 0 <= point[1] < bounds.height())
             def clear_clipboard():
                 win32clipboard.OpenClipboard(window.handle)
@@ -234,7 +244,8 @@ def main(q):
                      "combo": {"combo box"}, "edit": {"entry", "text"}}
             found = [n for n in nodes() if name(n) == label
                      and n.getRoleName() in roles[kind]]
-            require(len(found) == 1 and found[0].getState().contains(pyatspi.STATE_ENABLED))
+            require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
+            require(found[0].getState().contains(pyatspi.STATE_ENABLED), "native-control-disabled")
             node = found[0]
             if not visible(node):
                 require(node.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE))
@@ -270,13 +281,20 @@ def main(q):
             x = int(geometry["X"]) + int(int(geometry["WIDTH"]) * .65)
             y = int(geometry["Y"]) + int(int(geometry["HEIGHT"]) * .78)
             run("xdotool", "mousemove", str(x), str(y), "click", "1")
-        def header_text(labels):
-            controls = [n for n in nodes() if name(n) in labels and visible(n)
-                        and n.getRoleName() == "push button"]
-            require(len(controls) == 1, "native-version-control-count")
-            rect = controls[0].queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+        def rendered_text(labels):
+            current_nodes = nodes()
+            dialogs = [n for n in current_nodes if visible(n) and n.getRoleName() == "dialog"]
+            require(len(dialogs) <= 1, "native-rendered-dialog-count")
+            if dialogs:
+                rect = dialogs[0].queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+                point = (rect.x + 32, rect.y + 32)
+            else:
+                controls = [n for n in current_nodes if name(n) in labels and visible(n)
+                            and n.getRoleName() == "push button"]
+                require(len(controls) == 1, "native-version-control-count")
+                rect = controls[0].queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+                point = (rect.x - 3, rect.y + rect.height // 2)
             frame = window.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
-            point = (rect.x - 3, rect.y + rect.height // 2)
             require(frame.x <= point[0] < frame.x + frame.width and frame.y <= point[1] < frame.y + frame.height)
             def focus_header():
                 run("xdotool", "mousemove", str(point[0]), str(point[1]), "click", "1")
@@ -320,17 +338,23 @@ def main(q):
     operation = q["operation"]
     if operation == "observe":
         # Return only the requested synthetic text match, never a full tree/profile.
-        texts = []
-        for n in nodes():
-            if not visible(n):
-                continue
-            texts.append(name(n))
-            if not windows:
-                try:
-                    t = n.queryText()
-                    texts.append(t.getText(0, min(t.characterCount, 4096)))
-                except NotImplementedError:
-                    pass
+        if q.get("copyText") or q.get("expectedVersion"):
+            text = rendered_text(q["versionLabels"])
+            texts = [text]
+            identity["textObservation"] = "owned native selection/copy; clipboard cleared; raw text not retained"
+        else:
+            # Focus-sensitive PTY observations stay read-only accessibility queries.
+            texts = []
+            for n in nodes():
+                if not visible(n):
+                    continue
+                texts.append(name(n))
+                if not windows:
+                    try:
+                        t = n.queryText()
+                        texts.append(t.getText(0, min(t.characterCount, 4096)))
+                    except NotImplementedError:
+                        pass
         require(all(any(needle in text for text in texts) for needle in q["texts"]), "expected-text-missing")
         identity["observedTexts"] = q["texts"]
         require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])), "unexpected-text-present")
@@ -338,7 +362,6 @@ def main(q):
             # The button's action name is not its rendered version. Read actual
             # selected page text through native keys/clipboard, only in this owned
             # fresh hosted VM; never expose or retain the copied UI text.
-            text = header_text(q["versionLabels"])
             version = re.search(r"\bOMP\s*Desktop\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?![\d.+-])", text)
             require(version, "native-header-version-unselected")
             require(version.group(1) == q["expectedVersion"], "native-header-version-mismatch")
@@ -350,7 +373,7 @@ def main(q):
         select(control(q["name"], "combo"), q["index"])
     elif operation == "value":
         actual = value(control(q["name"], q.get("kind", "combo")))
-        require(actual == q["expected"])
+        require(actual == q["expected"], "native-control-value-mismatch")
         identity["value"] = actual
     elif operation == "edit":
         edit(control(q["name"], "edit"), q["text"])

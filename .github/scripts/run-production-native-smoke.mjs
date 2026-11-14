@@ -23,6 +23,11 @@ import { fileURLToPath } from "node:url"
 const windows = process.platform === "win32"
 const harness = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const delay = (ms) => new Promise((done) => setTimeout(done, ms))
+const desktopUpdateLabels = [
+  "Проверить обновления OMP Desktop",
+  "Check for OMP Desktop updates",
+  "检查 OMP Desktop 更新",
+]
 const required = (key) => {
   assert(process.env[key], `Missing ${key}`)
   return process.env[key]
@@ -170,6 +175,10 @@ function cleanEnvironment() {
   if (!windows) {
     out.NO_AT_BRIDGE = "0"
     out.GTK_MODULES = "atk-bridge"
+    // Xvfb has no hardware compositor. Keep this hosted observation environment explicit.
+    out.LIBGL_ALWAYS_SOFTWARE = "1"
+    out.WEBKIT_DISABLE_DMABUF_RENDERER = "1"
+    out.WEBKIT_DISABLE_COMPOSITING_MODE = "1"
   }
   return out
 }
@@ -267,12 +276,13 @@ async function observeSdkInstaller(expectedSha256) {
   ).catch(() => null)
 }
 async function native(request, retry = false) {
-  const q = { root: work, evidence, executable, ...request }
+  const q = { root: work, evidence, executable, versionLabels: desktopUpdateLabels, ...request }
   result.lastNativeOperation = {
     operation: q.operation,
     name: q.name ?? null,
     kind: q.kind ?? null,
     expectedVersion: q.expectedVersion ?? null,
+    copyText: Boolean(q.copyText),
     requestedTexts: q.texts ?? [],
   }
   const invoke = async () => {
@@ -298,20 +308,18 @@ async function native(request, retry = false) {
   return value
 }
 const click = (name, kind = "button") => native({ operation: "click", pid: activePid, name, kind })
-async function observe(texts, label, excludePids = [], theme, expectedVersion) {
+async function observe(
+  texts,
+  label,
+  { excludePids = [], theme, expectedVersion, copyText = true } = {},
+) {
   const request = {
     operation: "observe",
     pid: activePid ?? undefined,
     texts,
     excludePids,
     expectedVersion,
-    versionLabels: expectedVersion
-      ? [
-          "Проверить обновления OMP Desktop",
-          "Check for OMP Desktop updates",
-          "检查 OMP Desktop 更新",
-        ]
-      : undefined,
+    copyText,
   }
   const data = await native(request, true)
   activePid = data.pid
@@ -335,7 +343,7 @@ async function start(label, version, excludePids = []) {
   })
   child.on("error", () => {})
   child.unref()
-  const data = await observe([], label, excludePids, undefined, version)
+  const data = await observe([], label, { excludePids, expectedVersion: version })
   result.launches.push({
     label,
     ...data,
@@ -447,13 +455,9 @@ async function preferences(fixture, mutate) {
   await click("Cancel")
 }
 async function state(fixture, version, label) {
-  await observe(
-    [basename(fixture.project), fixture.title],
-    `${label}-workspace`,
-    [],
-    undefined,
-    version,
-  )
+  await observe([basename(fixture.project), fixture.title], `${label}-workspace`, {
+    expectedVersion: version,
+  })
   await click("Open transcript")
   await observe([fixture.title, ...fixture.messages.map(({ text }) => text)], `${label}-transcript`)
   await native({ operation: "escape", pid: activePid })
@@ -738,13 +742,15 @@ async function firstUserJourney() {
   })
   await click("Cancel")
   const hint = "OMP Desktop will launch the agent in the selected folder"
-  await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", [], "dark")
+  await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", { theme: "dark" })
   await click("Settings")
   await native({ operation: "select", pid: activePid, name: "Interface theme", index: 1 })
   await click("Save")
   await durableSettings((s) => s.desktopTheme === "light", "new-user light theme Save")
   await click("Cancel")
-  await observe(["Open project folder", hint], "new-user-light-first-screen-hint", [], "light")
+  await observe(["Open project folder", hint], "new-user-light-first-screen-hint", {
+    theme: "light",
+  })
   await click("Settings")
   await native({ operation: "select", pid: activePid, name: "Interface language", index: 2 })
   await click("保存")
@@ -851,7 +857,9 @@ async function completedAnswerJourney(fixture) {
   await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
   await terminalObservation("answer-default-collapsed-live-console", ["native\\s*focus\\s*draft"])
   await click("Show answer")
-  await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic")
+  await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic", {
+    copyText: false,
+  })
   await terminalObservation("answer-expanded-preserves-live-console-draft", [
     "native\\s*focus\\s*draft",
   ])
@@ -1077,13 +1085,10 @@ async function main() {
     result.probe.pid = started.pid
     result.probe.launcherPid = child.pid
     stage = "first-sdk-target-native-ui"
-    const first = await observe(
-      [basename(f.project), f.title],
-      "sdk-first-target-native",
-      [baselinePid, started.pid],
-      undefined,
-      "0.9.13",
-    )
+    const first = await observe([basename(f.project), f.title], "sdk-first-target-native", {
+      excludePids: [baselinePid, started.pid],
+      expectedVersion: "0.9.13",
+    })
     assert(
       !(await processes()).some((row) => row.pid === started.pid),
       "Probe process survived target relaunch",
