@@ -41,6 +41,54 @@ it("keeps nonoverlapping ASCII matches exact across chunks and bounded windows",
   expect(search.matchesForEntry(2, 5000)).toEqual([{ start: 0, end: 2, index: 5000 }])
 })
 
+it("keeps literal ASCII spans around Unicode and isolated surrogates", () => {
+  for (let code = 0; code < 128; code++) {
+    const query = String.fromCharCode(code)
+    const text = `😀${query}\ud800${query}\udc00${query}`
+    const search = new TranscriptSearch([{ text: "" }, { text }], query, true)
+    expect(search.count).toBe(3)
+    expect(search.entryIndex(0)).toBe(1)
+    expect(search.matchesForEntry(1, 0)).toEqual([
+      { start: 2, end: 3, index: 0 },
+      { start: 4, end: 5, index: 1 },
+      { start: 6, end: 7, index: 2 },
+    ])
+  }
+})
+
+it("keeps nonoverlapping ASCII matches exact across chunks and bounded windows", () => {
+  const search = new TranscriptSearch(
+    [{ text: "a" }, { text: "a".repeat(10_001) }, { text: "aa" }],
+    "aa",
+    true,
+  )
+  expect(search.count).toBe(5001)
+  for (const index of [0, 4095, 4096, 4999]) {
+    expect(search.entryIndex(index)).toBe(1)
+    const window = search.matchesForEntry(1, index)
+    expect(window).toHaveLength(SEARCH_HIGHLIGHT_LIMIT)
+    expect(window.find((match) => match.index === index)).toEqual({
+      start: index * 2,
+      end: index * 2 + 2,
+      index,
+    })
+  }
+  expect(search.entryIndex(5000)).toBe(2)
+  expect(search.matchesForEntry(2, 5000)).toEqual([{ start: 0, end: 2, index: 5000 }])
+})
+
+it("preserves spans on both sides of the short-query optimization boundary", () => {
+  for (const length of [256, 257]) {
+    const query = "x".repeat(length)
+    const search = new TranscriptSearch([{ text: `😀${query}${query}x` }], query, true)
+    expect(search.count).toBe(2)
+    expect(search.matchesForEntry(0, 1)).toEqual([
+      { start: 2, end: 2 + length, index: 0 },
+      { start: 2 + length, end: 2 + length * 2, index: 1 },
+    ])
+  }
+})
+
 it("optionally distinguishes code identifiers while keeping literal UTF-16 match spans", () => {
   const contents = [{ text: "😀PATH path Path PATH.* path.*" }]
   const search = new TranscriptSearch(contents, "PATH", true)
