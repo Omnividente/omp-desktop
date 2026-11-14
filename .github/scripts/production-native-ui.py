@@ -558,18 +558,17 @@ def main(q):
         path = Path(q["path"]).resolve(strict=True)
         require(within(root, path) and path.is_dir())
         folder(path)
-    elif operation == "terminal-keys":
+    elif operation in ("terminal-keys", "terminal-text"):
         if q.get("focus", True):
             terminal_focus()
-        sequences = {
-            "escape": ("{ESC}", ["Escape"]),
-            "space": ("{SPACE}", ["space"]),
-            "draft": ("nativefocusdraft", list("nativefocusdraft")),
-            "after-toggle": ("nativeaftertoggle", list("nativeaftertoggle")),
-            "clear": ("^a{BACKSPACE}", ["ctrl+a", "BackSpace"]),
-        }
-        require(q["keys"] in sequences)
-        keys(sequences[q["keys"]][0 if windows else 1])
+        if operation == "terminal-text":
+            if windows:
+                keys(q["text"])
+            else:
+                run("xdotool", "type", "--clearmodifiers", "--", q["text"])
+        else:
+            require(q["keys"] == "space")
+            keys("{SPACE}" if windows else ["space"])
     elif operation == "terminal-ocr":
         # Canvas TUI is read from the real mapped surface, never DOM/testhook output.
         with tempfile.TemporaryDirectory(prefix="native-ocr-", dir=root) as temp:

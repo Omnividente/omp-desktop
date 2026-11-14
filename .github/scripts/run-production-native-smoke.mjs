@@ -891,9 +891,8 @@ async function completedAnswerJourney(fixture) {
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
     true,
   )
-  // Escape may cancel OMP's startup chooser; it is not a desktop focus command.
-  await native({ operation: "terminal-keys", pid: activePid, keys: "clear" })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
+  // Use fresh TUI input: Ctrl+A/Backspace is a real Ctrl+C in Desktop, not a safe reset.
+  await native({ operation: "terminal-text", pid: activePid, text: "nativefocusdraft" })
   await terminalObservation("answer-default-collapsed-live-console", ["native\\s*focus\\s*draft"])
   await click("Show answer")
   await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic", {
@@ -910,9 +909,8 @@ async function completedAnswerJourney(fixture) {
   await terminalObservation("answer-recollapsed-preserves-live-console-draft", [
     "native\\s*focus\\s*draft",
   ])
-  // Refocus explicitly; a distinct replacement proves new input, not a stale OCR match.
-  await native({ operation: "terminal-keys", pid: activePid, keys: "clear" })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "after-toggle", focus: false })
+  // Refocus explicitly; a distinct appended token proves new input, not a stale OCR match.
+  await native({ operation: "terminal-text", pid: activePid, text: "nativeaftertoggle" })
   await terminalObservation("answer-explicit-focus-after-toggle", ["native\\s*after\\s*toggle"])
   const after = await native(request)
   assert.equal(after.runtime.pid, before.runtime.pid, "Answer controls replaced the actual runtime")

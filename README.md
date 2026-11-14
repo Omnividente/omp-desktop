@@ -407,7 +407,11 @@ On a fresh Linux chooser, Alt+Home enters folder-browse mode before the location
 
 Linux preflight executable replacement copies to a checked-absent sibling with COPYFILE_EXCL, checks its mode/hash, then atomically renames it over the working path after the Desktop has exited. This avoids ETXTBSY from overwriting an AppImage runtime inode still mapped during cleanup. The diagnostic probe uses the same preflight path; the actual production SDK install path and released bytes are unchanged.
 
-The minimal #251 journey preserves real, unsubmitted OMP TUI input/search across expand/collapse and compares the live runtime PID/hash. After an explicit native refocus, a distinct replacement token proves new keyboard input rather than matching an old visible draft. It does not inject Escape into a CLI startup chooser and then demand a live editor: that can cancel OMP (the40fd frame showed exit130), and is not a desktop focus command or an accepted new Escape hook. This is not a model prompt/response claim.
+The minimal #251 journey preserves real, unsubmitted OMP TUI input/search across expand/collapse and compares the live runtime PID/hash.
+It types a fresh draft through native string input, then explicitly refocuses and appends a distinct token to prove new keyboard input rather than matching old text.
+It never resets the live TUI with Ctrl+A/Backspace: TerminalView intentionally maps that gesture to Ctrl+C, which can interrupt or cancel CLI startup.
+It also does not inject Escape into a startup chooser and then demand a live editor or a new desktop Escape hook.
+All full-token OCR assertions stay exact; this is not a model prompt/response claim.
 
 Canvas-only OCR uses a fixed 2x LANCZOS enlargement of the same native window crop before Tesseract. Local Tesseract 4.1.1 failed the unchanged first-setup expression on the saved original-size Linux capture but passed it on the enlarged Linux and Windows captures. Recognized text is never normalized and all required wording/digits remain unchanged; the header version still uses native selection/copy, not OCR.
 
