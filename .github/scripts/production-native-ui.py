@@ -192,10 +192,27 @@ def main(q):
                 time.sleep(.1)
             else:
                 raise NativeContractError("native-folder-dialog-unavailable")
-            dialog.type_keys("^l", set_foreground=True)
+            dialog.type_keys("^l^a", set_foreground=True)
             from pywinauto.keyboard import send_keys
             send_keys(str(path), with_spaces=True, vk_packet=True)
-            send_keys("{ENTER}%s")
+            send_keys("{ENTER}")
+            if not win32gui.IsWindow(handle) or not win32gui.IsWindowVisible(handle):
+                return
+            buttons = [n for n in dialog.descendants() if n.element_info.control_type == "Button"
+                       and n.element_info.automation_id == str(win32con.IDOK) and visible(n)]
+            require(len(buttons) == 1, "native-folder-accept-count")
+            for _ in range(100):
+                if buttons[0].is_enabled():
+                    click(buttons[0])
+                    break
+                time.sleep(.05)
+            else:
+                raise NativeContractError("native-folder-accept-disabled")
+            for _ in range(100):
+                if not win32gui.IsWindow(handle) or not win32gui.IsWindowVisible(handle):
+                    return
+                time.sleep(.05)
+            raise NativeContractError("native-folder-dialog-not-closed")
 
         def capture(path):
             from PIL import ImageGrab
@@ -382,7 +399,7 @@ def main(q):
             require(int(active, 0) != int(xid, 0), "native-folder-dialog-unavailable")
             require(int(run("xdotool", "getwindowpid", active)) == pid, "native-folder-dialog-owner")
             title = run("xdotool", "getwindowname", active)
-            run("xdotool", "key", "--clearmodifiers", "ctrl+l")
+            run("xdotool", "key", "--clearmodifiers", "ctrl+l", "ctrl+a")
             run("xdotool", "type", "--clearmodifiers", "--", str(path))
             run("xdotool", "key", "--clearmodifiers", "Return")
             def picker_visible():
