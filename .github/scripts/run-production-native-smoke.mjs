@@ -305,7 +305,13 @@ async function observe(texts, label, excludePids = [], theme, expectedVersion) {
     texts,
     excludePids,
     expectedVersion,
-    tesseract: expectedVersion ? required("PRODUCTION_NATIVE_TESSERACT") : undefined,
+    versionLabels: expectedVersion
+      ? [
+          "Проверить обновления OMP Desktop",
+          "Check for OMP Desktop updates",
+          "检查 OMP Desktop 更新",
+        ]
+      : undefined,
   }
   const data = await native(request, true)
   activePid = data.pid

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import re
 import tempfile
+import time
 
 
 class NativeContractError(RuntimeError):
@@ -38,6 +39,16 @@ def file_hash(path):
 
 def within(root, path):
     return path != root and root in path.parents
+
+
+def copied_text(read):
+    for _ in range(40):
+        text = read()
+        if text:
+            require(len(text) < 65536, "native-header-copy-too-large")
+            return text
+        time.sleep(.05)
+    raise NativeContractError("native-header-copy-empty")
 
 
 def main(q):
@@ -111,6 +122,36 @@ def main(q):
             # xterm's helper textarea is intentionally zero-sized/offscreen.
             # Click the owned visible lower console, never inject DOM focus hooks.
             window.click_input(coords=(int(bounds.width() * .65), int(bounds.height() * .78)))
+
+        def header_text(labels):
+            import win32clipboard
+            controls = [n for n in nodes() if name(n) in labels and visible(n)
+                        and n.element_info.control_type == "Button"]
+            require(len(controls) == 1, "native-version-control-count")
+            rect = controls[0].rectangle()
+            point = (rect.left - bounds.left - 3, (rect.top + rect.bottom) // 2 - bounds.top)
+            require(0 <= point[0] < bounds.width() and 0 <= point[1] < bounds.height())
+            def clear_clipboard():
+                win32clipboard.OpenClipboard(window.handle)
+                try:
+                    win32clipboard.EmptyClipboard()
+                finally:
+                    win32clipboard.CloseClipboard()
+            def clipboard_text():
+                win32clipboard.OpenClipboard(window.handle)
+                try:
+                    return win32clipboard.GetClipboardData(13) if win32clipboard.IsClipboardFormatAvailable(13) else ""
+                finally:
+                    win32clipboard.CloseClipboard()
+            clear_clipboard()
+            try:
+                window.click_input(coords=point)
+                keys("^a^c")
+                return copied_text(clipboard_text)
+            finally:
+                window.click_input(coords=point)
+                clear_clipboard()
+
         def folder(path):
             dialog = Desktop(backend="uia").get_active()
             require(dialog.process_id() == pid and dialog.handle != window.handle)
@@ -221,6 +262,28 @@ def main(q):
             x = int(geometry["X"]) + int(int(geometry["WIDTH"]) * .65)
             y = int(geometry["Y"]) + int(int(geometry["HEIGHT"]) * .78)
             run("xdotool", "mousemove", str(x), str(y), "click", "1")
+        def header_text(labels):
+            controls = [n for n in nodes() if name(n) in labels and visible(n)
+                        and n.getRoleName() == "push button"]
+            require(len(controls) == 1, "native-version-control-count")
+            rect = controls[0].queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            frame = window.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            point = (rect.x - 3, rect.y + rect.height // 2)
+            require(frame.x <= point[0] < frame.x + frame.width and frame.y <= point[1] < frame.y + frame.height)
+            def focus_header():
+                run("xdotool", "mousemove", str(point[0]), str(point[1]), "click", "1")
+            def clear_clipboard():
+                subprocess.run(["xclip", "-selection", "clipboard", "-in"], input=b"",
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True)
+            clear_clipboard()
+            try:
+                focus_header()
+                keys(["ctrl+a", "ctrl+c"])
+                return copied_text(lambda: run("xclip", "-selection", "clipboard", "-out"))
+            finally:
+                focus_header()
+                clear_clipboard()
+
 
         def folder(path):
             active = run("xdotool", "getactivewindow")
@@ -263,20 +326,15 @@ def main(q):
         identity["observedTexts"] = q["texts"]
         require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])), "unexpected-text-present")
         if q.get("expectedVersion"):
-            # The update button's accessible label can replace its visual version.
-            # Read the actual owned native header instead of weakening version proof.
-            with tempfile.TemporaryDirectory(prefix="native-version-", dir=root) as temp:
-                image_path = Path(temp) / "header.png"
-                capture(image_path)
-                from PIL import Image
-                with Image.open(image_path) as image:
-                    header = image.convert("L").crop((0, 0, min(image.width, 400), min(image.height, 120)))
-                    header.resize((header.width * 4, header.height * 4)).save(image_path)
-                text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
-                require(re.search(r"(?<![\d.])v?" + re.escape(q["expectedVersion"]) + r"(?![\d.])", text),
-                        "native-header-version-missing")
-            identity["observedVersion"] = q["expectedVersion"]
-            identity["versionObservation"] = "owned native header screenshot OCR; raw text not retained"
+            # The button's action name is not its rendered version. Read actual
+            # selected page text through native keys/clipboard, only in this owned
+            # fresh hosted VM; never expose or retain the copied UI text.
+            text = header_text(q["versionLabels"])
+            version = re.search(r"\bOMP\s*Desktop\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?![\d.+-])", text)
+            require(version, "native-header-version-unselected")
+            require(version.group(1) == q["expectedVersion"], "native-header-version-mismatch")
+            identity["observedVersion"] = version.group(1)
+            identity["versionObservation"] = "owned native selection/copy; clipboard cleared; raw text not retained"
     elif operation == "click":
         click(control(q["name"], q["kind"]))
     elif operation == "select":
@@ -381,7 +439,7 @@ def main(q):
 
 
 try:
-    request = json.load(sys.stdin)
+    request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     print(json.dumps(main(request)))
 except Exception as error:
     # Only controlled contract codes and exception types; never native text/stacks.
