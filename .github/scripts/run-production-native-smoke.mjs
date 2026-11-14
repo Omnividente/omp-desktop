@@ -4,7 +4,7 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { constants, createReadStream } from "node:fs"
 import {
   chmod,
   copyFile,
@@ -625,8 +625,12 @@ async function fixture() {
 async function replaceImage(source, expectedHash) {
   assert.equal((await processes()).length, 0)
   assert.equal(await hash(source), expectedHash)
-  await copyFile(source, executable)
-  await chmod(executable, 0o755)
+  const staged = `${executable}.replacement`
+  assert(await absent(staged), "Unexpected existing executable replacement")
+  await copyFile(source, staged, constants.COPYFILE_EXCL)
+  await chmod(staged, 0o755)
+  assert.equal(await hash(staged), expectedHash)
+  await rename(staged, executable)
   assert.equal(await hash(executable), expectedHash)
 }
 const runtimeSource = "751e753860585ada032b8a62cc65f5ba0fd124ff"
@@ -825,8 +829,8 @@ async function firstUserJourney() {
   await proof("new-user-real-pty.json", runtime)
   // v18.20.0 supports Space to skip its startup splash. If already in setup,
   // Space only edits provider search; OAuth confirmation requires Enter.
-  // Preserve the new terminal's focus: a mouse click could confirm a provider row.
-  await native({ operation: "terminal-keys", pid: activePid, keys: "space", focus: false })
+  // Focus beside the native console help anchor, never on a provider row or update toast.
+  await native({ operation: "terminal-keys", pid: activePid, keys: "space" })
   // Observe the first provider step without login or prompt submission.
   await terminalObservation("new-user-real-runtime-first-setup", [
     "Setup\\s+step\\s+1\\s+of\\s+6[\\s\\S]*Sign\\s+in\\s+to\\s+your\\s+providers",
@@ -887,8 +891,8 @@ async function completedAnswerJourney(fixture) {
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
     true,
   )
-  await native({ operation: "terminal-keys", pid: activePid, keys: "escape" })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "clear", focus: false })
+  // Escape may cancel OMP's startup chooser; it is not a desktop focus command.
+  await native({ operation: "terminal-keys", pid: activePid, keys: "clear" })
   await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
   await terminalObservation("answer-default-collapsed-live-console", ["native\\s*focus\\s*draft"])
   await click("Show answer")
@@ -906,12 +910,10 @@ async function completedAnswerJourney(fixture) {
   await terminalObservation("answer-recollapsed-preserves-live-console-draft", [
     "native\\s*focus\\s*draft",
   ])
-  // Explicit console focus; do not demand rejected expand/collapse auto-focus or Escape hooks.
-  await native({ operation: "terminal-keys", pid: activePid, keys: "escape" })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
-  await terminalObservation("answer-native-escape-keeps-console-input", [
-    "native\\s*focus\\s*draft",
-  ])
+  // Refocus explicitly; a distinct replacement proves new input, not a stale OCR match.
+  await native({ operation: "terminal-keys", pid: activePid, keys: "clear" })
+  await native({ operation: "terminal-keys", pid: activePid, keys: "after-toggle", focus: false })
+  await terminalObservation("answer-explicit-focus-after-toggle", ["native\\s*after\\s*toggle"])
   const after = await native(request)
   assert.equal(after.runtime.pid, before.runtime.pid, "Answer controls replaced the actual runtime")
   assert.equal(after.runtime.sha256, before.runtime.sha256)
@@ -923,6 +925,8 @@ async function completedAnswerJourney(fixture) {
     syntheticAnswer: true,
     modelResponseClaimed: false,
     consoleAndDraftVisibleAcrossToggle: true,
+    explicitFocusAcceptsNewInput: true,
+    inputBoundary: "Unsubmitted real OMP TUI input/search, not a model prompt or response",
     rejectedEscapeOrAutoFocusHooksRequired: false,
     boundary:
       "Separate fixture after strict production replacement/state checks; runtime resume may append session metadata",
@@ -1031,8 +1035,8 @@ async function main() {
       "Diagnostic bytes must come from the pinned build output",
     )
     const probeHash = await hash(probe)
-    await copyFile(probe, executable)
-    if (!windows) await chmod(executable, 0o755)
+    if (windows) await copyFile(probe, executable)
+    else await replaceImage(probe, probeHash)
     assert.equal(await hash(executable), probeHash)
     if (windows) await pe(executable, "0.9.12")
     const marker = join(work, "production-probe-events.jsonl")

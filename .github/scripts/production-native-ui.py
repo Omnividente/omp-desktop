@@ -61,6 +61,7 @@ def main(q):
     executable = Path(q["executable"]).resolve(strict=True)
     require(within(root, executable))
     windows = sys.platform == "win32"
+    terminal_help_prefix = "Ctrl+Z undoes an edit in the current OMP input."
     if windows:
         import psutil
         import win32api
@@ -104,12 +105,12 @@ def main(q):
             related = n.element_info.element.CurrentLabeledBy
             return bool(related) and related.CurrentName == label
 
-        def control(label, kind):
+        def control(label, kind, prefix=False):
             types = {"button": "Button", "tab": "TabItem", "combo": "ComboBox", "edit": "Edit"}
             deadline = time.monotonic() + 5
             while True:
                 found = [n for n in nodes() if n.element_info.control_type == types[kind]
-                         and labelled(n, label)]
+                         and (name(n).startswith(label) if prefix else labelled(n, label))]
                 if found or time.monotonic() >= deadline:
                     break
                 # Readiness only: locale changes publish UIA names asynchronously.
@@ -125,8 +126,17 @@ def main(q):
             require(visible(node), "native-control-not-visible")
             return node
 
-        def click(n):
-            n.click_input()
+        def click(n, x_offset=None):
+            if x_offset is None:
+                n.click_input()
+                return
+            require(win32gui.GetAncestor(win32gui.GetForegroundWindow(), win32con.GA_ROOT) == window.handle,
+                    "native-click-window-owner")
+            rect = n.rectangle()
+            x, y = rect.left + x_offset, rect.top + rect.height() // 2
+            require(bounds.left <= x < bounds.right and bounds.top <= y < bounds.bottom,
+                    "native-click-outside-active-window")
+            window.click_input(coords=(x, y), absolute=True)
 
         def select(n, index):
             n.set_focus()
@@ -144,9 +154,8 @@ def main(q):
             window.type_keys(sequence, set_foreground=True, with_spaces=True)
 
         def terminal_focus():
-            # xterm's helper textarea is intentionally zero-sized/offscreen.
-            # Click the owned visible lower console, never inject DOM focus hooks.
-            window.click_input(coords=(int(bounds.width() * .65), int(bounds.height() * .78)))
+            # Focus the first console row beside its help button, not a lower toast/provider row.
+            click(control(terminal_help_prefix, "button", prefix=True), x_offset=-24)
 
         def rendered_text(labels):
             import win32clipboard
@@ -296,7 +305,7 @@ def main(q):
                        if relation.getRelationType() == pyatspi.RELATION_LABELLED_BY
                        for i in range(relation.getNTargets()))
 
-        def control(label, kind):
+        def control(label, kind, prefix=False):
             roles = {"button": {"push button"}, "tab": {"page tab"},
                      "combo": {"combo box"}}
             deadline = time.monotonic() + 5
@@ -305,7 +314,7 @@ def main(q):
                     current_nodes = nodes()
                     typed = [n for n in current_nodes
                              if (editable(n) if kind == "edit" else n.getRoleName() in roles[kind])]
-                    found = [n for n in typed if labelled(n, label)]
+                    found = [n for n in typed if (name(n).startswith(label) if prefix else labelled(n, label))]
                 except (GLib.Error, ValueError):
                     if time.monotonic() >= deadline:
                         raise
@@ -339,13 +348,14 @@ def main(q):
             require(visible(node), "native-control-not-visible")
             return node
 
-        def click(n):
+        def click(n, x_offset=None):
             active = run("xdotool", "getactivewindow")
             require(int(run("xdotool", "getwindowpid", active)) == pid, "native-click-window-owner")
             geometry = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", active).splitlines())
             rect = n.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
             require(rect.width > 0 and rect.height > 0, "native-click-empty-bounds")
-            x, y = rect.x + rect.width // 2, rect.y + rect.height // 2
+            x = rect.x + rect.width // 2 if x_offset is None else rect.x + x_offset
+            y = rect.y + rect.height // 2
             require(int(geometry["X"]) <= x < int(geometry["X"]) + int(geometry["WIDTH"])
                     and int(geometry["Y"]) <= y < int(geometry["Y"]) + int(geometry["HEIGHT"]),
                     "native-click-outside-active-window")
@@ -391,10 +401,8 @@ def main(q):
             run("xdotool", "key", "--clearmodifiers", *sequence)
 
         def terminal_focus():
-            geometry = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", xid).splitlines())
-            x = int(geometry["X"]) + int(int(geometry["WIDTH"]) * .65)
-            y = int(geometry["Y"]) + int(int(geometry["HEIGHT"]) * .78)
-            run("xdotool", "mousemove", str(x), str(y), "click", "1")
+            # Use the actual console header, clear of lower update notices and TUI choices.
+            click(control(terminal_help_prefix, "button", prefix=True), x_offset=-24)
         def rendered_text(labels):
             current_nodes = nodes()
             dialogs = [n for n in current_nodes if visible(n) and n.getRoleName() == "dialog"]
@@ -553,6 +561,7 @@ def main(q):
             "escape": ("{ESC}", ["Escape"]),
             "space": ("{SPACE}", ["space"]),
             "draft": ("nativefocusdraft", list("nativefocusdraft")),
+            "after-toggle": ("nativeaftertoggle", list("nativeaftertoggle")),
             "clear": ("^a{BACKSPACE}", ["ctrl+a", "BackSpace"]),
         }
         require(q["keys"] in sequences)
@@ -583,6 +592,7 @@ def main(q):
             child_pid = matches[0].pid
             pty = "Windows native child in Desktop terminal (ConPTY launcher)"
         else:
+            import termios
             parents, matches = {pid}, []
             for _ in range(8):
                 previous = set(parents)
@@ -603,11 +613,17 @@ def main(q):
                     proc = Path(f"/proc/{child}")
                     if (proc / "exe").resolve() == runtime and (proc / "cwd").resolve() == project:
                         require(os.readlink(proc / "fd/0").startswith("/dev/pts/"))
+                        tty_fd = os.open(proc / "fd/0", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+                        try:
+                            input_flags = termios.tcgetattr(tty_fd)[3]
+                        finally:
+                            os.close(tty_fd)
+                        require(not input_flags & termios.ICANON, "runtime-pty-input-not-ready")
                         matches.append(child)
                 except OSError:
                     continue
             require(len(matches) == 1)
-            child_pid, pty = matches[0], "Linux /dev/pts stdin and owned Desktop ancestry"
+            child_pid, pty = matches[0], "Linux /dev/pts stdin, noncanonical input and owned Desktop ancestry"
         identity["runtime"] = {"pid": child_pid, "path": str(runtime),
                                "sha256": file_hash(runtime), "cwd": str(project), "pty": pty}
     elif operation == "escape":
