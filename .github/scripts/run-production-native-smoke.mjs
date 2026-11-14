@@ -836,6 +836,7 @@ async function firstUserJourney() {
     ChineseSaveAndNativeRestart: true,
     darkAndLightFirstScreenHint: true,
   })
+  stage = "new-user-private-profile-archive"
   // Archive only profiles proven absent before this journey; no exports or real data.
   // State-fixtures below are separate and can never stand in for onboarding.
   for (const [path, name] of [
@@ -843,7 +844,11 @@ async function firstUserJourney() {
     [data, "desktop-data"],
     [join(home, ".omp"), "runtime-profile"],
   ]) {
-    if (!(await absent(path))) await rename(path, join(work, `new-user-private-${name}`))
+    // Hosted Windows profiles live on C:, while RUNNER_TEMP/work may be D:.
+    // Keep this rename on the source filesystem; never copy/export raw profiles.
+    const archive = join(dirname(path), `new-user-private-${name}`)
+    assert(await absent(archive), "Existing private profile archive; refusing replacement")
+    if (!(await absent(path))) await rename(path, archive)
   }
 }
 
@@ -1183,10 +1188,13 @@ async function main() {
 }
 try {
   await main()
-} catch {
+} catch (error) {
   // Assertion payloads may contain settings. Never upload stacks/native stderr.
   result.failure = {
     stage,
+    exception: /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error?.name ?? "") ? error.name : "Error",
+    systemCode: /^E[A-Z0-9_]{1,40}$/.test(error?.code ?? "") ? error.code : null,
+    syscall: /^[a-z0-9_]{1,32}$/.test(error?.syscall ?? "") ? error.syscall : null,
     reason:
       "Production native contract failed; inspect lastNativeOperation and the last bounded screenshot/proof, never retry a Save/install blindly",
     lastNativeOperation: result.lastNativeOperation ?? null,
