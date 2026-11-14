@@ -823,8 +823,11 @@ async function firstUserJourney() {
     true,
   )
   await proof("new-user-real-pty.json", runtime)
-  // A fresh v18.20.0 profile enters its six-step setup wizard, not the prompt editor.
-  // Observe the real first-session boundary without logging in or submitting text.
+  // v18.20.0 supports Space to skip its startup splash. If already in setup,
+  // Space only edits provider search; OAuth confirmation requires Enter.
+  // Preserve the new terminal's focus: a mouse click could confirm a provider row.
+  await native({ operation: "terminal-keys", pid: activePid, keys: "space", focus: false })
+  // Observe the first provider step without login or prompt submission.
   await terminalObservation("new-user-real-runtime-first-setup", [
     "Setup\\s+step\\s+1\\s+of\\s+6[\\s\\S]*Sign\\s+in\\s+to\\s+your\\s+providers",
   ])

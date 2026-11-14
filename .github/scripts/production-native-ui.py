@@ -135,9 +135,7 @@ def main(q):
         def value(n):
             if n.element_info.control_type == "Edit":
                 return n.iface_value.CurrentValue
-            selection = n.iface_selection.GetCurrentSelection()
-            require(selection.Length == 1)
-            return selection.GetElement(0).CurrentName
+            return n.legacy_properties()["Value"]
 
         def edit(n, text):
             n.set_edit_text(text)
@@ -381,9 +379,10 @@ def main(q):
                                                    and "Text" in child.get_interfaces()],
                     }) from None
                 return text.getText(0, text.characterCount)
-            selection = n.querySelection()
-            require(selection.nSelectedChildren == 1)
-            return selection.getSelectedChild(0).name
+            selected = [child for child in nodes(n)[1:]
+                        if child.getState().contains(pyatspi.STATE_SELECTED)]
+            require(len(selected) == 1, f"native-control-selected-count-{len(selected)}")
+            return name(selected[0])
 
         def edit(n, text):
             require(n.queryEditableText().setTextContents(text))
@@ -552,6 +551,7 @@ def main(q):
             terminal_focus()
         sequences = {
             "escape": ("{ESC}", ["Escape"]),
+            "space": ("{SPACE}", ["space"]),
             "draft": ("nativefocusdraft", list("nativefocusdraft")),
             "clear": ("^a{BACKSPACE}", ["ctrl+a", "BackSpace"]),
         }
