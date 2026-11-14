@@ -234,6 +234,7 @@ def main(q):
                     "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom]}
     else:
         import pyatspi
+        from gi.repository import GLib
         # Match an actual mapped X11 window, not a headless accessibility tree.
         candidates = []
         for line in run("wmctrl", "-lp").splitlines():
@@ -297,10 +298,22 @@ def main(q):
         def control(label, kind):
             roles = {"button": {"push button"}, "tab": {"page tab"},
                      "combo": {"combo box"}}
-            current_nodes = nodes()
-            typed = [n for n in current_nodes
-                     if (editable(n) if kind == "edit" else n.getRoleName() in roles[kind])]
-            found = [n for n in typed if labelled(n, label)]
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    current_nodes = nodes()
+                    typed = [n for n in current_nodes
+                             if (editable(n) if kind == "edit" else n.getRoleName() in roles[kind])]
+                    found = [n for n in typed if labelled(n, label)]
+                except (GLib.Error, ValueError):
+                    if time.monotonic() >= deadline:
+                        raise
+                else:
+                    if found or time.monotonic() >= deadline:
+                        break
+                # Retry only metadata reads, never the subsequent focus/click/edit.
+                app.clear_cache()
+                time.sleep(.05)
             if len(found) != 1:
                 # Aggregate native metadata only: no names, values, paths or tree dump.
                 attributes = [(n.getRoleName(), n.get_attributes()) for n in current_nodes]
