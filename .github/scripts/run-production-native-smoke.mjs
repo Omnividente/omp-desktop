@@ -734,14 +734,20 @@ async function firstUserJourney() {
     ["OMP unavailable", "Set the executable path below"],
     "new-user-actionable-discovery-error",
   )
-  await native({
-    operation: "value",
-    pid: activePid,
-    name: "OMP executable",
-    controlId: "omp-executable",
-    kind: "edit",
-    expected: "",
-  })
+  // Keyboard navigation reveals the bottom fields before querying their native identity.
+  await native({ operation: "focus", pid: activePid, name: "Cancel", kind: "button" })
+  await native({ operation: "shortcut", pid: activePid, name: "previous-control" })
+  await native(
+    {
+      operation: "value",
+      pid: activePid,
+      name: "OMP executable",
+      controlId: "omp-executable",
+      kind: "edit",
+      expected: "",
+    },
+    true,
+  )
   await click("Cancel")
   const hint = "OMP Desktop will launch the agent in the selected folder"
   await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", { theme: "dark" })
@@ -779,14 +785,19 @@ async function firstUserJourney() {
   await start("new-user-runtime-discovered", "0.9.13")
   await click("Settings")
   await observe(["OMP connected", runtimeVersion], "new-user-real-runtime-discovery")
-  await native({
-    operation: "value",
-    pid: activePid,
-    name: "OMP executable",
-    controlId: "omp-executable",
-    kind: "edit",
-    expected: "",
-  })
+  await native({ operation: "focus", pid: activePid, name: "Cancel", kind: "button" })
+  await native({ operation: "shortcut", pid: activePid, name: "previous-control" })
+  await native(
+    {
+      operation: "value",
+      pid: activePid,
+      name: "OMP executable",
+      controlId: "omp-executable",
+      kind: "edit",
+      expected: "",
+    },
+    true,
+  )
   await click("Cancel")
   await native({ operation: "shortcut", pid: activePid, name: "open-folder" })
   await native({ operation: "folder", pid: activePid, path: project })

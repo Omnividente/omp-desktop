@@ -111,7 +111,7 @@ def main(q):
             node = found[0]
             if not visible(node):
                 node.iface_scroll_item.ScrollIntoView()
-            require(visible(node))
+            require(visible(node), "native-control-not-visible")
             return node
 
         def click(n):
@@ -174,9 +174,11 @@ def main(q):
                 keys("^a^c")
                 return copied_text(clipboard_text)
             finally:
-                keys("{RIGHT}")
-                window.click_input(coords=point)
-                clear_clipboard()
+                try:
+                    keys("{RIGHT}")
+                    window.click_input(coords=point)
+                finally:
+                    clear_clipboard()
 
         def folder(path):
             dialog = Desktop(backend="uia").get_active()
@@ -267,7 +269,7 @@ def main(q):
             node = found[0]
             if not visible(node):
                 require(node.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE))
-            require(visible(node))
+            require(visible(node), "native-control-not-visible")
             return node
 
         def click(n):
@@ -325,9 +327,11 @@ def main(q):
                 keys(["ctrl+a", "ctrl+c"])
                 return copied_text(lambda: run("xclip", "-selection", "clipboard", "-out"))
             finally:
-                keys(["Right"])
-                focus_header()
-                clear_clipboard()
+                try:
+                    keys(["Right"])
+                    focus_header()
+                finally:
+                    clear_clipboard()
 
 
         def folder(path):
@@ -389,6 +393,12 @@ def main(q):
         click(control(q["name"], q["kind"]))
     elif operation == "select":
         select(control(q["name"], "combo"), q["index"])
+    elif operation == "focus":
+        node = control(q["name"], q["kind"])
+        if windows:
+            node.set_focus()
+        else:
+            require(node.queryComponent().grabFocus(), "native-control-focus-failed")
     elif operation == "value":
         actual = value(control(q["name"], q.get("kind", "combo")))
         require(actual == q["expected"], "native-control-value-mismatch")
@@ -396,7 +406,8 @@ def main(q):
     elif operation == "edit":
         edit(control(q["name"], "edit"), q["text"])
     elif operation == "shortcut":
-        shortcuts = {"open-folder": ("^+o", ["ctrl+shift+o"]), "new-session": ("^n", ["ctrl+n"])}
+        shortcuts = {"open-folder": ("^+o", ["ctrl+shift+o"]), "new-session": ("^n", ["ctrl+n"]),
+                     "previous-control": ("+{TAB}", ["shift+Tab"])}
         require(q["name"] in shortcuts)
         keys(shortcuts[q["name"]][0 if windows else 1])
     elif operation == "folder":
