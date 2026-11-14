@@ -326,17 +326,12 @@ async function observe(
     excludePids,
     expectedVersion,
     copyText,
+    screenshot: join(evidence, `${label}.png`),
+    theme,
   }
   const data = await native(request, true)
   activePid = data.pid
-  // Capture only after successful assertions; screenshot failure is not a retry of a mutation.
-  const surface = await native({
-    ...request,
-    pid: activePid,
-    screenshot: join(evidence, `${label}.png`),
-    theme,
-  })
-  if (theme) await proof(`${label}-theme.json`, surface)
+  if (theme) await proof(`${label}-theme.json`, data)
   return data
 }
 async function start(label, version, excludePids = []) {
