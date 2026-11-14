@@ -14,7 +14,9 @@ import time
 
 
 class NativeContractError(RuntimeError):
-    pass
+    def __init__(self, code, diagnostic=None):
+        super().__init__(code)
+        self.diagnostic = diagnostic
 
 
 def require(value, code="native-contract"):
@@ -262,9 +264,23 @@ def main(q):
         def control(label, kind):
             roles = {"button": {"push button"}, "tab": {"page tab"},
                      "combo": {"combo box"}, "edit": {"entry", "text"}}
-            found = [n for n in nodes() if n.getRoleName() in roles[kind]
-                     and labelled(n, label)]
-            require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
+            current_nodes = nodes()
+            typed = [n for n in current_nodes if n.getRoleName() in roles[kind]]
+            found = [n for n in typed if labelled(n, label)]
+            if len(found) != 1:
+                # Aggregate native metadata only: no names, values, paths or tree dump.
+                attributes = [(n.getRoleName(), n.get_attributes()) for n in current_nodes]
+                diagnostic = {
+                    "kindCount": len(typed),
+                    "exactLabelRoles": [n.getRoleName() for n in current_nodes if name(n) == label][:16],
+                    "idRoles": {key: [role for role, attrs in attributes
+                                     if q.get("controlId") and attrs.get(key) == q["controlId"]][:16]
+                                for key in ("id", "html-id")},
+                    "inputRoles": sorted({role for role, attrs in attributes
+                                          if attrs.get("tag", "").lower() == "input"})[:16],
+                    "kindAttributeKeys": sorted({key for n in typed for key in n.get_attributes()})[:64],
+                }
+                raise NativeContractError(f"native-control-count-{kind}-{len(found)}", diagnostic)
             require(found[0].getState().contains(pyatspi.STATE_ENABLED), "native-control-disabled")
             node = found[0]
             if not visible(node):
@@ -510,5 +526,6 @@ except Exception as error:
     # Only controlled contract codes and exception types; never native text/stacks.
     print(json.dumps({"error": "Owned native UI operation unavailable or assertion failed",
                       "code": str(error) if isinstance(error, NativeContractError) else "native-api",
-                      "exception": type(error).__name__}))
+                      "exception": type(error).__name__,
+                      "diagnostic": error.diagnostic if isinstance(error, NativeContractError) else None}))
     sys.exit(1)

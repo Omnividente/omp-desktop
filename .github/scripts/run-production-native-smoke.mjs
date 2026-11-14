@@ -295,7 +295,11 @@ async function native(request, retry = false) {
       )
       const value = JSON.parse(response.text)
       if (response.exitCode !== 0 || value.error) {
-        result.lastNativeOperation.failure = { code: value.code, exception: value.exception }
+        result.lastNativeOperation.failure = {
+          code: value.code,
+          exception: value.exception,
+          diagnostic: value.diagnostic ?? null,
+        }
         return null
       }
       delete result.lastNativeOperation.failure
