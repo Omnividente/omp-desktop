@@ -12,9 +12,13 @@ import re
 import tempfile
 
 
-def require(value):
+class NativeContractError(RuntimeError):
+    pass
+
+
+def require(value, code="native-contract"):
     if not value:
-        raise RuntimeError("native UI contract unavailable")
+        raise NativeContractError(code)
 
 
 def run(*args):
@@ -143,7 +147,7 @@ def main(q):
                     candidates.append((parts[0], pid))
             except (OSError, StopIteration):
                 continue
-        require(len(candidates) == 1)
+        require(len(candidates) == 1, "owned-window-count")
         xid, pid = candidates[0]
         require(pid not in q.get("excludePids", []))
         if q.get("pid"):
@@ -154,11 +158,11 @@ def main(q):
         run("wmctrl", "-ir", xid, "-e", "0,16,16,1400,900")
         desktop = pyatspi.Registry.getDesktop(0)
         apps = [a for a in desktop if a.get_process_id() == pid]
-        require(len(apps) == 1)
+        require(len(apps) == 1, "accessibility-process-count")
         app = apps[0]
         frames = [n for n in app if n.name == "OMP Desktop"
                   and n.getState().contains(pyatspi.STATE_SHOWING)]
-        require(len(frames) == 1)
+        require(len(frames) == 1, "visible-frame-count")
         window = frames[0]
 
         def nodes():
@@ -255,9 +259,24 @@ def main(q):
                     texts.append(t.getText(0, min(t.characterCount, 4096)))
                 except NotImplementedError:
                     pass
-        require(all(any(needle in text for text in texts) for needle in q["texts"]))
+        require(all(any(needle in text for text in texts) for needle in q["texts"]), "expected-text-missing")
         identity["observedTexts"] = q["texts"]
-        require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])))
+        require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])), "unexpected-text-present")
+        if q.get("expectedVersion"):
+            # The update button's accessible label can replace its visual version.
+            # Read the actual owned native header instead of weakening version proof.
+            with tempfile.TemporaryDirectory(prefix="native-version-", dir=root) as temp:
+                image_path = Path(temp) / "header.png"
+                capture(image_path)
+                from PIL import Image
+                with Image.open(image_path) as image:
+                    header = image.convert("L").crop((0, 0, min(image.width, 400), min(image.height, 120)))
+                    header.resize((header.width * 4, header.height * 4)).save(image_path)
+                text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
+                require(re.search(r"(?<![\d.])v?" + re.escape(q["expectedVersion"]) + r"(?![\d.])", text),
+                        "native-header-version-missing")
+            identity["observedVersion"] = q["expectedVersion"]
+            identity["versionObservation"] = "owned native header screenshot OCR; raw text not retained"
     elif operation == "click":
         click(control(q["name"], q["kind"]))
     elif operation == "select":
@@ -364,7 +383,9 @@ def main(q):
 try:
     request = json.load(sys.stdin)
     print(json.dumps(main(request)))
-except Exception:
-    # OS exceptions, raw accessibility and command output are deliberately private.
-    print(json.dumps({"error": "Owned native UI operation unavailable or assertion failed"}))
+except Exception as error:
+    # Only controlled contract codes and exception types; never native text/stacks.
+    print(json.dumps({"error": "Owned native UI operation unavailable or assertion failed",
+                      "code": str(error) if isinstance(error, NativeContractError) else "native-api",
+                      "exception": type(error).__name__}))
     sys.exit(1)

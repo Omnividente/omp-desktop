@@ -103,8 +103,8 @@ function command(file, args, options = {}) {
     })
     child.once("close", (code) => {
       clearTimeout(timer)
-      code === 0 && !tooLarge
-        ? done({ text, pid: child.pid })
+      !tooLarge && (code === 0 || (code === 1 && options.nativeResponse))
+        ? done({ text, pid: child.pid, exitCode: code })
         : reject(new Error("Owned native command failed"))
     })
   })
@@ -272,16 +272,22 @@ async function native(request, retry = false) {
     operation: q.operation,
     name: q.name ?? null,
     kind: q.kind ?? null,
+    expectedVersion: q.expectedVersion ?? null,
+    requestedTexts: q.texts ?? [],
   }
   const invoke = async () => {
     try {
       const response = await command(
         required("PRODUCTION_NATIVE_PYTHON"),
         [join(harness, ".github/scripts/production-native-ui.py")],
-        { input: JSON.stringify(q), deadline: 30_000 },
+        { input: JSON.stringify(q), deadline: 30_000, nativeResponse: true },
       )
       const value = JSON.parse(response.text)
-      assert(!value.error)
+      if (response.exitCode !== 0 || value.error) {
+        result.lastNativeOperation.failure = { code: value.code, exception: value.exception }
+        return null
+      }
+      delete result.lastNativeOperation.failure
       return value
     } catch {
       return null
@@ -292,17 +298,21 @@ async function native(request, retry = false) {
   return value
 }
 const click = (name, kind = "button") => native({ operation: "click", pid: activePid, name, kind })
-async function observe(texts, label, excludePids = [], theme) {
-  const data = await native(
-    { operation: "observe", pid: activePid ?? undefined, texts, excludePids },
-    true,
-  )
+async function observe(texts, label, excludePids = [], theme, expectedVersion) {
+  const request = {
+    operation: "observe",
+    pid: activePid ?? undefined,
+    texts,
+    excludePids,
+    expectedVersion,
+    tesseract: expectedVersion ? required("PRODUCTION_NATIVE_TESSERACT") : undefined,
+  }
+  const data = await native(request, true)
   activePid = data.pid
   // Capture only after successful assertions; screenshot failure is not a retry of a mutation.
   const surface = await native({
-    operation: "observe",
+    ...request,
     pid: activePid,
-    texts,
     screenshot: join(evidence, `${label}.png`),
     theme,
   })
@@ -319,7 +329,7 @@ async function start(label, version, excludePids = []) {
   })
   child.on("error", () => {})
   child.unref()
-  const data = await observe([version], label, excludePids)
+  const data = await observe([], label, excludePids, undefined, version)
   result.launches.push({
     label,
     ...data,
@@ -431,7 +441,13 @@ async function preferences(fixture, mutate) {
   await click("Cancel")
 }
 async function state(fixture, version, label) {
-  await observe([version, basename(fixture.project), fixture.title], `${label}-workspace`)
+  await observe(
+    [basename(fixture.project), fixture.title],
+    `${label}-workspace`,
+    [],
+    undefined,
+    version,
+  )
   await click("Open transcript")
   await observe([fixture.title, ...fixture.messages.map(({ text }) => text)], `${label}-transcript`)
   await native({ operation: "escape", pid: activePid })
@@ -1057,9 +1073,11 @@ async function main() {
     result.probe.launcherPid = child.pid
     stage = "first-sdk-target-native-ui"
     const first = await observe(
-      ["0.9.13", basename(f.project), f.title],
+      [basename(f.project), f.title],
       "sdk-first-target-native",
       [baselinePid, started.pid],
+      undefined,
+      "0.9.13",
     )
     assert(
       !(await processes()).some((row) => row.pid === started.pid),
