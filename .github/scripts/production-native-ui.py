@@ -183,8 +183,15 @@ def main(q):
                     clear_clipboard()
 
         def folder(path):
-            dialog = Desktop(backend="uia").get_active()
-            require(dialog.process_id() == pid and dialog.handle != window.handle)
+            for _ in range(100):
+                handle = win32gui.GetForegroundWindow()
+                if handle and handle != window.handle:
+                    dialog = Desktop(backend="uia").window(handle=handle).wrapper_object()
+                    require(dialog.process_id() == pid, "native-folder-dialog-owner")
+                    break
+                time.sleep(.1)
+            else:
+                raise NativeContractError("native-folder-dialog-unavailable")
             dialog.type_keys("^l", set_foreground=True)
             from pywinauto.keyboard import send_keys
             send_keys(str(path), with_spaces=True, vk_packet=True)
@@ -544,8 +551,14 @@ try:
     print(json.dumps(main(request)))
 except Exception as error:
     # Only controlled contract codes and exception types; never native text/stacks.
+    site, trace = None, error.__traceback__
+    while trace:
+        if trace.tb_frame.f_code.co_filename == __file__ and trace.tb_frame.f_code.co_name != "require":
+            site = {"function": trace.tb_frame.f_code.co_name, "line": trace.tb_lineno}
+        trace = trace.tb_next
     print(json.dumps({"error": "Owned native UI operation unavailable or assertion failed",
                       "code": str(error) if isinstance(error, NativeContractError) else "native-api",
                       "exception": type(error).__name__,
+                      "site": site,
                       "diagnostic": error.diagnostic if isinstance(error, NativeContractError) else None}))
     sys.exit(1)

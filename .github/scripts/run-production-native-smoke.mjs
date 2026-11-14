@@ -298,6 +298,7 @@ async function native(request, retry = false) {
         result.lastNativeOperation.failure = {
           code: value.code,
           exception: value.exception,
+          site: value.site ?? null,
           diagnostic: value.diagnostic ?? null,
         }
         return null
