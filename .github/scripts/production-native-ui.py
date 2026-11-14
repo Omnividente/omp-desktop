@@ -530,11 +530,13 @@ def main(q):
             from PIL import Image
             with Image.open(image_path) as image:
                 width, height = image.size
-                image.crop((int(width * .25), int(height * .12), width, int(height * .94))).save(image_path)
+                crop = image.crop((int(width * .25), int(height * .12), width, int(height * .94)))
+                # Fixed sampling for small canvas glyphs; never alter/normalize recognized text.
+                crop.resize((crop.width * 2, crop.height * 2), Image.Resampling.LANCZOS).save(image_path)
             text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
             require(any(re.search(pattern, text, re.IGNORECASE) for pattern in q["patterns"]))
             identity["terminalObservation"] = q["label"]
-            identity["method"] = "native-window cropped screenshot OCR; raw text not retained"
+            identity["method"] = "native-window crop, fixed 2x LANCZOS screenshot OCR; raw text not retained"
     elif operation == "runtime-process":
         runtime = Path(q["runtime"]).resolve(strict=True)
         project = Path(q["project"]).resolve(strict=True)
