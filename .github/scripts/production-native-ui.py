@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import re
+import tempfile
 
 
 def require(value):
@@ -55,7 +57,8 @@ def main(q):
         require(pid not in q.get("excludePids", []))
         if q.get("pid"):
             require(pid == q["pid"])
-        window.set_focus()
+        if q["operation"] != "folder":
+            window.set_focus()
         require(window.is_visible() and not window.is_minimized())
         bounds = window.rectangle()
         require(bounds.width() >= 800 and bounds.height() >= 500)
@@ -94,6 +97,24 @@ def main(q):
             require(selection.Length == 1)
             return selection.GetElement(0).CurrentName
 
+        def edit(n, text):
+            n.set_edit_text(text)
+
+        def keys(sequence):
+            window.type_keys(sequence, set_foreground=True, with_spaces=True)
+
+        def terminal_focus():
+            # xterm's helper textarea is intentionally zero-sized/offscreen.
+            # Click the owned visible lower console, never inject DOM focus hooks.
+            window.click_input(coords=(int(bounds.width() * .65), int(bounds.height() * .78)))
+        def folder(path):
+            dialog = Desktop(backend="uia").get_active()
+            require(dialog.process_id() == pid and dialog.handle != window.handle)
+            dialog.type_keys("^l", set_foreground=True)
+            from pywinauto.keyboard import send_keys
+            send_keys(str(path), with_spaces=True, vk_packet=True)
+            send_keys("{ENTER}%s")
+
         def capture(path):
             from PIL import ImageGrab
             image = ImageGrab.grab(bbox=(bounds.left, bounds.top, bounds.right, bounds.bottom))
@@ -127,7 +148,8 @@ def main(q):
         require(pid not in q.get("excludePids", []))
         if q.get("pid"):
             require(pid == q["pid"])
-        run("wmctrl", "-ia", xid)
+        if q["operation"] != "folder":
+            run("wmctrl", "-ia", xid)
         run("wmctrl", "-ir", xid, "-b", "remove,maximized_vert,maximized_horz")
         run("wmctrl", "-ir", xid, "-e", "0,16,16,1400,900")
         desktop = pyatspi.Registry.getDesktop(0)
@@ -184,6 +206,26 @@ def main(q):
             require(selection.nSelectedChildren == 1)
             return selection.getSelectedChild(0).name
 
+        def edit(n, text):
+            require(n.queryEditableText().setTextContents(text))
+
+        def keys(sequence):
+            run("xdotool", "key", "--clearmodifiers", *sequence)
+
+        def terminal_focus():
+            geometry = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", xid).splitlines())
+            x = int(geometry["X"]) + int(int(geometry["WIDTH"]) * .65)
+            y = int(geometry["Y"]) + int(int(geometry["HEIGHT"]) * .78)
+            run("xdotool", "mousemove", str(x), str(y), "click", "1")
+
+        def folder(path):
+            active = run("xdotool", "getactivewindow")
+            require(int(active, 0) != int(xid, 0))
+            require(int(run("xdotool", "getwindowpid", active)) == pid)
+            run("xdotool", "key", "--clearmodifiers", "ctrl+l")
+            run("xdotool", "type", "--clearmodifiers", "--", str(path))
+            run("xdotool", "key", "--clearmodifiers", "Return", "alt+o")
+
         def capture(path):
             run("import", "-window", xid, str(path))
             from PIL import Image
@@ -215,6 +257,7 @@ def main(q):
                     pass
         require(all(any(needle in text for text in texts) for needle in q["texts"]))
         identity["observedTexts"] = q["texts"]
+        require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])))
     elif operation == "click":
         click(control(q["name"], q["kind"]))
     elif operation == "select":
@@ -223,6 +266,73 @@ def main(q):
         actual = value(control(q["name"], q.get("kind", "combo")))
         require(actual == q["expected"])
         identity["value"] = actual
+    elif operation == "edit":
+        edit(control(q["name"], "edit"), q["text"])
+    elif operation == "folder":
+        path = Path(q["path"]).resolve(strict=True)
+        require(within(root, path) and path.is_dir())
+        folder(path)
+    elif operation == "terminal-keys":
+        if q.get("focus", True):
+            terminal_focus()
+        sequences = {
+            "escape": ("{ESC}", ["Escape"]),
+            "draft": ("nativefocusdraft", list("nativefocusdraft")),
+            "clear": ("^a{BACKSPACE}", ["ctrl+a", "BackSpace"]),
+        }
+        require(q["keys"] in sequences)
+        keys(sequences[q["keys"]][0 if windows else 1])
+    elif operation == "terminal-ocr":
+        # Canvas TUI is read from the real mapped surface, never DOM/testhook output.
+        with tempfile.TemporaryDirectory(prefix="native-ocr-", dir=root) as temp:
+            image_path = Path(temp) / "surface.png"
+            capture(image_path)
+            from PIL import Image
+            with Image.open(image_path) as image:
+                width, height = image.size
+                image.crop((int(width * .25), int(height * .12), width, int(height * .94))).save(image_path)
+            text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
+            require(any(re.search(pattern, text, re.IGNORECASE) for pattern in q["patterns"]))
+            identity["terminalObservation"] = q["label"]
+            identity["method"] = "native-window cropped screenshot OCR; raw text not retained"
+    elif operation == "runtime-process":
+        runtime = Path(q["runtime"]).resolve(strict=True)
+        project = Path(q["project"]).resolve(strict=True)
+        require(within(root, project))
+        if windows:
+            matches = [p for p in psutil.Process(pid).children(recursive=True)
+                       if Path(p.exe()).resolve() == runtime and Path(p.cwd()).resolve() == project]
+            require(len(matches) == 1)
+            child_pid = matches[0].pid
+            pty = "Windows native child in Desktop terminal (ConPTY launcher)"
+        else:
+            parents, matches = {pid}, []
+            for _ in range(8):
+                previous = set(parents)
+                for entry in Path("/proc").iterdir():
+                    if not entry.name.isdigit():
+                        continue
+                    try:
+                        status = (entry / "status").read_text()
+                        parent = int(re.search(r"^PPid:\s+(\d+)", status, re.MULTILINE).group(1))
+                        if parent in parents:
+                            parents.add(int(entry.name))
+                    except (OSError, AttributeError):
+                        continue
+                if parents == previous:
+                    break
+            for child in parents - {pid}:
+                try:
+                    proc = Path(f"/proc/{child}")
+                    if (proc / "exe").resolve() == runtime and (proc / "cwd").resolve() == project:
+                        require(os.readlink(proc / "fd/0").startswith("/dev/pts/"))
+                        matches.append(child)
+                except OSError:
+                    continue
+            require(len(matches) == 1)
+            child_pid, pty = matches[0], "Linux /dev/pts stdin and owned Desktop ancestry"
+        identity["runtime"] = {"pid": child_pid, "path": str(runtime),
+                               "sha256": file_hash(runtime), "cwd": str(project), "pty": pty}
     elif operation == "escape":
         if windows:
             window.type_keys("{ESC}", set_foreground=True)
@@ -238,6 +348,16 @@ def main(q):
         require(within(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True), evidence))
         require(path.parent.resolve() == evidence and not path.exists() and path.suffix == ".png")
         capture(path)
+        if q.get("theme"):
+            from PIL import Image, ImageStat
+            require(q["theme"] in {"dark", "light"})
+            with Image.open(path) as image:
+                width, height = image.size
+                surface = image.convert("L").crop((int(width * .45), int(height * .4),
+                                                    int(width * .9), int(height * .75)))
+                luminance = ImageStat.Stat(surface).mean[0]
+            require((luminance > 128) == (q["theme"] == "light"))
+            identity["themeSurface"] = {"expected": q["theme"], "meanLuminance": luminance}
     return identity
 
 

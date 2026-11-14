@@ -3998,7 +3998,7 @@ button:disabled {
 
 .shortcut-hint {
   margin-top: 12px;
-  color: var(--chrome-text-soft, #535b56);
+  color: var(--chrome-text-soft, var(--text-soft));
   font-family: "Cascadia Mono", Consolas, monospace;
   font-size: 0.5625rem;
 }

@@ -123,10 +123,10 @@ afterEach(() => {
   container.remove()
 })
 
-it("opens a new answer after batched thinking/idle without reopening the old one or stealing focus", async () => {
+it("keeps new answers collapsed after batched thinking/idle without stealing focus", async () => {
   vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# First answer"))
   await render()
-  await act(async () => button("Collapse answer").click())
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
   await render(tab, false)
   await render()
   expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
@@ -140,7 +140,7 @@ it("opens a new answer after batched thinking/idle without reopening the old one
   const completed = [event("thinking"), event("idle")].reduce(applyRuntimeEventToTab, tab)
   await render(completed)
   expect(container.querySelector("h2")?.textContent).toBe("Second answer")
-  expect(button("Collapse answer").getAttribute("aria-expanded")).toBe("true")
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
   expect(document.activeElement).toBe(input)
   expect(input.value).toBe("Unsent draft")
   await act(async () => button("Previous answer").click())
@@ -233,8 +233,10 @@ it.each([false, true])(
       transcript(tab.sessionPath!, "# First", "# Last"),
     )
     await render()
-    if (older) await act(async () => button("Previous answer").click())
-    await act(async () => button("Collapse answer").click())
+    if (older) {
+      await act(async () => button("Previous answer").click())
+      await act(async () => button("Collapse answer").click())
+    }
     expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
     await act(async () => button("Latest loaded answer").click())
     expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(false)
@@ -301,6 +303,7 @@ it("leaves IME-marked keys alone in an answer link menu before a normal action",
   )
   vi.mocked(openContentLink).mockResolvedValue(undefined)
   await render()
+  await act(async () => button("Show answer").click())
   const link = container.querySelector<HTMLAnchorElement>('a[href="local://synthetic.txt"]')!
   window.getSelection()!.removeAllRanges()
   act(() => {
@@ -341,6 +344,7 @@ it("keeps drafts and answer navigation usable after a Markdown failure", async (
     transcript(tab.sessionPath!, "# Earlier answer", source),
   )
   await render()
+  await act(async () => button("Show answer").click())
   expect(container.querySelector(".markdown-source")?.textContent).toBe(source)
   expect(container.textContent).toContain(t("en", "markdownFormattingFailed"))
   const input = container.querySelector("input")!

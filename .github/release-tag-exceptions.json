@@ -13,5 +13,10 @@
     "tag": "v0.7.2",
     "kind": "superseded-candidate",
     "reason": "The Windows updater E2E failed closed; v0.7.3 supersedes this unpromoted candidate without moving its immutable tag."
+  },
+  {
+    "tag": "v0.9.11",
+    "kind": "superseded-candidate",
+    "reason": "The immutable v0.9.11 prerelease is superseded by published stable v0.9.12; retain its tag and assets without promoting the historical candidate."
   }
 ]

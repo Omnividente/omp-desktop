@@ -81,7 +81,7 @@ async function inputs() {
   )
   const configBytes = await readFile(join(target, "src-tauri/tauri.conf.json"))
   const config = JSON.parse(configBytes)
-  assert.equal(config.version, "0.9.12")
+  assert.equal(config.version, "0.9.13")
   assert.equal(config.identifier, "com.ompdesk.desktop")
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/Omnividente/omp-desktop/releases/latest/download/latest.json",
@@ -91,8 +91,8 @@ async function inputs() {
     schemaVersion: 1,
     targetSource: process.env.PRODUCTION_TARGET_SHA,
     probeSource: process.env.PRODUCTION_HARNESS_SHA,
-    probeVersion: "0.9.11",
-    targetVersion: "0.9.12",
+    probeVersion: "0.9.12",
+    targetVersion: "0.9.13",
     releaseId: process.env.PRODUCTION_TARGET_RELEASE_ID,
     trust: "unchanged-production",
     configSha256: sha(configBytes),
@@ -130,7 +130,7 @@ try {
     // Only the diagnostic version floor, unsigned diagnostic packaging, and an
     // about:blank PROBE window. No plugins/key/identity/endpoints/security overlay.
     const value = {
-      version: "0.9.11",
+      version: "0.9.12",
       bundle: { createUpdaterArtifacts: false },
       app: {
         windows: [
