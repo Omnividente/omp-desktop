@@ -243,8 +243,8 @@ def main(q):
         require(len(frames) == 1, "visible-frame-count")
         window = frames[0]
 
-        def nodes():
-            result, pending = [], [window]
+        def nodes(root=window):
+            result, pending = [], [root]
             while pending:
                 n = pending.pop()
                 result.append(n)
@@ -379,11 +379,36 @@ def main(q):
 
         def folder(path):
             active = run("xdotool", "getactivewindow")
-            require(int(active, 0) != int(xid, 0))
-            require(int(run("xdotool", "getwindowpid", active)) == pid)
+            require(int(active, 0) != int(xid, 0), "native-folder-dialog-unavailable")
+            require(int(run("xdotool", "getwindowpid", active)) == pid, "native-folder-dialog-owner")
+            title = run("xdotool", "getwindowname", active)
             run("xdotool", "key", "--clearmodifiers", "ctrl+l")
             run("xdotool", "type", "--clearmodifiers", "--", str(path))
-            run("xdotool", "key", "--clearmodifiers", "Return", "alt+o")
+            run("xdotool", "key", "--clearmodifiers", "Return")
+            def picker_visible():
+                return any(int(line.split()[0], 16) == int(active, 0)
+                           for line in run("wmctrl", "-lp").splitlines() if line.split())
+            for _ in range(100):
+                # Enter may already accept; never press a second action on the owner window.
+                if not picker_visible():
+                    return
+                dialogs = [n for n in nodes(app) if n.getRoleName() in {"dialog", "file chooser", "frame"}
+                           and name(n) == title and visible(n)]
+                require(len(dialogs) <= 1, "native-folder-accessibility-dialog-count")
+                buttons = [n for n in nodes(dialogs[0]) if n.getRoleName() == "push button"
+                           and name(n) in {"Select", "Open"} and visible(n)] if dialogs else []
+                require(len(buttons) <= 1, "native-folder-accept-count")
+                if buttons and buttons[0].getState().contains(pyatspi.STATE_ENABLED):
+                    click(buttons[0])
+                    break
+                time.sleep(.1)
+            else:
+                raise NativeContractError("native-folder-accept-unavailable")
+            for _ in range(100):
+                if not picker_visible():
+                    return
+                time.sleep(.1)
+            raise NativeContractError("native-folder-dialog-not-closed")
 
         def capture(path):
             run("import", "-window", xid, str(path))
