@@ -126,8 +126,9 @@ def main(q):
             require(visible(node), "native-control-not-visible")
             return node
 
-        def click(n, x_offset=None):
-            surface = n.top_level_parent()
+        def click(n, x_offset=None, surface=None):
+            if surface is None:
+                surface = n.top_level_parent()
             require(surface.process_id() == pid, "native-click-surface-owner")
             require(win32gui.GetAncestor(win32gui.GetForegroundWindow(), win32con.GA_ROOT) == surface.handle,
                     "native-click-window-owner")
@@ -221,7 +222,8 @@ def main(q):
             require(len(buttons) == 1, "native-folder-accept-count")
             for _ in range(100):
                 if buttons[0].is_enabled():
-                    click(buttons[0])
+                    # UIA's logical top-level parent can be the native dialog's owner.
+                    click(buttons[0], surface=dialog)
                     break
                 time.sleep(.05)
             else:
