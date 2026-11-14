@@ -403,7 +403,18 @@ def main(q):
                     break
                 time.sleep(.1)
             else:
-                raise NativeContractError("native-folder-accept-unavailable")
+                # Only owned chooser window/action captions, never editable field values or a tree dump.
+                raise NativeContractError("native-folder-accept-unavailable", {
+                    "windowTitle": title[:128],
+                    "dialogCount": len(dialogs),
+                    "topLevelWindows": [{"role": n.getRoleName(), "name": name(n)[:128],
+                                         "active": n.getState().contains(pyatspi.STATE_ACTIVE),
+                                         "showing": visible(n)} for n in list(app)[:8]],
+                    "buttons": [{"name": name(n)[:80],
+                                 "enabled": n.getState().contains(pyatspi.STATE_ENABLED)}
+                                for n in nodes(dialogs[0]) if n.getRoleName() == "push button"
+                                and visible(n)][:16] if dialogs else [],
+                })
             for _ in range(100):
                 if not picker_visible():
                     return
@@ -575,7 +586,7 @@ try:
     request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     print(json.dumps(main(request)))
 except Exception as error:
-    # Only controlled contract codes and exception types; never native text/stacks.
+    # Controlled codes, sites and bounded owned-chooser captions; never values, full trees or raw stacks.
     site, trace = None, error.__traceback__
     while trace:
         if trace.tb_frame.f_code.co_filename == __file__ and trace.tb_frame.f_code.co_name != "require":
