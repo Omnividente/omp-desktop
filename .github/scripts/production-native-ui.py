@@ -106,8 +106,14 @@ def main(q):
 
         def control(label, kind):
             types = {"button": "Button", "tab": "TabItem", "combo": "ComboBox", "edit": "Edit"}
-            found = [n for n in nodes() if n.element_info.control_type == types[kind]
-                     and labelled(n, label)]
+            deadline = time.monotonic() + 5
+            while True:
+                found = [n for n in nodes() if n.element_info.control_type == types[kind]
+                         and labelled(n, label)]
+                if found or time.monotonic() >= deadline:
+                    break
+                # Readiness only: locale changes publish UIA names asynchronously.
+                time.sleep(.05)
             require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
             require(found[0].is_enabled(), "native-control-disabled")
             node = found[0]
@@ -320,10 +326,16 @@ def main(q):
             return node
 
         def click(n):
-            action = n.queryAction()
-            options = [i for i in range(action.nActions)
-                       if action.getName(i).lower() in {"click", "press", "activate"}]
-            require(len(options) == 1 and action.doAction(options[0]))
+            active = run("xdotool", "getactivewindow")
+            require(int(run("xdotool", "getwindowpid", active)) == pid, "native-click-window-owner")
+            geometry = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", active).splitlines())
+            rect = n.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            require(rect.width > 0 and rect.height > 0, "native-click-empty-bounds")
+            x, y = rect.x + rect.width // 2, rect.y + rect.height // 2
+            require(int(geometry["X"]) <= x < int(geometry["X"]) + int(geometry["WIDTH"])
+                    and int(geometry["Y"]) <= y < int(geometry["Y"]) + int(geometry["HEIGHT"]),
+                    "native-click-outside-active-window")
+            run("xdotool", "mousemove", str(x), str(y), "click", "1")
 
         def select(n, index):
             require(n.queryComponent().grabFocus())
