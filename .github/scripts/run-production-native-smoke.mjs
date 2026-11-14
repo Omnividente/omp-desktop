@@ -23,6 +23,11 @@ import { fileURLToPath } from "node:url"
 const windows = process.platform === "win32"
 const harness = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const delay = (ms) => new Promise((done) => setTimeout(done, ms))
+const desktopUpdateLabels = [
+  "Проверить обновления OMP Desktop",
+  "Check for OMP Desktop updates",
+  "检查 OMP Desktop 更新",
+]
 const required = (key) => {
   assert(process.env[key], `Missing ${key}`)
   return process.env[key]
@@ -103,8 +108,8 @@ function command(file, args, options = {}) {
     })
     child.once("close", (code) => {
       clearTimeout(timer)
-      code === 0 && !tooLarge
-        ? done({ text, pid: child.pid })
+      !tooLarge && (code === 0 || (code === 1 && options.nativeResponse))
+        ? done({ text, pid: child.pid, exitCode: code })
         : reject(new Error("Owned native command failed"))
     })
   })
@@ -170,6 +175,10 @@ function cleanEnvironment() {
   if (!windows) {
     out.NO_AT_BRIDGE = "0"
     out.GTK_MODULES = "atk-bridge"
+    // Xvfb has no hardware compositor. Keep this hosted observation environment explicit.
+    out.LIBGL_ALWAYS_SOFTWARE = "1"
+    out.WEBKIT_DISABLE_DMABUF_RENDERER = "1"
+    out.WEBKIT_DISABLE_COMPOSITING_MODE = "1"
   }
   return out
 }
@@ -267,21 +276,34 @@ async function observeSdkInstaller(expectedSha256) {
   ).catch(() => null)
 }
 async function native(request, retry = false) {
-  const q = { root: work, evidence, executable, ...request }
+  const q = { root: work, evidence, executable, versionLabels: desktopUpdateLabels, ...request }
   result.lastNativeOperation = {
     operation: q.operation,
     name: q.name ?? null,
     kind: q.kind ?? null,
+    controlId: q.controlId ?? null,
+    expectedVersion: q.expectedVersion ?? null,
+    copyText: Boolean(q.copyText),
+    requestedTexts: q.texts ?? [],
   }
   const invoke = async () => {
     try {
       const response = await command(
         required("PRODUCTION_NATIVE_PYTHON"),
         [join(harness, ".github/scripts/production-native-ui.py")],
-        { input: JSON.stringify(q), deadline: 30_000 },
+        { input: JSON.stringify(q), deadline: 30_000, nativeResponse: true },
       )
       const value = JSON.parse(response.text)
-      assert(!value.error)
+      if (response.exitCode !== 0 || value.error) {
+        result.lastNativeOperation.failure = {
+          code: value.code,
+          exception: value.exception,
+          site: value.site ?? null,
+          diagnostic: value.diagnostic ?? null,
+        }
+        return null
+      }
+      delete result.lastNativeOperation.failure
       return value
     } catch {
       return null
@@ -292,21 +314,24 @@ async function native(request, retry = false) {
   return value
 }
 const click = (name, kind = "button") => native({ operation: "click", pid: activePid, name, kind })
-async function observe(texts, label, excludePids = [], theme) {
-  const data = await native(
-    { operation: "observe", pid: activePid ?? undefined, texts, excludePids },
-    true,
-  )
-  activePid = data.pid
-  // Capture only after successful assertions; screenshot failure is not a retry of a mutation.
-  const surface = await native({
+async function observe(
+  texts,
+  label,
+  { excludePids = [], theme, expectedVersion, copyText = true } = {},
+) {
+  const request = {
     operation: "observe",
-    pid: activePid,
+    pid: activePid ?? undefined,
     texts,
+    excludePids,
+    expectedVersion,
+    copyText,
     screenshot: join(evidence, `${label}.png`),
     theme,
-  })
-  if (theme) await proof(`${label}-theme.json`, surface)
+  }
+  const data = await native(request, true)
+  activePid = data.pid
+  if (theme) await proof(`${label}-theme.json`, data)
   return data
 }
 async function start(label, version, excludePids = []) {
@@ -319,7 +344,7 @@ async function start(label, version, excludePids = []) {
   })
   child.on("error", () => {})
   child.unref()
-  const data = await observe([version], label, excludePids)
+  const data = await observe([], label, { excludePids, expectedVersion: version })
   result.launches.push({
     label,
     ...data,
@@ -377,13 +402,26 @@ function preferencesView(settings) {
 async function preferences(fixture, mutate) {
   await click("Settings")
   await native(
-    { operation: "observe", pid: activePid, texts: ["Interface text scale", "General"] },
+    {
+      operation: "observe",
+      pid: activePid,
+      texts: ["Interface text scale", "General"],
+      copyText: true,
+    },
     true,
   )
   if (mutate) {
     await native({ operation: "select", pid: activePid, name: "Interface text scale", index: 6 }) // 22px => 138%
     await click("Behavior", "tab")
-    await native({ operation: "observe", pid: activePid, texts: ["Terminal font size"] }, true)
+    await native(
+      {
+        operation: "observe",
+        pid: activePid,
+        texts: ["Terminal font size"],
+        copyText: true,
+      },
+      true,
+    )
     await native({ operation: "select", pid: activePid, name: "Terminal font size", index: 8 }) // stable12 and target13 use the same 8..32 options: 16px.
     await click("Save") // Exactly once. Unknown save outcome is failure, never repeated.
     await wait("durable native UI Save", async () => {
@@ -431,7 +469,9 @@ async function preferences(fixture, mutate) {
   await click("Cancel")
 }
 async function state(fixture, version, label) {
-  await observe([version, basename(fixture.project), fixture.title], `${label}-workspace`)
+  await observe([basename(fixture.project), fixture.title], `${label}-workspace`, {
+    expectedVersion: version,
+  })
   await click("Open transcript")
   await observe([fixture.title, ...fixture.messages.map(({ text }) => text)], `${label}-transcript`)
   await native({ operation: "escape", pid: activePid })
@@ -704,26 +744,34 @@ async function firstUserJourney() {
   await click("Save")
   await durableSettings((s) => s.language === "en", "new-user English Save")
   await observe(
-    ["OMP unavailable", "OMP probe failures", "Set the executable path below"],
+    ["OMP unavailable", "Set the executable path below"],
     "new-user-actionable-discovery-error",
   )
-  await native({
-    operation: "value",
-    pid: activePid,
-    name: "OMP executable",
-    kind: "edit",
-    expected: "",
-  })
-  await observe(["Leave empty to auto-detect"], "new-user-discovery-recovery-guidance")
+  // Keyboard navigation reveals the bottom fields before querying their native identity.
+  await native({ operation: "focus", pid: activePid, name: "Cancel", kind: "button" })
+  await native({ operation: "shortcut", pid: activePid, name: "previous-control" })
+  await native(
+    {
+      operation: "value",
+      pid: activePid,
+      name: "OMP executable",
+      controlId: "omp-executable",
+      kind: "edit",
+      expected: "",
+    },
+    true,
+  )
   await click("Cancel")
   const hint = "OMP Desktop will launch the agent in the selected folder"
-  await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", [], "dark")
+  await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", { theme: "dark" })
   await click("Settings")
   await native({ operation: "select", pid: activePid, name: "Interface theme", index: 1 })
   await click("Save")
   await durableSettings((s) => s.desktopTheme === "light", "new-user light theme Save")
   await click("Cancel")
-  await observe(["Open project folder", hint], "new-user-light-first-screen-hint", [], "light")
+  await observe(["Open project folder", hint], "new-user-light-first-screen-hint", {
+    theme: "light",
+  })
   await click("Settings")
   await native({ operation: "select", pid: activePid, name: "Interface language", index: 2 })
   await click("保存")
@@ -750,27 +798,36 @@ async function firstUserJourney() {
   await start("new-user-runtime-discovered", "0.9.13")
   await click("Settings")
   await observe(["OMP connected", runtimeVersion], "new-user-real-runtime-discovery")
-  await native({
-    operation: "value",
-    pid: activePid,
-    name: "OMP executable",
-    kind: "edit",
-    expected: "",
-  })
+  await native({ operation: "focus", pid: activePid, name: "Cancel", kind: "button" })
+  await native({ operation: "shortcut", pid: activePid, name: "previous-control" })
+  await native(
+    {
+      operation: "value",
+      pid: activePid,
+      name: "OMP executable",
+      controlId: "omp-executable",
+      kind: "edit",
+      expected: "",
+    },
+    true,
+  )
   await click("Cancel")
-  await click("Open folder")
+  await native({ operation: "shortcut", pid: activePid, name: "open-folder" })
   await native({ operation: "folder", pid: activePid, path: project })
   await observe([basename(project), "New session"], "new-user-selected-project")
   await durableSettings((s) => same(s.lastWorkspace, project), "native project selection persisted")
   stage = "new-user-first-real-pty"
-  await click("New session")
+  await native({ operation: "shortcut", pid: activePid, name: "new-session" })
   const runtime = await native(
     { operation: "runtime-process", pid: activePid, runtime: runtimePath, project },
     true,
   )
   await proof("new-user-real-pty.json", runtime)
-  // A fresh v18.20.0 profile enters its six-step setup wizard, not the prompt editor.
-  // Observe the real first-session boundary without logging in or submitting text.
+  // v18.20.0 supports Space to skip its startup splash. If already in setup,
+  // Space only edits provider search; OAuth confirmation requires Enter.
+  // Preserve the new terminal's focus: a mouse click could confirm a provider row.
+  await native({ operation: "terminal-keys", pid: activePid, keys: "space", focus: false })
+  // Observe the first provider step without login or prompt submission.
   await terminalObservation("new-user-real-runtime-first-setup", [
     "Setup\\s+step\\s+1\\s+of\\s+6[\\s\\S]*Sign\\s+in\\s+to\\s+your\\s+providers",
   ])
@@ -790,6 +847,7 @@ async function firstUserJourney() {
     ChineseSaveAndNativeRestart: true,
     darkAndLightFirstScreenHint: true,
   })
+  stage = "new-user-private-profile-archive"
   // Archive only profiles proven absent before this journey; no exports or real data.
   // State-fixtures below are separate and can never stand in for onboarding.
   for (const [path, name] of [
@@ -797,7 +855,11 @@ async function firstUserJourney() {
     [data, "desktop-data"],
     [join(home, ".omp"), "runtime-profile"],
   ]) {
-    if (!(await absent(path))) await rename(path, join(work, `new-user-private-${name}`))
+    // Hosted Windows profiles live on C:, while RUNNER_TEMP/work may be D:.
+    // Keep this rename on the source filesystem; never copy/export raw profiles.
+    const archive = join(dirname(path), `new-user-private-${name}`)
+    assert(await absent(archive), "Existing private profile archive; refusing replacement")
+    if (!(await absent(path))) await rename(path, archive)
   }
 }
 
@@ -830,7 +892,9 @@ async function completedAnswerJourney(fixture) {
   await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
   await terminalObservation("answer-default-collapsed-live-console", ["native\\s*focus\\s*draft"])
   await click("Show answer")
-  await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic")
+  await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic", {
+    copyText: false,
+  })
   await terminalObservation("answer-expanded-preserves-live-console-draft", [
     "native\\s*focus\\s*draft",
   ])
@@ -1056,11 +1120,10 @@ async function main() {
     result.probe.pid = started.pid
     result.probe.launcherPid = child.pid
     stage = "first-sdk-target-native-ui"
-    const first = await observe(
-      ["0.9.13", basename(f.project), f.title],
-      "sdk-first-target-native",
-      [baselinePid, started.pid],
-    )
+    const first = await observe([basename(f.project), f.title], "sdk-first-target-native", {
+      excludePids: [baselinePid, started.pid],
+      expectedVersion: "0.9.13",
+    })
     assert(
       !(await processes()).some((row) => row.pid === started.pid),
       "Probe process survived target relaunch",
@@ -1136,10 +1199,13 @@ async function main() {
 }
 try {
   await main()
-} catch {
+} catch (error) {
   // Assertion payloads may contain settings. Never upload stacks/native stderr.
   result.failure = {
     stage,
+    exception: /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error?.name ?? "") ? error.name : "Error",
+    systemCode: /^E[A-Z0-9_]{1,40}$/.test(error?.code ?? "") ? error.code : null,
+    syscall: /^[a-z0-9_]{1,32}$/.test(error?.syscall ?? "") ? error.syscall : null,
     reason:
       "Production native contract failed; inspect lastNativeOperation and the last bounded screenshot/proof, never retry a Save/install blindly",
     lastNativeOperation: result.lastNativeOperation ?? null,

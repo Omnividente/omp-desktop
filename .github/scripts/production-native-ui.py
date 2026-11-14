@@ -10,11 +10,18 @@ import subprocess
 import sys
 import re
 import tempfile
+import time
 
 
-def require(value):
+class NativeContractError(RuntimeError):
+    def __init__(self, code, diagnostic=None):
+        super().__init__(code)
+        self.diagnostic = diagnostic
+
+
+def require(value, code="native-contract"):
     if not value:
-        raise RuntimeError("native UI contract unavailable")
+        raise NativeContractError(code)
 
 
 def run(*args):
@@ -36,6 +43,16 @@ def within(root, path):
     return path != root and root in path.parents
 
 
+def copied_text(read):
+    for _ in range(40):
+        text = read()
+        if text:
+            require(len(text) < 65536, "native-header-copy-too-large")
+            return text
+        time.sleep(.05)
+    raise NativeContractError("native-header-copy-empty")
+
+
 def main(q):
     require(os.environ.get("GITHUB_ACTIONS") == "true")
     require(os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted")
@@ -46,6 +63,9 @@ def main(q):
     windows = sys.platform == "win32"
     if windows:
         import psutil
+        import win32api
+        import win32con
+        import win32gui
         from pywinauto import Desktop
         candidates = []
         for w in Desktop(backend="uia").windows(title="OMP Desktop", visible_only=True):
@@ -58,6 +78,10 @@ def main(q):
         if q.get("pid"):
             require(pid == q["pid"])
         if q["operation"] != "folder":
+            area = win32api.GetMonitorInfo(win32api.MonitorFromWindow(window.handle, win32con.MONITOR_DEFAULTTONEAREST))["Work"]
+            window.restore()
+            win32gui.SetWindowPos(window.handle, 0, area[0], area[1], area[2] - area[0], area[3] - area[1],
+                                 win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE)
             window.set_focus()
         require(window.is_visible() and not window.is_minimized())
         bounds = window.rectangle()
@@ -67,20 +91,38 @@ def main(q):
             return [window] + window.descendants()
 
         def name(n):
-            return n.window_text()
+            return n.element_info.name or ""
 
         def visible(n):
             return n.is_visible()
 
+        def labelled(n, label):
+            if q.get("controlId"):
+                return n.element_info.automation_id == q["controlId"]
+            if name(n) == label:
+                return True
+            related = n.element_info.element.CurrentLabeledBy
+            return bool(related) and related.CurrentName == label
+
         def control(label, kind):
             types = {"button": "Button", "tab": "TabItem", "combo": "ComboBox", "edit": "Edit"}
-            found = [n for n in nodes() if name(n) == label
-                     and n.element_info.control_type == types[kind]]
-            require(len(found) == 1 and found[0].is_enabled())
+            deadline = time.monotonic() + 5
+            while True:
+                found = [n for n in nodes() if n.element_info.control_type == types[kind]
+                         and labelled(n, label)]
+                if found or time.monotonic() >= deadline:
+                    break
+                # Readiness only: locale changes publish UIA names asynchronously.
+                time.sleep(.05)
+            require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
+            require(found[0].is_enabled(), "native-control-disabled")
             node = found[0]
             if not visible(node):
                 node.iface_scroll_item.ScrollIntoView()
-            require(visible(node))
+                deadline = time.monotonic() + 5
+                while not visible(node) and time.monotonic() < deadline:
+                    time.sleep(.05)
+            require(visible(node), "native-control-not-visible")
             return node
 
         def click(n):
@@ -88,14 +130,12 @@ def main(q):
 
         def select(n, index):
             n.set_focus()
-            n.type_keys("{HOME}" + "{DOWN}" * index + "{ENTER}", set_foreground=True)
+            n.type_keys("%{DOWN}{HOME}" + "{DOWN}" * index + "{ENTER}", set_foreground=True)
 
         def value(n):
             if n.element_info.control_type == "Edit":
                 return n.iface_value.CurrentValue
-            selection = n.iface_selection.GetCurrentSelection()
-            require(selection.Length == 1)
-            return selection.GetElement(0).CurrentName
+            return n.legacy_properties()["Value"]
 
         def edit(n, text):
             n.set_edit_text(text)
@@ -107,13 +147,79 @@ def main(q):
             # xterm's helper textarea is intentionally zero-sized/offscreen.
             # Click the owned visible lower console, never inject DOM focus hooks.
             window.click_input(coords=(int(bounds.width() * .65), int(bounds.height() * .78)))
+
+        def rendered_text(labels):
+            import win32clipboard
+            current_nodes = nodes()
+            # UIA_AriaRolePropertyId identifies the actual active HTML dialog.
+            dialogs = [n for n in current_nodes if visible(n)
+                       and n.element_info.element.GetCurrentPropertyValue(30101) == "dialog"]
+            require(len(dialogs) <= 1, "native-rendered-dialog-count")
+            if dialogs:
+                rect = dialogs[0].rectangle()
+                point = (rect.left - bounds.left + 32, rect.top - bounds.top + 32)
+            else:
+                controls = [n for n in current_nodes if name(n) in labels and visible(n)
+                            and n.element_info.control_type == "Button"]
+                require(len(controls) == 1, "native-version-control-count")
+                rect = controls[0].rectangle()
+                point = (rect.left - bounds.left - 3, (rect.top + rect.bottom) // 2 - bounds.top)
+            require(0 <= point[0] < bounds.width() and 0 <= point[1] < bounds.height())
+            def clear_clipboard():
+                win32clipboard.OpenClipboard(window.handle)
+                try:
+                    win32clipboard.EmptyClipboard()
+                finally:
+                    win32clipboard.CloseClipboard()
+            def clipboard_text():
+                win32clipboard.OpenClipboard(window.handle)
+                try:
+                    return win32clipboard.GetClipboardData(13) if win32clipboard.IsClipboardFormatAvailable(13) else ""
+                finally:
+                    win32clipboard.CloseClipboard()
+            clear_clipboard()
+            try:
+                window.click_input(coords=point)
+                keys("^a^c")
+                return copied_text(clipboard_text)
+            finally:
+                try:
+                    keys("{RIGHT}")
+                    window.click_input(coords=point)
+                finally:
+                    clear_clipboard()
+
         def folder(path):
-            dialog = Desktop(backend="uia").get_active()
-            require(dialog.process_id() == pid and dialog.handle != window.handle)
-            dialog.type_keys("^l", set_foreground=True)
+            for _ in range(100):
+                handle = win32gui.GetForegroundWindow()
+                if handle and handle != window.handle:
+                    dialog = Desktop(backend="uia").window(handle=handle).wrapper_object()
+                    require(dialog.process_id() == pid, "native-folder-dialog-owner")
+                    break
+                time.sleep(.1)
+            else:
+                raise NativeContractError("native-folder-dialog-unavailable")
+            dialog.type_keys("^l^a", set_foreground=True)
             from pywinauto.keyboard import send_keys
             send_keys(str(path), with_spaces=True, vk_packet=True)
-            send_keys("{ENTER}%s")
+            send_keys("{ENTER}")
+            if not win32gui.IsWindow(handle) or not win32gui.IsWindowVisible(handle):
+                return
+            buttons = [n for n in dialog.descendants() if n.element_info.control_type == "Button"
+                       and n.element_info.automation_id == str(win32con.IDOK) and visible(n)]
+            require(len(buttons) == 1, "native-folder-accept-count")
+            for _ in range(100):
+                if buttons[0].is_enabled():
+                    click(buttons[0])
+                    break
+                time.sleep(.05)
+            else:
+                raise NativeContractError("native-folder-accept-disabled")
+            for _ in range(100):
+                if not win32gui.IsWindow(handle) or not win32gui.IsWindowVisible(handle):
+                    return
+                time.sleep(.05)
+            raise NativeContractError("native-folder-dialog-not-closed")
 
         def capture(path):
             from PIL import ImageGrab
@@ -129,6 +235,7 @@ def main(q):
                     "bounds": [bounds.left, bounds.top, bounds.right, bounds.bottom]}
     else:
         import pyatspi
+        from gi.repository import GLib
         # Match an actual mapped X11 window, not a headless accessibility tree.
         candidates = []
         for line in run("wmctrl", "-lp").splitlines():
@@ -143,7 +250,7 @@ def main(q):
                     candidates.append((parts[0], pid))
             except (OSError, StopIteration):
                 continue
-        require(len(candidates) == 1)
+        require(len(candidates) == 1, "owned-window-count")
         xid, pid = candidates[0]
         require(pid not in q.get("excludePids", []))
         if q.get("pid"):
@@ -154,15 +261,15 @@ def main(q):
         run("wmctrl", "-ir", xid, "-e", "0,16,16,1400,900")
         desktop = pyatspi.Registry.getDesktop(0)
         apps = [a for a in desktop if a.get_process_id() == pid]
-        require(len(apps) == 1)
+        require(len(apps) == 1, "accessibility-process-count")
         app = apps[0]
         frames = [n for n in app if n.name == "OMP Desktop"
                   and n.getState().contains(pyatspi.STATE_SHOWING)]
-        require(len(frames) == 1)
+        require(len(frames) == 1, "visible-frame-count")
         window = frames[0]
 
-        def nodes():
-            result, pending = [], [window]
+        def nodes(root=window):
+            result, pending = [], [root]
             while pending:
                 n = pending.pop()
                 result.append(n)
@@ -176,35 +283,106 @@ def main(q):
         def visible(n):
             return n.getState().contains(pyatspi.STATE_SHOWING)
 
+        def editable(n):
+            return n.getState().contains(pyatspi.STATE_EDITABLE)
+
+        def labelled(n, label):
+            if q.get("controlId"):
+                return n.get_attributes().get("id") == q["controlId"]
+            if name(n) == label:
+                return True
+            return any(name(relation.getTarget(i)) == label
+                       for relation in n.getRelationSet()
+                       if relation.getRelationType() == pyatspi.RELATION_LABELLED_BY
+                       for i in range(relation.getNTargets()))
+
         def control(label, kind):
             roles = {"button": {"push button"}, "tab": {"page tab"},
-                     "combo": {"combo box"}, "edit": {"entry", "text"}}
-            found = [n for n in nodes() if name(n) == label
-                     and n.getRoleName() in roles[kind]]
-            require(len(found) == 1 and found[0].getState().contains(pyatspi.STATE_ENABLED))
+                     "combo": {"combo box"}}
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    current_nodes = nodes()
+                    typed = [n for n in current_nodes
+                             if (editable(n) if kind == "edit" else n.getRoleName() in roles[kind])]
+                    found = [n for n in typed if labelled(n, label)]
+                except (GLib.Error, ValueError):
+                    if time.monotonic() >= deadline:
+                        raise
+                else:
+                    if found or time.monotonic() >= deadline:
+                        break
+                # Retry only metadata reads, never the subsequent focus/click/edit.
+                app.clear_cache()
+                time.sleep(.05)
+            if len(found) != 1:
+                # Aggregate native metadata only: no names, values, paths or tree dump.
+                attributes = [(n.getRoleName(), n.get_attributes()) for n in current_nodes]
+                diagnostic = {
+                    "kindCount": len(typed),
+                    "exactLabelRoles": [n.getRoleName() for n in current_nodes if name(n) == label][:16],
+                    "idRoles": {key: [role for role, attrs in attributes
+                                     if q.get("controlId") and attrs.get(key) == q["controlId"]][:16]
+                                for key in ("id", "html-id")},
+                    "inputRoles": sorted({role for role, attrs in attributes
+                                          if attrs.get("tag", "").lower() == "input"})[:16],
+                    "kindAttributeKeys": sorted({key for n in typed for key in n.get_attributes()})[:64],
+                    "idEditableStates": [n.getState().contains(pyatspi.STATE_EDITABLE)
+                                         for n in current_nodes if q.get("controlId")
+                                         and n.get_attributes().get("id") == q["controlId"]][:16],
+                }
+                raise NativeContractError(f"native-control-count-{kind}-{len(found)}", diagnostic)
+            require(found[0].getState().contains(pyatspi.STATE_ENABLED), "native-control-disabled")
             node = found[0]
             if not visible(node):
                 require(node.queryComponent().scrollTo(pyatspi.SCROLL_ANYWHERE))
-            require(visible(node))
+            require(visible(node), "native-control-not-visible")
             return node
 
         def click(n):
-            action = n.queryAction()
-            options = [i for i in range(action.nActions)
-                       if action.getName(i).lower() in {"click", "press", "activate"}]
-            require(len(options) == 1 and action.doAction(options[0]))
+            active = run("xdotool", "getactivewindow")
+            require(int(run("xdotool", "getwindowpid", active)) == pid, "native-click-window-owner")
+            geometry = dict(line.split("=", 1) for line in run("xdotool", "getwindowgeometry", "--shell", active).splitlines())
+            rect = n.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            require(rect.width > 0 and rect.height > 0, "native-click-empty-bounds")
+            x, y = rect.x + rect.width // 2, rect.y + rect.height // 2
+            require(int(geometry["X"]) <= x < int(geometry["X"]) + int(geometry["WIDTH"])
+                    and int(geometry["Y"]) <= y < int(geometry["Y"]) + int(geometry["HEIGHT"]),
+                    "native-click-outside-active-window")
+            run("xdotool", "mousemove", str(x), str(y), "click", "1")
 
         def select(n, index):
             require(n.queryComponent().grabFocus())
-            run("xdotool", "key", "--clearmodifiers", "Home", *( ["Down"] * index), "Return")
+            # GTK/WebKit's native popup can retain focus after Return; Tab commits
+            # and leaves it before the next native action (e.g. selecting a tab).
+            run("xdotool", "key", "--clearmodifiers", "alt+Down", "Home", *( ["Down"] * index), "Return", "Tab")
+            for _ in range(100):
+                if not n.getState().contains(pyatspi.STATE_EXPANDED):
+                    return
+                time.sleep(.05)
+            raise NativeContractError("native-combo-popup-still-expanded")
 
         def value(n):
-            if n.getRoleName() in {"entry", "text"}:
-                text = n.queryText()
+            if editable(n):
+                try:
+                    text = n.queryText()
+                except NotImplementedError:
+                    raise NativeContractError("native-control-text-interface-unavailable", {
+                        "interfaces": list(n.get_interfaces())[:16],
+                        "role": n.getRoleName(),
+                        "editable": True,
+                        "childCount": n.childCount,
+                        "textChildRoles": [child.getRoleName() for child in list(n)[:16]
+                                           if "Text" in child.get_interfaces()],
+                        "editableTextChildRoles": [child.getRoleName() for child in list(n)[:16]
+                                                   if child.getState().contains(pyatspi.STATE_EDITABLE)
+                                                   and "Text" in child.get_interfaces()],
+                    }) from None
                 return text.getText(0, text.characterCount)
-            selection = n.querySelection()
-            require(selection.nSelectedChildren == 1)
-            return selection.getSelectedChild(0).name
+            selected = [child for child in nodes(n)[1:]
+                        if child.getState().contains(pyatspi.STATE_SELECTED)]
+            require(len(selected) == 1, f"native-control-selected-count-{len(selected)}")
+            return name(selected[0])
 
         def edit(n, text):
             require(n.queryEditableText().setTextContents(text))
@@ -217,14 +395,84 @@ def main(q):
             x = int(geometry["X"]) + int(int(geometry["WIDTH"]) * .65)
             y = int(geometry["Y"]) + int(int(geometry["HEIGHT"]) * .78)
             run("xdotool", "mousemove", str(x), str(y), "click", "1")
+        def rendered_text(labels):
+            current_nodes = nodes()
+            dialogs = [n for n in current_nodes if visible(n) and n.getRoleName() == "dialog"]
+            require(len(dialogs) <= 1, "native-rendered-dialog-count")
+            if dialogs:
+                rect = dialogs[0].queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+                point = (rect.x + 32, rect.y + 32)
+            else:
+                controls = [n for n in current_nodes if name(n) in labels and visible(n)
+                            and n.getRoleName() == "push button"]
+                require(len(controls) == 1, "native-version-control-count")
+                rect = controls[0].queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+                point = (rect.x - 3, rect.y + rect.height // 2)
+            frame = window.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+            require(frame.x <= point[0] < frame.x + frame.width and frame.y <= point[1] < frame.y + frame.height)
+            def focus_header():
+                run("xdotool", "mousemove", str(point[0]), str(point[1]), "click", "1")
+            def clear_clipboard():
+                subprocess.run(["xclip", "-selection", "clipboard", "-in"], input=b"",
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=True)
+            clear_clipboard()
+            try:
+                focus_header()
+                keys(["ctrl+a", "ctrl+c"])
+                return copied_text(lambda: run("xclip", "-selection", "clipboard", "-out"))
+            finally:
+                try:
+                    keys(["Right"])
+                    focus_header()
+                finally:
+                    clear_clipboard()
+
 
         def folder(path):
             active = run("xdotool", "getactivewindow")
-            require(int(active, 0) != int(xid, 0))
-            require(int(run("xdotool", "getwindowpid", active)) == pid)
-            run("xdotool", "key", "--clearmodifiers", "ctrl+l")
+            require(int(active, 0) != int(xid, 0), "native-folder-dialog-unavailable")
+            require(int(run("xdotool", "getwindowpid", active)) == pid, "native-folder-dialog-owner")
+            title = run("xdotool", "getwindowname", active)
+            # A fresh chooser starts in Recent; SelectFolder stays disabled there,
+            # even with a valid Location entry. Enter browse mode before typing.
+            run("xdotool", "key", "--clearmodifiers", "alt+Home", "ctrl+l", "ctrl+a")
             run("xdotool", "type", "--clearmodifiers", "--", str(path))
-            run("xdotool", "key", "--clearmodifiers", "Return", "alt+o")
+            run("xdotool", "key", "--clearmodifiers", "Return")
+            def picker_visible():
+                return any(int(line.split()[0], 16) == int(active, 0)
+                           for line in run("wmctrl", "-lp").splitlines() if line.split())
+            for _ in range(100):
+                # Enter may already accept; never press a second action on the owner window.
+                if not picker_visible():
+                    return
+                dialogs = [n for n in nodes(app) if n.getRoleName() in {"dialog", "file chooser", "frame"}
+                           and name(n) == title and visible(n)]
+                require(len(dialogs) <= 1, "native-folder-accessibility-dialog-count")
+                buttons = [n for n in nodes(dialogs[0]) if n.getRoleName() == "push button"
+                           and name(n) in {"Select", "Open"} and visible(n)] if dialogs else []
+                require(len(buttons) <= 1, "native-folder-accept-count")
+                if buttons and buttons[0].getState().contains(pyatspi.STATE_ENABLED):
+                    click(buttons[0])
+                    break
+                time.sleep(.1)
+            else:
+                # Only owned chooser window/action captions, never editable field values or a tree dump.
+                raise NativeContractError("native-folder-accept-unavailable", {
+                    "windowTitle": title[:128],
+                    "dialogCount": len(dialogs),
+                    "topLevelWindows": [{"role": n.getRoleName(), "name": name(n)[:128],
+                                         "active": n.getState().contains(pyatspi.STATE_ACTIVE),
+                                         "showing": visible(n)} for n in list(app)[:8]],
+                    "buttons": [{"name": name(n)[:80],
+                                 "enabled": n.getState().contains(pyatspi.STATE_ENABLED)}
+                                for n in nodes(dialogs[0]) if n.getRoleName() == "push button"
+                                and visible(n)][:16] if dialogs else [],
+                })
+            for _ in range(100):
+                if not picker_visible():
+                    return
+                time.sleep(.1)
+            raise NativeContractError("native-folder-dialog-not-closed")
 
         def capture(path):
             run("import", "-window", xid, str(path))
@@ -244,30 +492,56 @@ def main(q):
     operation = q["operation"]
     if operation == "observe":
         # Return only the requested synthetic text match, never a full tree/profile.
-        texts = []
-        for n in nodes():
-            if not visible(n):
-                continue
-            texts.append(name(n))
-            if not windows:
-                try:
-                    t = n.queryText()
-                    texts.append(t.getText(0, min(t.characterCount, 4096)))
-                except NotImplementedError:
-                    pass
-        require(all(any(needle in text for text in texts) for needle in q["texts"]))
+        if q.get("copyText") or q.get("expectedVersion"):
+            text = rendered_text(q["versionLabels"])
+            texts = [text]
+            identity["textObservation"] = "owned native selection/copy; clipboard cleared; raw text not retained"
+        else:
+            # Focus-sensitive PTY observations stay read-only accessibility queries.
+            texts = []
+            for n in nodes():
+                if not visible(n):
+                    continue
+                texts.append(name(n))
+                if not windows:
+                    try:
+                        t = n.queryText()
+                        texts.append(t.getText(0, min(t.characterCount, 4096)))
+                    except NotImplementedError:
+                        pass
+        require(all(any(needle in text for text in texts) for needle in q["texts"]), "expected-text-missing")
         identity["observedTexts"] = q["texts"]
-        require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])))
+        require(not any(any(needle in text for text in texts) for needle in q.get("absentTexts", [])), "unexpected-text-present")
+        if q.get("expectedVersion"):
+            # The button's action name is not its rendered version. Read actual
+            # selected page text through native keys/clipboard, only in this owned
+            # fresh hosted VM; never expose or retain the copied UI text.
+            version = re.search(r"\bOMP\s*Desktop\s*v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)(?![\d.+-])", text)
+            require(version, "native-header-version-unselected")
+            require(version.group(1) == q["expectedVersion"], "native-header-version-mismatch")
+            identity["observedVersion"] = version.group(1)
+            identity["versionObservation"] = "owned native selection/copy; clipboard cleared; raw text not retained"
     elif operation == "click":
         click(control(q["name"], q["kind"]))
     elif operation == "select":
         select(control(q["name"], "combo"), q["index"])
+    elif operation == "focus":
+        node = control(q["name"], q["kind"])
+        if windows:
+            node.set_focus()
+        else:
+            require(node.queryComponent().grabFocus(), "native-control-focus-failed")
     elif operation == "value":
         actual = value(control(q["name"], q.get("kind", "combo")))
-        require(actual == q["expected"])
+        require(actual == q["expected"], "native-control-value-mismatch")
         identity["value"] = actual
     elif operation == "edit":
         edit(control(q["name"], "edit"), q["text"])
+    elif operation == "shortcut":
+        shortcuts = {"open-folder": ("^+o", ["ctrl+shift+o"]), "new-session": ("^n", ["ctrl+n"]),
+                     "previous-control": ("+{TAB}", ["shift+Tab"])}
+        require(q["name"] in shortcuts)
+        keys(shortcuts[q["name"]][0 if windows else 1])
     elif operation == "folder":
         path = Path(q["path"]).resolve(strict=True)
         require(within(root, path) and path.is_dir())
@@ -277,6 +551,7 @@ def main(q):
             terminal_focus()
         sequences = {
             "escape": ("{ESC}", ["Escape"]),
+            "space": ("{SPACE}", ["space"]),
             "draft": ("nativefocusdraft", list("nativefocusdraft")),
             "clear": ("^a{BACKSPACE}", ["ctrl+a", "BackSpace"]),
         }
@@ -290,11 +565,13 @@ def main(q):
             from PIL import Image
             with Image.open(image_path) as image:
                 width, height = image.size
-                image.crop((int(width * .25), int(height * .12), width, int(height * .94))).save(image_path)
+                crop = image.crop((int(width * .25), int(height * .12), width, int(height * .94)))
+                # Fixed sampling for small canvas glyphs; never alter/normalize recognized text.
+                crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS).save(image_path)
             text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
             require(any(re.search(pattern, text, re.IGNORECASE) for pattern in q["patterns"]))
             identity["terminalObservation"] = q["label"]
-            identity["method"] = "native-window cropped screenshot OCR; raw text not retained"
+            identity["method"] = "native-window crop, fixed 2x LANCZOS screenshot OCR; raw text not retained"
     elif operation == "runtime-process":
         runtime = Path(q["runtime"]).resolve(strict=True)
         project = Path(q["project"]).resolve(strict=True)
@@ -362,9 +639,18 @@ def main(q):
 
 
 try:
-    request = json.load(sys.stdin)
+    request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
     print(json.dumps(main(request)))
-except Exception:
-    # OS exceptions, raw accessibility and command output are deliberately private.
-    print(json.dumps({"error": "Owned native UI operation unavailable or assertion failed"}))
+except Exception as error:
+    # Controlled codes, sites and bounded owned-chooser captions; never values, full trees or raw stacks.
+    site, trace = None, error.__traceback__
+    while trace:
+        if trace.tb_frame.f_code.co_filename == __file__ and trace.tb_frame.f_code.co_name != "require":
+            site = {"function": trace.tb_frame.f_code.co_name, "line": trace.tb_lineno}
+        trace = trace.tb_next
+    print(json.dumps({"error": "Owned native UI operation unavailable or assertion failed",
+                      "code": str(error) if isinstance(error, NativeContractError) else "native-api",
+                      "exception": type(error).__name__,
+                      "site": site,
+                      "diagnostic": error.diagnostic if isinstance(error, NativeContractError) else None}))
     sys.exit(1)

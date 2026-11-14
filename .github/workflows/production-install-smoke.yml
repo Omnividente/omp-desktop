@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: production-install-${{ inputs.target_sha }}
@@ -139,7 +140,9 @@ jobs:
 
       - name: Recheck immutable metadata and every asset before final acceptance
         if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
-        # Public metadata only; deliberately no GH_TOKEN in this post-install step.
+        # Controller-only read access; never passed to installer/application children.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs --recheck
         working-directory: production-target
 
@@ -216,7 +219,7 @@ jobs:
       - name: Install actual native runtime and accessibility dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick tesseract-ocr fonts-noto-cjk
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool xclip wmctrl openbox imagemagick tesseract-ocr fonts-noto-cjk
           tesseract --version
       - name: Exercise candidate first launch official OMP setup then separate shipped12 AppImage state replacement
         working-directory: production-target
@@ -230,6 +233,8 @@ jobs:
       - name: Recheck frozen metadata and every immutable asset after native scenario
         if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
         working-directory: production-target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs --recheck
       - name: Upload bounded synthetic native Linux proofs only
         if: always()

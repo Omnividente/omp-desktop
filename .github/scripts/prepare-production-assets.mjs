@@ -100,10 +100,8 @@ async function git(cwd, ...args) {
 
 async function api(path) {
   const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }
-  // contents:read intentionally grants no actions:read. Public production run/job
-  // metadata is readable anonymously; do not send a narrower token to that API.
-  if (process.env.GH_TOKEN && !path.startsWith("/actions/"))
-    headers.Authorization = `Bearer ${process.env.GH_TOKEN}`
+  // Read-only contents/actions token is scoped to this acquisition controller.
+  if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`
   let response
   try {
     response = await fetch(`${apiRoot}${path}`, {
@@ -114,10 +112,14 @@ async function api(path) {
   } catch {
     throw new Error(`GitHub read-only request failed: ${path}`)
   }
-  requireCondition(
-    response.ok,
-    `GitHub read-only request returned HTTP ${response.status}: ${path}`,
-  )
+  if (!response.ok) {
+    const reset = response.headers.get("x-ratelimit-reset")
+    const quota =
+      response.headers.get("x-ratelimit-remaining") === "0" && /^\d+$/.test(reset ?? "")
+        ? `; GitHub rate limit exhausted until Unix ${reset}`
+        : ""
+    throw new Error(`GitHub read-only request returned HTTP ${response.status}: ${path}${quota}`)
+  }
   try {
     return await response.json()
   } catch {

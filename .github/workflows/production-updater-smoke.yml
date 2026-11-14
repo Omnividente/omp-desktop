@@ -22,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: production-trust-updater-${{ inputs.target_sha }}
@@ -97,7 +98,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick tesseract-ocr fonts-noto-cjk
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool xclip wmctrl openbox imagemagick tesseract-ocr fonts-noto-cjk
           tesseract --version
           echo 'PRODUCTION_NATIVE_TESSERACT=/usr/bin/tesseract' >> "$GITHUB_ENV"
       - name: Install Windows native observation dependencies
@@ -169,6 +170,8 @@ jobs:
       - name: Freeze recheck every immutable release field and asset
         if: ${{ !cancelled() && steps.acquire.outcome == 'success' }}
         working-directory: production-target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node ../acceptance-harness/.github/scripts/prepare-production-assets.mjs --recheck
       - name: Upload only public source identity and bounded synthetic native proofs
         if: always()
