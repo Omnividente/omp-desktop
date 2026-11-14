@@ -119,6 +119,9 @@ def main(q):
             node = found[0]
             if not visible(node):
                 node.iface_scroll_item.ScrollIntoView()
+                deadline = time.monotonic() + 5
+                while not visible(node) and time.monotonic() < deadline:
+                    time.sleep(.05)
             require(visible(node), "native-control-not-visible")
             return node
 
