@@ -58,7 +58,7 @@ export function CompletedAnswers({
               !newAnswer && transcript.entries.some((entry) => entry.id === current?.selectedId)
                 ? current?.selectedId
                 : latestId,
-            collapsed: newAnswer ? false : (current?.collapsed ?? false),
+            collapsed: newAnswer ? true : (current?.collapsed ?? true),
           }
         })
       },
@@ -76,7 +76,7 @@ export function CompletedAnswers({
   const entry = entries[index]
   const source = entry?.dialogueText ?? entry?.text ?? ""
   const content = useMemo(() => markdownContent(source), [source])
-  const collapsed = answers?.collapsed ?? false
+  const collapsed = answers?.collapsed ?? true
 
   useEffect(() => setMenu(null), [active, busy, entry?.id, collapsed])
 
