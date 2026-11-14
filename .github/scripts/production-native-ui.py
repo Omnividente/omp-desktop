@@ -251,6 +251,16 @@ def main(q):
         def visible(n):
             return n.getState().contains(pyatspi.STATE_SHOWING)
 
+        def editable(n):
+            if not n.getState().contains(pyatspi.STATE_EDITABLE):
+                return False
+            try:
+                n.queryText()
+                n.queryEditableText()
+                return True
+            except NotImplementedError:
+                return False
+
         def labelled(n, label):
             if q.get("controlId"):
                 return n.get_attributes().get("id") == q["controlId"]
@@ -263,9 +273,10 @@ def main(q):
 
         def control(label, kind):
             roles = {"button": {"push button"}, "tab": {"page tab"},
-                     "combo": {"combo box"}, "edit": {"entry", "text"}}
+                     "combo": {"combo box"}}
             current_nodes = nodes()
-            typed = [n for n in current_nodes if n.getRoleName() in roles[kind]]
+            typed = [n for n in current_nodes
+                     if (editable(n) if kind == "edit" else n.getRoleName() in roles[kind])]
             found = [n for n in typed if labelled(n, label)]
             if len(found) != 1:
                 # Aggregate native metadata only: no names, values, paths or tree dump.
@@ -279,6 +290,9 @@ def main(q):
                     "inputRoles": sorted({role for role, attrs in attributes
                                           if attrs.get("tag", "").lower() == "input"})[:16],
                     "kindAttributeKeys": sorted({key for n in typed for key in n.get_attributes()})[:64],
+                    "idEditableStates": [n.getState().contains(pyatspi.STATE_EDITABLE)
+                                         for n in current_nodes if q.get("controlId")
+                                         and n.get_attributes().get("id") == q["controlId"]][:16],
                 }
                 raise NativeContractError(f"native-control-count-{kind}-{len(found)}", diagnostic)
             require(found[0].getState().contains(pyatspi.STATE_ENABLED), "native-control-disabled")
@@ -299,7 +313,7 @@ def main(q):
             run("xdotool", "key", "--clearmodifiers", "alt+Down", "Home", *( ["Down"] * index), "Return")
 
         def value(n):
-            if n.getRoleName() in {"entry", "text"}:
+            if editable(n):
                 text = n.queryText()
                 return text.getText(0, text.characterCount)
             selection = n.querySelection()
