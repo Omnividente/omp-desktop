@@ -74,6 +74,7 @@ function RemovalFixture({
       <ProjectRail
         autoHidePaused={false}
         autoOpen={false}
+        dropActive={false}
         mode={lastWorkspace ? "collapsed" : "expanded"}
         modeSaving={false}
         workspaces={workspaces}
@@ -130,6 +131,7 @@ describe("ProjectRail workspace actions", () => {
     const common = {
       autoHidePaused: false,
       autoOpen: false,
+      dropActive: false,
       mode: "expanded" as const,
       modeSaving: false,
       onAutoOpenChange: vi.fn(),
@@ -274,6 +276,7 @@ describe("ProjectRail Enter rename focus", () => {
           <ProjectRail
             autoHidePaused={false}
             autoOpen={false}
+            dropActive={false}
             mode={mode}
             modeSaving={false}
             workspaces={[workspace]}
@@ -396,6 +399,7 @@ describe("ProjectRail project search", () => {
         <ProjectRail
           autoHidePaused={false}
           autoOpen={autoOpen}
+          dropActive={false}
           mode={mode}
           modeSaving={false}
           workspaces={projects}
@@ -533,6 +537,7 @@ describe("ProjectRail auto-hide search reveal", () => {
         <ProjectRail
           autoHidePaused={false}
           autoOpen={open}
+          dropActive={false}
           mode="autoHide"
           modeSaving={false}
           workspaces={[workspace, target]}
@@ -657,6 +662,7 @@ describe("ProjectRail project order", () => {
         <ProjectRail
           autoHidePaused={false}
           autoOpen={autoOpen}
+          dropActive={false}
           mode={mode}
           modeSaving={false}
           workspaces={workspaces}
