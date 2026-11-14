@@ -407,13 +407,26 @@ function preferencesView(settings) {
 async function preferences(fixture, mutate) {
   await click("Settings")
   await native(
-    { operation: "observe", pid: activePid, texts: ["Interface text scale", "General"] },
+    {
+      operation: "observe",
+      pid: activePid,
+      texts: ["Interface text scale", "General"],
+      copyText: true,
+    },
     true,
   )
   if (mutate) {
     await native({ operation: "select", pid: activePid, name: "Interface text scale", index: 6 }) // 22px => 138%
     await click("Behavior", "tab")
-    await native({ operation: "observe", pid: activePid, texts: ["Terminal font size"] }, true)
+    await native(
+      {
+        operation: "observe",
+        pid: activePid,
+        texts: ["Terminal font size"],
+        copyText: true,
+      },
+      true,
+    )
     await native({ operation: "select", pid: activePid, name: "Terminal font size", index: 8 }) // stable12 and target13 use the same 8..32 options: 16px.
     await click("Save") // Exactly once. Unknown save outcome is failure, never repeated.
     await wait("durable native UI Save", async () => {
