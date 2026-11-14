@@ -327,7 +327,14 @@ def main(q):
 
         def select(n, index):
             require(n.queryComponent().grabFocus())
-            run("xdotool", "key", "--clearmodifiers", "alt+Down", "Home", *( ["Down"] * index), "Return")
+            # GTK/WebKit's native popup can retain focus after Return; Tab commits
+            # and leaves it before the next native action (e.g. selecting a tab).
+            run("xdotool", "key", "--clearmodifiers", "alt+Down", "Home", *( ["Down"] * index), "Return", "Tab")
+            for _ in range(100):
+                if not n.getState().contains(pyatspi.STATE_EXPANDED):
+                    return
+                time.sleep(.05)
+            raise NativeContractError("native-combo-popup-still-expanded")
 
         def value(n):
             if editable(n):
