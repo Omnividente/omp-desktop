@@ -281,6 +281,7 @@ async function native(request, retry = false) {
     operation: q.operation,
     name: q.name ?? null,
     kind: q.kind ?? null,
+    controlId: q.controlId ?? null,
     expectedVersion: q.expectedVersion ?? null,
     copyText: Boolean(q.copyText),
     requestedTexts: q.texts ?? [],
@@ -737,6 +738,7 @@ async function firstUserJourney() {
     operation: "value",
     pid: activePid,
     name: "OMP executable",
+    controlId: "omp-executable",
     kind: "edit",
     expected: "",
   })
@@ -781,6 +783,7 @@ async function firstUserJourney() {
     operation: "value",
     pid: activePid,
     name: "OMP executable",
+    controlId: "omp-executable",
     kind: "edit",
     expected: "",
   })

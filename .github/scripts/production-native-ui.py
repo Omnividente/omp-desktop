@@ -89,15 +89,23 @@ def main(q):
             return [window] + window.descendants()
 
         def name(n):
-            return n.window_text()
+            return n.element_info.name or ""
 
         def visible(n):
             return n.is_visible()
 
+        def labelled(n, label):
+            if q.get("controlId"):
+                return n.element_info.automation_id == q["controlId"]
+            if name(n) == label:
+                return True
+            related = n.element_info.element.CurrentLabeledBy
+            return bool(related) and related.CurrentName == label
+
         def control(label, kind):
             types = {"button": "Button", "tab": "TabItem", "combo": "ComboBox", "edit": "Edit"}
-            found = [n for n in nodes() if name(n) == label
-                     and n.element_info.control_type == types[kind]]
+            found = [n for n in nodes() if n.element_info.control_type == types[kind]
+                     and labelled(n, label)]
             require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
             require(found[0].is_enabled(), "native-control-disabled")
             node = found[0]
@@ -239,11 +247,21 @@ def main(q):
         def visible(n):
             return n.getState().contains(pyatspi.STATE_SHOWING)
 
+        def labelled(n, label):
+            if q.get("controlId"):
+                return n.get_attributes().get("id") == q["controlId"]
+            if name(n) == label:
+                return True
+            return any(name(relation.getTarget(i)) == label
+                       for relation in n.getRelationSet()
+                       if relation.getRelationType() == pyatspi.RELATION_LABELLED_BY
+                       for i in range(relation.getNTargets()))
+
         def control(label, kind):
             roles = {"button": {"push button"}, "tab": {"page tab"},
                      "combo": {"combo box"}, "edit": {"entry", "text"}}
-            found = [n for n in nodes() if name(n) == label
-                     and n.getRoleName() in roles[kind]]
+            found = [n for n in nodes() if n.getRoleName() in roles[kind]
+                     and labelled(n, label)]
             require(len(found) == 1, f"native-control-count-{kind}-{len(found)}")
             require(found[0].getState().contains(pyatspi.STATE_ENABLED), "native-control-disabled")
             node = found[0]
