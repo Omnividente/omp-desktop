@@ -127,16 +127,18 @@ def main(q):
             return node
 
         def click(n, x_offset=None):
-            if x_offset is None:
-                n.click_input()
-                return
-            require(win32gui.GetAncestor(win32gui.GetForegroundWindow(), win32con.GA_ROOT) == window.handle,
+            surface = n.top_level_parent()
+            require(surface.process_id() == pid, "native-click-surface-owner")
+            require(win32gui.GetAncestor(win32gui.GetForegroundWindow(), win32con.GA_ROOT) == surface.handle,
                     "native-click-window-owner")
             rect = n.rectangle()
-            x, y = rect.left + x_offset, rect.top + rect.height() // 2
-            require(bounds.left <= x < bounds.right and bounds.top <= y < bounds.bottom,
+            require(rect.width() > 0 and rect.height() > 0, "native-click-empty-bounds")
+            x = rect.left + rect.width() // 2 if x_offset is None else rect.left + x_offset
+            y = rect.top + rect.height() // 2
+            area = surface.rectangle()
+            require(area.left <= x < area.right and area.top <= y < area.bottom,
                     "native-click-outside-active-window")
-            window.click_input(coords=(x, y), absolute=True)
+            surface.click_input(coords=(x, y), absolute=True)
 
         def select(n, index):
             n.set_focus()
@@ -395,7 +397,9 @@ def main(q):
             return name(selected[0])
 
         def edit(n, text):
-            require(n.queryEditableText().setTextContents(text))
+            click(n)
+            keys(["ctrl+a", "BackSpace"])
+            run("xdotool", "type", "--clearmodifiers", "--delay", "0", "--", text)
 
         def keys(sequence):
             run("xdotool", "key", "--clearmodifiers", *sequence)
