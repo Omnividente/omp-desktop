@@ -252,14 +252,7 @@ def main(q):
             return n.getState().contains(pyatspi.STATE_SHOWING)
 
         def editable(n):
-            if not n.getState().contains(pyatspi.STATE_EDITABLE):
-                return False
-            try:
-                n.queryText()
-                n.queryEditableText()
-                return True
-            except NotImplementedError:
-                return False
+            return n.getState().contains(pyatspi.STATE_EDITABLE)
 
         def labelled(n, label):
             if q.get("controlId"):
@@ -314,7 +307,20 @@ def main(q):
 
         def value(n):
             if editable(n):
-                text = n.queryText()
+                try:
+                    text = n.queryText()
+                except NotImplementedError:
+                    raise NativeContractError("native-control-text-interface-unavailable", {
+                        "interfaces": list(n.get_interfaces())[:16],
+                        "role": n.getRoleName(),
+                        "editable": True,
+                        "childCount": n.childCount,
+                        "textChildRoles": [child.getRoleName() for child in list(n)[:16]
+                                           if "Text" in child.get_interfaces()],
+                        "editableTextChildRoles": [child.getRoleName() for child in list(n)[:16]
+                                                   if child.getState().contains(pyatspi.STATE_EDITABLE)
+                                                   and "Text" in child.get_interfaces()],
+                    }) from None
                 return text.getText(0, text.characterCount)
             selection = n.querySelection()
             require(selection.nSelectedChildren == 1)
