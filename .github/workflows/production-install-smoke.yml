@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       target_sha:
-        description: Exact immutable production v0.9.12 source commit (independent of harness_sha)
+        description: Exact immutable production v0.9.13 source commit (independent of harness_sha)
         required: true
         type: string
       target_release_id:
-        description: Exact published immutable v0.9.12 prerelease ID
+        description: Exact published immutable v0.9.13 prerelease ID
         required: true
         type: string
       target_run_id:
@@ -124,7 +124,7 @@ jobs:
             scenario = $env:SCENARIO
             runner = 'windows-2022 (Windows Server, not consumer Windows 11 coverage)'
             resultKind = $(if ($env:SCENARIO -ceq 'clean') { 'production-normal-nsis-clean-startup' } else { 'production-normal-nsis-upgrade-state' })
-            builtInUpdater = 'NOT TESTED: v0.9.10 latest-only updater cannot discover non-latest prerelease'
+            builtInUpdater = 'Separate production-updater-smoke gate: stable-only stays12; explicit prerelease opt-in discovers13. NSIS replacement is actual shipped12 upgrade, not PROBE.'
           } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$env:PRODUCTION_EVIDENCE_DIR/workflow-source.json" -Encoding utf8NoBOM
 
       - name: Exercise real production normal NSIS startup and persistence
@@ -167,6 +167,7 @@ jobs:
       PRODUCTION_TARGET_RUN_ID: ${{ inputs.target_run_id }}
       PRODUCTION_NATIVE_MODE: normal
       PRODUCTION_NATIVE_PYTHON: /usr/bin/python3
+      PRODUCTION_NATIVE_TESSERACT: /usr/bin/tesseract
     steps:
       - name: Admit exact independent signed harness on fresh hosted Linux VM
         shell: bash
@@ -215,8 +216,9 @@ jobs:
       - name: Install actual native runtime and accessibility dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick
-      - name: Exercise real baseline UI Save AppImage replacement and target native persistence
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-0 libayatana-appindicator3-1 librsvg2-2 libfuse2 xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick tesseract-ocr fonts-noto-cjk
+          tesseract --version
+      - name: Exercise candidate first launch official OMP setup then separate shipped12 AppImage state replacement
         working-directory: production-target
         env:
           PRODUCTION_RECEIPT: ${{ env.PRODUCTION_EVIDENCE_DIR }}/verified-production-assets.json

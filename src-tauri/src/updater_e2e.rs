@@ -159,12 +159,12 @@ fn production_guard(config: &tauri::Config) -> Result<PathBuf, String> {
             && guard["targetSha"].as_str() == Some(target)
             && guard["harnessSha"].as_str() == Some(harness)
             && guard["releaseId"].as_str() == Some(release)
-            && guard["targetVersion"].as_str() == Some("0.9.12")
-            && guard["probeVersion"].as_str() == Some("0.9.11"),
+            && guard["targetVersion"].as_str() == Some("0.9.13")
+            && guard["probeVersion"].as_str() == Some("0.9.12"),
         "Production probe build/guard identities differ",
     )?;
     require(
-        config.identifier == "com.ompdesk.desktop" && config.version.as_deref() == Some("0.9.11"),
+        config.identifier == "com.ompdesk.desktop" && config.version.as_deref() == Some("0.9.12"),
         "Production probe requires unchanged production identity and diagnostic floor",
     )?;
     let installed = if cfg!(target_os = "linux") {
@@ -185,7 +185,7 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
     use crate::desktop_updater::{self, InstallState, PolicyState};
     // The early startup guard has already run before Tauri initializes paths.
     require(
-        version == "0.9.11",
+        version == "0.9.12",
         "Only the diagnostic floor may run production probe",
     )?;
     let root = marker.parent().ok_or("Missing production root")?;
@@ -232,6 +232,16 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
             && stable.update.is_none(),
         "Stable-only diagnostic floor unexpectedly offered an update",
     )?;
+    record_channel(
+        marker,
+        "production-stable-only",
+        version,
+        serde_json::json!({
+            "policyState":stable.policy_state,
+            "includePrereleases":stable.include_prereleases,
+            "available":stable.update.is_some(),
+        }),
+    )?;
     let request = serde_json::from_value(serde_json::json!({
         "update":{"desktopUpdatePrereleases":true},"ompConfig":null,
     }))
@@ -244,11 +254,11 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
         .update
         .ok_or("Production candidate not discovered")?;
     require(
-        candidate.version == "0.9.12"
+        candidate.version == "0.9.13"
             && candidate.prerelease
             && Some(candidate.release_id.as_str()) == option_env!("OMP_PRODUCTION_RELEASE_ID")
             && candidate.release_url
-                == "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.12",
+                == "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.13",
         "Native production discovery returned a different immutable target",
     )?;
     record_channel(
@@ -266,7 +276,7 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
         marker,
         "production-install-requested",
         version,
-        serde_json::json!({"target":"0.9.12"}),
+        serde_json::json!({"target":"0.9.13"}),
     )?;
     let installed = desktop_updater::install(app, &candidate.candidate_id).await?;
     require(
@@ -277,7 +287,7 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
         marker,
         "production-installed",
         version,
-        serde_json::json!({"target":"0.9.12"}),
+        serde_json::json!({"target":"0.9.13"}),
     )?;
     // Windows SDK exits into NSIS and relaunches independently. Linux returns
     // here and Tauri restarts the replaced AppImage. TARGET emits no test marker.

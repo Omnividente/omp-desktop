@@ -13,8 +13,8 @@ import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node
 import { createServer } from "node:net"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
-const BASE_COMMIT = "73e661504b3d3d0a4b382e3289b02355b7400699"
-const BASE_TAG_OBJECT = "b901b14eaf5f13c23e33d9ba84dd31b62d02a540"
+const BASE_COMMIT = "dba7f41a77c4b957b45527a591cdfdb0be5f252f"
+const BASE_TAG_OBJECT = "c6a574bfccad037bd66cf52b8c8294cdf598e477"
 const WEBVIEW2_DOC =
   "https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/debug-visual-studio-code#using-an-environment-variable"
 // Microsoft documents WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port
@@ -569,7 +569,7 @@ function settingsView(settings) {
     "Native settings recovery/warning is not success",
   )
   // Compare durable user choices, not incidental additions to the IPC schema.
-  // Legacy 0.9.10 has no theme preference and renders the dark interface.
+  // Compare shipped stable12 and candidate13 without discarding newly added schema fields.
   return {
     ompExecutable: settings.ompExecutable,
     sessionRoot: settings.sessionRoot,
@@ -710,14 +710,12 @@ async function preferences(app, fixture, initial = false) {
       samePath(general.executable, fixture.noCli),
     "Rendered general preferences differ",
   )
-  if (app.binary.release.version === "0.9.12") {
-    requireThat(general.theme === fixture.theme, "Target theme UI missing")
-    await waitUntil("applied Desktop theme", () =>
-      app.cdp.evaluate(
-        `document.documentElement.getAttribute('data-desktop-theme') === ${JSON.stringify(fixture.theme)}`,
-      ),
-    )
-  }
+  requireThat(general.theme === fixture.theme, "Production theme UI missing")
+  await waitUntil("applied Desktop theme", () =>
+    app.cdp.evaluate(
+      `document.documentElement.getAttribute('data-desktop-theme') === ${JSON.stringify(fixture.theme)}`,
+    ),
+  )
   await screenshot(app, `${app.label}-preferences`)
   await click(app, "#settings-tab-behavior")
   await waitUntil("rendered terminal preferences", () =>
@@ -905,12 +903,12 @@ async function main() {
   )
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"))
   requireThat(receipt.repository === "Omnividente/omp-desktop", "Receipt repository mismatch")
-  await validateRelease(receipt.base, "0.9.10")
-  await validateRelease(receipt.target, "0.9.12")
+  await validateRelease(receipt.base, "0.9.12")
+  await validateRelease(receipt.target, "0.9.13")
   requireThat(
     receipt.base.commit === BASE_COMMIT &&
       receipt.base.tagObjectSha === BASE_TAG_OBJECT &&
-      String(receipt.base.releaseId) === "413772482",
+      String(receipt.base.releaseId) === "438773398",
     "Fixed base identity mismatch",
   )
   requireThat(

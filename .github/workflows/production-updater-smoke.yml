@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       target_sha:
-        description: Exact immutable v0.9.12 production source SHA
+        description: Exact immutable v0.9.13 production source SHA
         required: true
         type: string
       target_release_id:
-        description: Immutable production v0.9.12 prerelease ID (must remain non-latest)
+        description: Immutable production v0.9.13 prerelease ID (must remain non-latest)
         required: true
         type: string
       target_run_id:
@@ -97,7 +97,9 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick
+          sudo apt-get install --yes --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2 file xvfb xauth dbus-x11 at-spi2-core libatk-adaptor python3-pyatspi python3-pil xdotool wmctrl openbox imagemagick tesseract-ocr fonts-noto-cjk
+          tesseract --version
+          echo 'PRODUCTION_NATIVE_TESSERACT=/usr/bin/tesseract' >> "$GITHUB_ENV"
       - name: Install Windows native observation dependencies
         if: runner.os == 'Windows'
         shell: pwsh
@@ -105,10 +107,17 @@ jobs:
           python -m pip install pywinauto==0.6.9 psutil==6.1.1 Pillow==11.1.0
           if ($LASTEXITCODE -ne 0) { throw 'Native observation dependencies unavailable' }
           "PRODUCTION_NATIVE_PYTHON=$((Get-Command python).Source)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          choco install tesseract --yes --no-progress --limit-output
+          if ($LASTEXITCODE -notin @(0,3010)) { throw 'Native OCR package installation failed' }
+          $ocr = Join-Path $env:ProgramFiles 'Tesseract-OCR/tesseract.exe'
+          if (-not (Test-Path -LiteralPath $ocr -PathType Leaf)) { throw 'Native OCR executable unavailable' }
+          & $ocr --version
+          if ($LASTEXITCODE -ne 0) { throw 'Native OCR version probe failed' }
+          "PRODUCTION_NATIVE_TESSERACT=$ocr" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Install frontend dependencies for diagnostic client
         working-directory: acceptance-harness
         run: npm ci
-      - name: Build unsigned diagnostic PROBE with production identity and trust unchanged
+      - name: Build unsigned same-source PROBE12 (not shipped stable12) with production trust unchanged
         working-directory: acceptance-harness
         shell: bash
         env:
@@ -141,13 +150,13 @@ jobs:
           }
           await appendFile(process.env.GITHUB_ENV, `PRODUCTION_PROBE_PATH=${path}\n`);
           NODE
-      - name: Observe Windows baseline UI Save then actual SDK target relaunch UI and state
+      - name: Windows exact candidate onboarding then shipped12 state and separate PROBE12 actual SDK relaunch
         if: runner.os == 'Windows'
         env:
           PRODUCTION_RECEIPT: ${{ env.PRODUCTION_EVIDENCE_DIR }}/verified-production-assets.json
         working-directory: production-target
         run: node ../acceptance-harness/.github/scripts/run-production-native-smoke.mjs
-      - name: Observe Linux baseline UI Save then actual SDK AppImage replacement relaunch UI and state
+      - name: Linux exact candidate onboarding then shipped12 state and separate PROBE12 actual SDK relaunch
         if: runner.os == 'Linux'
         env:
           PRODUCTION_RECEIPT: ${{ env.PRODUCTION_EVIDENCE_DIR }}/verified-production-assets.json

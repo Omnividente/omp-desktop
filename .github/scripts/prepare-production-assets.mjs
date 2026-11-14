@@ -15,11 +15,11 @@ const apiRoot = `https://api.github.com/repos/${repository}`
 const harnessRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const targetRoot = resolve(process.cwd())
 const baseIdentity = {
-  tag: "v0.9.10",
-  version: "0.9.10",
-  commit: "73e661504b3d3d0a4b382e3289b02355b7400699",
-  tagObjectSha: "b901b14eaf5f13c23e33d9ba84dd31b62d02a540",
-  releaseId: 413772482,
+  tag: "v0.9.12",
+  version: "0.9.12",
+  commit: "dba7f41a77c4b957b45527a591cdfdb0be5f252f",
+  tagObjectSha: "c6a574bfccad037bd66cf52b8c8294cdf598e477",
+  releaseId: 438773398,
 }
 const endpoint = `https://github.com/${repository}/releases/latest/download/latest.json`
 const manifestName = "release-assets-manifest.json"
@@ -422,9 +422,9 @@ async function productionKey() {
   const packageManifest = JSON.parse(await readFile(join(targetRoot, "package.json"), "utf8"))
   const cargo = await readFile(join(targetRoot, "src-tauri/Cargo.toml"), "utf8")
   requireCondition(
-    config.version === "0.9.12" &&
-      packageManifest.version === "0.9.12" &&
-      cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === "0.9.12",
+    config.version === "0.9.13" &&
+      packageManifest.version === "0.9.13" &&
+      cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === "0.9.13",
     "Target source version mismatch",
   )
   const source = await api(`/contents/src-tauri/tauri.conf.json?ref=${baseIdentity.commit}`)
@@ -600,8 +600,8 @@ async function main() {
   )
   mode = process.argv[2] === "--recheck" ? "recheck" : "prepare"
   const target = {
-    tag: "v0.9.12",
-    version: "0.9.12",
+    tag: "v0.9.13",
+    version: "0.9.13",
     commit: process.env.PRODUCTION_TARGET_SHA ?? "",
     releaseId: inputId("PRODUCTION_TARGET_RELEASE_ID"),
     releaseRunId: inputId("PRODUCTION_TARGET_RUN_ID"),
