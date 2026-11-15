@@ -13,9 +13,9 @@ export interface TerminalCell {
 }
 
 export function terminalInputBlocked(
-  tab: Pick<TerminalTab, "switching" | "primaryProviderPinPending" | "switchRecovery">,
+  tab: Pick<TerminalTab, "status" | "switching" | "primaryProviderPinPending" | "switchRecovery">,
 ): boolean {
-  return tab.switching || tab.primaryProviderPinPending
+  return tab.status === "exited" || tab.switching || tab.primaryProviderPinPending
 }
 
 export function formatSelectionReply(

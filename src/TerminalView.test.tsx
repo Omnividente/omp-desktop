@@ -3,14 +3,15 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
-import { attachTerminal, resizeTerminal, writeTerminal } from "./api"
+import { attachTerminal, resizeTerminal, writeTerminal, writeTerminalBinary } from "./api"
 import { TerminalView } from "./TerminalView"
-import type { PtyOutputEvent, TerminalTab } from "./types"
+import type { PtyOutputEvent, PtyExitEvent, TerminalTab } from "./types"
 import { forgetTerminalContinuity } from "./terminalContinuity"
 
 const terminalState = vi.hoisted(() => ({
   selection: "",
   keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
+  binaryHandler: null as ((data: string) => void) | null,
   dataHandler: null as ((data: string) => void) | null,
   selectionRange: { start: { x: 2, y: 0 }, end: { x: 6, y: 0 } },
   initialScrollDuration: undefined as unknown,
@@ -19,6 +20,7 @@ const terminalState = vi.hoisted(() => ({
   clear: vi.fn(),
   selectionChanged: null as (() => void) | null,
   scrollChanged: null as (() => void) | null,
+  exitListener: null as ((event: { payload: PtyExitEvent }) => void) | null,
   outputListener: null as ((event: { payload: PtyOutputEvent }) => void) | null,
   writeCallbacks: [] as Array<() => void>,
   written: [] as string[],
@@ -36,6 +38,8 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 }))
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (name: string, callback: (event: { payload: PtyOutputEvent }) => void) => {
+    if (name === "pty-exit")
+      terminalState.exitListener = callback as unknown as (event: { payload: PtyExitEvent }) => void
     if (name.startsWith("pty-output:")) terminalState.outputListener = callback
     return () => undefined
   }),
@@ -92,7 +96,8 @@ vi.mock("@xterm/xterm", () => ({
       terminalState.dataHandler = handler
       return { dispose() {} }
     }
-    onBinary() {
+    onBinary(handler: (data: string) => void) {
+      terminalState.binaryHandler = handler
       return { dispose() {} }
     }
     hasSelection() {
@@ -988,4 +993,115 @@ it.each([
   vi.stubGlobal("matchMedia", matchMedia)
   await renderMotionTerminal()
   expect(terminalState.instance?.options.smoothScrollDuration).toBe(90)
+})
+
+it("blocks input synchronously on exit but preserves selection copy and replacement input", async () => {
+  const onExit = vi.fn()
+  const render = async (current: TerminalTab) =>
+    act(async () =>
+      root.render(
+        <TerminalView
+          tab={current}
+          active
+          focusRequestSequence={0}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform="linux"
+          onExit={onExit}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      ),
+    )
+  await render({ ...tab, status: "exited" })
+  act(() => {
+    terminalState.dataHandler!("already-exited")
+    terminalState.binaryHandler!("x")
+  })
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+  await render(tab)
+  const oldInput = terminalState.dataHandler!
+  const oldBinary = terminalState.binaryHandler!
+  act(() => {
+    terminalState.exitListener!({
+      payload: {
+        terminalId: tab.id,
+        exitCode: 0,
+        success: true,
+        error: null,
+      },
+    })
+    // No parent status render yet: the event itself must fence old input.
+    oldInput("late")
+    oldBinary("x")
+  })
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+  await render({ ...tab, status: "exited" })
+  showSelection("saved transcript")
+  await act(async () => menuButton("Copy").click())
+  expect(writeText).toHaveBeenCalledExactlyOnceWith("saved transcript")
+  expect(terminalState.selection).toBe("saved transcript")
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  await render({ ...tab, id: "replacement-live", status: "running" })
+  act(() => {
+    oldInput("obsolete")
+    oldBinary("x")
+    terminalState.dataHandler!("new")
+    terminalState.binaryHandler!("y")
+  })
+  expect(writeTerminal).toHaveBeenCalledExactlyOnceWith("replacement-live", "new")
+  expect(writeTerminalBinary).toHaveBeenCalledExactlyOnceWith("replacement-live", btoa("y"))
+})
+
+it("blocks a received exit while attachment replay is pending without losing replay", async () => {
+  const snapshot = await vi.mocked(attachTerminal).mock.results[0].value
+  let resolve!: (value: Awaited<ReturnType<typeof attachTerminal>>) => void
+  vi.mocked(attachTerminal).mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
+  const pendingTab = { ...tab, id: "attachment-pending" }
+  const onExit = vi.fn()
+  const onReady = vi.fn()
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={pendingTab}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={onExit}
+        onError={() => undefined}
+        onReady={onReady}
+      />,
+    ),
+  )
+  const event = { payload: { terminalId: pendingTab.id, exitCode: 0, success: true, error: null } }
+  act(() => {
+    terminalState.exitListener!(event)
+    terminalState.dataHandler!("late")
+    terminalState.binaryHandler!("x")
+  })
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+  expect(onExit).not.toHaveBeenCalled()
+  await act(async () => resolve({ ...snapshot, data: btoa("final replay") }))
+  expect(terminalState.written).toContain("final replay")
+  expect(onExit).toHaveBeenCalledExactlyOnceWith(event.payload)
+  expect(onReady).not.toHaveBeenCalled()
+  act(() => {
+    terminalState.exitListener!(event)
+    terminalState.dataHandler!("still late")
+    terminalState.binaryHandler!("x")
+  })
+  expect(onExit).toHaveBeenCalledTimes(1)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
 })

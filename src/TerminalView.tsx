@@ -258,7 +258,7 @@ export function TerminalView({
       setInputSelectionArmed(false)
     }
     const sendInput = (data: string) => {
-      if (inputBlockedRef.current) return
+      if (exitHandled || deferredExit !== null || inputBlockedRef.current) return
       void writeTerminal(tab.id, data).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -683,7 +683,7 @@ export function TerminalView({
 
     const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
-      if (inputBlockedRef.current) return
+      if (exitHandled || deferredExit !== null || inputBlockedRef.current) return
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
