@@ -772,7 +772,7 @@ export const UI_TEXT = {
     customProviderResponsesHelp:
       "Responses API отправляет запросы на /responses. Выбирайте только если сервер явно поддерживает этот формат; он не заменяет Chat Completions автоматически.",
     customProviderAnthropicHelp:
-      "Anthropic Messages отправляет запросы на /v1/messages. Подходит для Anthropic-совместимых серверов, включая Antigravity Claude Proxy. Адрес можно указать с /v1 или без него.",
+      "Anthropic Messages отправляет запросы на /v1/messages. Подходит для Anthropic-совместимых серверов. Адрес можно указать с /v1 или без него.",
     customProviderKey: "API key",
     customProviderSecretHelp:
       "Ключ сохраняется защищённым механизмом Desktop. В models.yml записываются только адрес, протокол и имя переменной ключа.",
@@ -1604,7 +1604,7 @@ export const UI_TEXT = {
     customProviderResponsesHelp:
       "Responses API sends requests to /responses. Select it only when the server explicitly supports this format; it does not automatically replace Chat Completions.",
     customProviderAnthropicHelp:
-      "Anthropic Messages sends requests to /v1/messages. Use it for Anthropic-compatible servers, including Antigravity Claude Proxy. The base address can include or omit /v1.",
+      "Anthropic Messages sends requests to /v1/messages. Use it for Anthropic-compatible servers. The base address can include or omit /v1.",
     customProviderKey: "API key",
     customProviderSecretHelp:
       "The key uses Desktop's protected credential storage. models.yml receives only the address, protocol, and key variable name.",
@@ -2404,7 +2404,7 @@ export const UI_TEXT = {
     customProviderResponsesHelp:
       "Responses API 将请求发送到 /responses。仅在服务器明确支持该格式时选择；它不会自动替代 Chat Completions。",
     customProviderAnthropicHelp:
-      "Anthropic Messages 将请求发送到 /v1/messages。适用于兼容 Anthropic 的服务器，包括 Antigravity Claude Proxy。基础地址可包含或不包含 /v1。",
+      "Anthropic Messages 将请求发送到 /v1/messages。适用于兼容 Anthropic 的服务器。基础地址可包含或不包含 /v1。",
     customProviderKey: "API 密钥",
     customProviderSecretHelp:
       "密钥由 Desktop 的受保护凭据存储保存。models.yml 只记录地址、协议和密钥变量名。",
