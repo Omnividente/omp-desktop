@@ -144,6 +144,12 @@ Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi
 
 </details>
 
+### Приватность истории
+
+Читаемый transcript — не полный аудит файла сессии. При включённой `display.shellVisualization` OMP может сохранять в shell traces раскрытые значения переменных и аргументов, даже если команда их не печатает. Desktop Read не показывает все такие поля; импорт и копирование OMP JSONL не являются очисткой чувствительных данных.
+
+Проверяйте предназначенные для передачи копии файлов и вывода и удаляйте из них чувствительные данные. Отсутствие секрета в Read не доказывает его отсутствие в JSONL. Отключение визуализации для будущих запусков не очищает старые записи и не скрывает явно напечатанные секреты. См. [сообщение upstream и актуальный статус](https://github.com/can1357/oh-my-pi/issues/19355).
+
 ### Установка
 
 1. [Установите и настройте Oh My Pi](https://github.com/can1357/oh-my-pi#install) для текущего пользователя. Desktop не включает OMP runtime или подписку на API-провайдера.
@@ -415,6 +421,7 @@ npm run tauri build
 
 ## Privacy and security
 
+- **Session metadata and shell traces:** the readable transcript is not an audit of the complete session file. With `display.shellVisualization` enabled, OMP can retain expanded variable and argument values in shell traces even when the command does not print them. Desktop Read does not display every such field; importing or copying OMP JSONL is not a sanitization step. Inspect copies of files and output intended for sharing and remove sensitive data from those copies. Absence from Read does not establish absence from JSONL. Disabling visualization for future runs does not clean existing records or hide explicitly printed secrets. See the [upstream report and current status](https://github.com/can1357/oh-my-pi/issues/19355).
 - **Local data:** Desktop preferences and provider-key names are stored in `settings.json`. Import copies selected JSONL sessions and bounded regular-file artifact trees into the local OMP session root; links and special files are rejected.
 - **Provider credentials added through Desktop:** values use the OS credential store when available. If it is unavailable, Desktop shows a warning and uses a per-user JSON fallback file with restricted filesystem permissions. That fallback is not an encrypted credential store. Secret values are not returned in settings snapshots.
 - **Network boundary:** Desktop invokes the installed OMP process for models, usage, and live agent sessions. OMP may send prompts, context, and credentials to configured remote providers and use networked tools; a local Desktop window does not mean offline inference. Desktop has no hosted session service. Its updater contacts GitHub for update metadata and packages.
