@@ -257,8 +257,10 @@ export function TerminalView({
       selectAllArmedRef.current = false
       setInputSelectionArmed(false)
     }
+    let connectionFailed = false
     const sendInput = (data: string) => {
-      if (exitHandled || deferredExit !== null || inputBlockedRef.current) return
+      if (connectionFailed || exitHandled || deferredExit !== null || inputBlockedRef.current)
+        return
       void writeTerminal(tab.id, data).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -683,7 +685,8 @@ export function TerminalView({
 
     const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
-      if (exitHandled || deferredExit !== null || inputBlockedRef.current) return
+      if (connectionFailed || exitHandled || deferredExit !== null || inputBlockedRef.current)
+        return
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -769,6 +772,7 @@ export function TerminalView({
     }
 
     void connect().catch((error) => {
+      connectionFailed = true
       if (!disposed) {
         onErrorRef.current(errorMessage(error, languageRef.current))
       }

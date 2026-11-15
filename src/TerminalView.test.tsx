@@ -3,6 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
+import { listen } from "@tauri-apps/api/event"
 import { attachTerminal, resizeTerminal, writeTerminal, writeTerminalBinary } from "./api"
 import { TerminalView } from "./TerminalView"
 import type { PtyOutputEvent, PtyExitEvent, TerminalTab } from "./types"
@@ -1105,3 +1106,60 @@ it("blocks a received exit while attachment replay is pending without losing rep
   expect(writeTerminal).not.toHaveBeenCalled()
   expect(writeTerminalBinary).not.toHaveBeenCalled()
 })
+
+it.each(["attach", "output listener", "exit listener"])(
+  "does not send blind input after %s fails and recovers on a different live terminal",
+  async (stage) => {
+    const failure = new Error("Synthetic connection failure")
+    if (stage === "attach") vi.mocked(attachTerminal).mockRejectedValueOnce(failure)
+    else {
+      if (stage === "exit listener")
+        vi.mocked(listen).mockImplementationOnce(vi.mocked(listen).getMockImplementation()!)
+      vi.mocked(listen).mockRejectedValueOnce(failure)
+    }
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    const renderTab = async (id: string) =>
+      act(async () =>
+        root.render(
+          <TerminalView
+            tab={{ ...tab, id }}
+            active
+            focusRequestSequence={0}
+            language="en"
+            terminalFontFamily="monospace"
+            terminalFontSize={14}
+            platform="linux"
+            onExit={() => undefined}
+            onError={onError}
+            onReady={onReady}
+          />,
+        ),
+      )
+    await renderTab("failed-attachment")
+    expect(onError).toHaveBeenCalledWith("Error: Synthetic connection failure")
+    expect(onReady).not.toHaveBeenCalled()
+    const oldData = terminalState.dataHandler!
+    const oldBinary = terminalState.binaryHandler!
+    act(() => {
+      oldData("unsafe prompt\r")
+      oldBinary("x")
+    })
+    expect(writeTerminal).not.toHaveBeenCalled()
+    expect(writeTerminalBinary).not.toHaveBeenCalled()
+    expect(attachTerminal).toHaveBeenCalledTimes(stage === "attach" ? 2 : 1)
+    showSelection("Synthetic retained text")
+    await act(async () => menuButton("Copy").click())
+    expect(writeText).toHaveBeenCalledWith("Synthetic retained text")
+    await renderTab("fresh-attachment")
+    act(() => {
+      oldData("late old\r")
+      oldBinary("z")
+      terminalState.dataHandler!("new\r")
+      terminalState.binaryHandler!("y")
+    })
+    expect(writeTerminal).toHaveBeenCalledExactlyOnceWith("fresh-attachment", "new\r")
+    expect(writeTerminalBinary).toHaveBeenCalledExactlyOnceWith("fresh-attachment", btoa("y"))
+    expect(onReady).toHaveBeenCalledExactlyOnceWith("fresh-attachment")
+  },
+)
