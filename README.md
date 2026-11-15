@@ -173,6 +173,14 @@ sudo dnf install ./OMP.Desktop-*.x86_64.rpm
 sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
 
+### Подключение провайдеров и безопасность аккаунта
+
+Совместимость API не означает, что провайдер разрешает использовать потребительскую подписку или OAuth-вход в стороннем приложении. Перед подключением проверьте официальные условия выбранного провайдера; подписка и доступ по API могут оплачиваться отдельно.
+
+По состоянию на 15 ноября 2026 года [условия Google Antigravity](https://antigravity.google/terms) и [официальный FAQ](https://antigravity.google/docs/faq/) предупреждают, что сторонний доступ к Antigravity может привести к приостановке или прекращению доступа к Antigravity и/или Gemini CLI. FAQ также уточняет: headless-режим `agy` предназначен для скриптов и CI, но обёртки вокруг него внутри сторонних агентов или приложений не поддерживаются потребительскими планами. Для сторонних агентов Google указывает API-ключи Google AI Studio или Gemini Enterprise; отдельно проверьте доступность, условия и стоимость выбранного маршрута.
+
+OMP Desktop не предоставляет исключений из правил провайдера. Не публикуйте токены и ключи в issues или диагностических материалах.
+
 ### Поддержка и обратная связь
 
 - [Ошибки и предложения Desktop](https://github.com/Omnividente/omp-desktop/issues) — укажите версии Desktop/OMP, ОС и шаги воспроизведения.
@@ -341,6 +349,14 @@ sudo dnf install ./OMP.Desktop-*.x86_64.rpm
 # or on OpenSUSE:
 sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
+
+### Provider connections and account safety
+
+API compatibility does not mean a provider permits using a consumer subscription or OAuth login in a third-party application. Before connecting, check the provider's official terms; a subscription and API access may be billed separately.
+
+As checked on November 15, 2026, the [Google Antigravity terms](https://antigravity.google/terms) and [official FAQ](https://antigravity.google/docs/faq/) warn that third-party access to Antigravity can result in suspension or termination of access to Antigravity and/or Gemini CLI. The FAQ also clarifies that `agy` headless mode is intended for scripting and CI, but wrapping it inside third-party agents or applications is not supported under consumer plans. For third-party agents, Google points to API keys from Google AI Studio or Gemini Enterprise; check the availability, terms and pricing of the chosen route separately.
+
+OMP Desktop does not provide exceptions to provider policies. Never publish tokens or keys in issues or diagnostic material.
 
 ### Support and feedback
 
