@@ -1163,3 +1163,84 @@ it.each(["attach", "output listener", "exit listener"])(
     expect(onReady).toHaveBeenCalledExactlyOnceWith("fresh-attachment")
   },
 )
+
+it.each(["exit listener", "attachment"])(
+  "cleans failed initialization after %s rejects",
+  async (stage) => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<never>((_resolve, fail) => {
+      reject = fail
+    })
+    const stopOutput = vi.fn(),
+      stopExit = vi.fn()
+    let output!: (event: { payload: PtyOutputEvent }) => void
+    let exit!: (event: { payload: PtyExitEvent }) => void
+    vi.mocked(listen)
+      .mockImplementationOnce(async (_name, callback) => {
+        output = callback as typeof output
+        return stopOutput
+      })
+      .mockImplementationOnce(async (_name, callback) => {
+        exit = callback as unknown as typeof exit
+        if (stage === "exit listener") return pending
+        return stopExit
+      })
+    if (stage === "attachment") vi.mocked(attachTerminal).mockReturnValueOnce(pending)
+    const onError = vi.fn(),
+      onExit = vi.fn(),
+      onReady = vi.fn()
+    const render = async (id: string) =>
+      act(async () =>
+        root.render(
+          <TerminalView
+            tab={{ ...tab, id }}
+            active
+            focusRequestSequence={0}
+            language="en"
+            terminalFontFamily="monospace"
+            terminalFontSize={14}
+            platform="linux"
+            onError={onError}
+            onExit={onExit}
+            onReady={onReady}
+          />,
+        ),
+      )
+    await render("cleanup-failed")
+    const event = {
+      terminalId: "cleanup-failed",
+      generation: 1,
+      seq: 1,
+      data: btoa("synthetic queued"),
+    } as PtyOutputEvent
+    const exitEvent = {
+      terminalId: "cleanup-failed",
+      exitCode: 0,
+      success: true,
+      error: null,
+    }
+    act(() => {
+      output({ payload: event })
+      if (stage === "attachment") exit({ payload: exitEvent })
+    })
+    await act(async () => reject(new Error("Synthetic initialization failure")))
+    expect(onError).toHaveBeenCalledOnce()
+    expect(stopOutput).toHaveBeenCalledOnce()
+    expect(stopExit).toHaveBeenCalledTimes(stage === "attachment" ? 1 : 0)
+    const writes = terminalState.written.length
+    act(() => {
+      output({ payload: { ...event, seq: 2 } })
+      exit({ payload: exitEvent })
+    })
+    expect(terminalState.written).toHaveLength(writes)
+    expect(onExit).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    await render("cleanup-healthy")
+    expect(onReady).toHaveBeenCalledExactlyOnceWith("cleanup-healthy")
+    act(() => terminalState.dataHandler!("synthetic healthy\r"))
+    expect(writeTerminal).toHaveBeenCalledExactlyOnceWith("cleanup-healthy", "synthetic healthy\r")
+    await act(async () => root.render(null))
+    expect(stopOutput).toHaveBeenCalledOnce()
+    expect(stopExit).toHaveBeenCalledTimes(stage === "attachment" ? 1 : 0)
+  },
+)
