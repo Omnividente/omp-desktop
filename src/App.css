@@ -818,6 +818,7 @@ button:disabled {
 
 .project-sessions {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 0;
   margin-top: 10px;
