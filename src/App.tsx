@@ -1064,9 +1064,12 @@ function App() {
   useEffect(() => {
     let disposed = false
     let runtimeFrame: number | null = null
+    let runtimeFrameGeneration = 0
+    const runtimeBatchLimit = 64
     let pendingRuntimeEvents: PendingRuntimeEvent[] = []
 
     const flushRuntimeEvents = () => {
+      runtimeFrameGeneration++
       runtimeFrame = null
       if (disposed) {
         pendingRuntimeEvents = []
@@ -1100,7 +1103,17 @@ function App() {
 
     const queueRuntimeEvent = (event: PtyRuntimeEvent, terminalLabel: string | null) => {
       pendingRuntimeEvents.push({ event, receivedAt: Date.now(), terminalLabel })
-      if (runtimeFrame === null) runtimeFrame = window.requestAnimationFrame(flushRuntimeEvents)
+      // A hidden WebView can deliver IPC while pausing animation frames.
+      // Bound this batch by event count without dropping intermediate transitions.
+      if (pendingRuntimeEvents.length >= runtimeBatchLimit) {
+        if (runtimeFrame !== null) window.cancelAnimationFrame(runtimeFrame)
+        flushRuntimeEvents()
+      } else if (runtimeFrame === null) {
+        const generation = ++runtimeFrameGeneration
+        runtimeFrame = window.requestAnimationFrame(() => {
+          if (generation === runtimeFrameGeneration) flushRuntimeEvents()
+        })
+      }
     }
 
     const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
@@ -1265,6 +1278,7 @@ function App() {
 
     return () => {
       disposed = true
+      runtimeFrameGeneration++
       if (runtimeFrame !== null) window.cancelAnimationFrame(runtimeFrame)
       runtimeFrame = null
       pendingRuntimeEvents = []
