@@ -2571,7 +2571,6 @@ function App() {
               configuredThinkingLevel: pendingUpdate.sourceTab.currentThinkingConfigured ?? null,
               primaryProviderPinned: pendingUpdate.sourceTab.primaryProviderPinned,
             }
-            showNotice(t(lang, "updateRestarted").replace("{title}", pendingUpdate.sourceTab.label))
             void launchSession(targetSession)
           }
         }
