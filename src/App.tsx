@@ -137,6 +137,7 @@ type PendingUpdateRestart = {
 }
 type PendingLaunchDiscovery = {
   terminalId: string | null
+  workspaceSelectionRequest: number
   superseded: boolean
 }
 type PendingRuntimeEvent = {
@@ -247,10 +248,20 @@ function App() {
       mountedRef.current = false
     }
   }, [])
+  const runtimePlatformRef = useRef(payload?.runtime.platform ?? "")
+  runtimePlatformRef.current = payload?.runtime.platform ?? ""
   const proxyProvidersRef = useRef<readonly string[]>([])
   proxyProvidersRef.current = payload?.settings.proxyProviders ?? []
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState<string | null>(null)
+  const selectedWorkspace = useMemo(() => {
+    if (!payload || !selectedWorkspaceKey) return null
+    return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
+  }, [payload, selectedWorkspaceKey])
+
+  const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
+  const currentWorkspacePathRef = useRef(selectedWorkspacePath)
+  currentWorkspacePathRef.current = selectedWorkspacePath
   const workspaceSelectionRequestRef = useRef(0)
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
@@ -1120,11 +1131,19 @@ function App() {
         !tabsRef.current.some((tab) => tab.id === event.terminalId) &&
         [...pendingLaunchDiscoveriesRef.current.values()].some(
           (pending) =>
-            pending.superseded &&
+            (pending.superseded ||
+              pending.workspaceSelectionRequest !== workspaceSelectionRequestRef.current) &&
             (pending.terminalId === null || pending.terminalId === event.terminalId),
         )
+      const workspacePath = currentWorkspacePathRef.current
+      const otherWorkspace =
+        !workspacePath ||
+        normalizedPath(workspacePath, runtimePlatformRef.current) !==
+          normalizedPath(session.cwd, runtimePlatformRef.current)
       const sessionSelectionRequest =
-        background || supersededLaunch ? null : ++sessionSelectionRequestRef.current
+        background || supersededLaunch || otherWorkspace
+          ? null
+          : ++sessionSelectionRequestRef.current
       if (sessionSelectionRequest !== null) {
         setSelectedSessionPath(session.filePath)
         setSearch("")
@@ -1340,14 +1359,6 @@ function App() {
     updateSourceTerminalId,
   ])
 
-  const selectedWorkspace = useMemo(() => {
-    if (!payload || !selectedWorkspaceKey) return null
-    return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
-  }, [payload, selectedWorkspaceKey])
-
-  const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
-  const currentWorkspacePathRef = useRef(selectedWorkspacePath)
-  currentWorkspacePathRef.current = selectedWorkspacePath
   codexContextRef.current = { open: codexOpen, path: selectedWorkspacePath }
   useEffect(() => {
     // Feedback belongs to this import view and destination, not another project.
@@ -1683,6 +1694,7 @@ function App() {
       const pendingDiscovery = Symbol()
       pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
         terminalId: null,
+        workspaceSelectionRequest: workspaceSelectionRequestRef.current,
         superseded: false,
       })
       try {

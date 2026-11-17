@@ -561,6 +561,162 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
   })
 
+  it.each(["other", "round-trip"] as const)(
+    "preserves %s workspace navigation during early launch discovery",
+    async (choice) => {
+      const projects = workspacePayload("Alpha", "Beta")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      const pending = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+      await act(async () => element(".hero-actions .primary").click())
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        "C:/fixture/Alpha",
+        null,
+        120,
+        36,
+        null,
+        false,
+      )
+      await act(async () => element('.project-item[aria-label^="Beta,"]').click())
+      const target = choice === "round-trip" ? "Alpha" : "Beta"
+      if (choice === "round-trip")
+        await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+      await act(async () => element(`.session-select[aria-label="${target} session"]`).click())
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          target,
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      expect(search.value).toBe(target)
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        `${target} session`,
+      )
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")!
+      const receive = subscription[1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: "terminal-Alpha", session: projects.sessions[0] },
+        }),
+      )
+      expect(element(".project-item.is-active").textContent).toContain(target)
+      expect(search.value).toBe(target)
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        `${target} session`,
+      )
+      await act(async () =>
+        pending.resolve({ ...started, terminalId: "terminal-Alpha", cwd: "C:/fixture/Alpha" }),
+      )
+      expect(search.value).toBe(target)
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+    },
+  )
+
+  it.each(["rail", "external"] as const)(
+    "preserves %s workspace search across discoveries from active and background terminals",
+    async (navigation) => {
+      const projects = workspacePayload("Alpha", "Beta")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.addWorkspace).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce({ ...started, terminalId: "old-Alpha", cwd: "C:/fixture/Alpha" })
+        .mockResolvedValueOnce({ ...started, terminalId: "active-Alpha", cwd: "C:/fixture/Alpha" })
+      await act(async () => root.render(<App />))
+      await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+      await act(async () => element(".hero-actions .primary").click())
+      await act(async () => element(".new-tab-button").click())
+      if (navigation === "rail") {
+        await act(async () => element('.project-item[aria-label^="Beta,"]').click())
+      } else {
+        await act(async () => requestWorkspace("Beta"))
+      }
+      await act(async () => element('.session-select[aria-label="Beta session"]').click())
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          "Beta",
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+      for (const terminalId of ["old-Alpha", "active-Alpha"]) {
+        const refresh = deferred<BootstrapPayload>()
+        vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+        await act(async () =>
+          receive({
+            event: "pty-session",
+            id: 1,
+            payload: { terminalId, session: projects.sessions[0] },
+          }),
+        )
+        expect(search.value).toBe("Beta")
+        const labels = container.querySelectorAll(".terminal-tab-label")
+        expect(labels[terminalId === "old-Alpha" ? 0 : 1]?.textContent).toBe("Alpha session")
+        expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+          "Beta session",
+        )
+        await act(async () =>
+          terminalId === "old-Alpha"
+            ? refresh.resolve(projects)
+            : refresh.reject(new Error("Synthetic discovery refresh failure")),
+        )
+        expect(search.value).toBe("Beta")
+        expect(element(".project-item.is-active").textContent).toContain("Beta")
+        expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+          "Beta session",
+        )
+      }
+      expect(element('[data-terminal-id="active-Alpha"]').getAttribute("data-active")).toBe("true")
+      expect(container.textContent).toContain("Synthetic discovery refresh failure")
+      expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+      await act(async () => element('.session-select[aria-label="Beta session"]').click())
+      expect(search.value).toBe("")
+    },
+  )
+
+  it("keeps normal discovery navigation for equivalent Windows workspace paths", async () => {
+    const projects = workspacePayload("Alpha")
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    await act(async () => root.render(<App />))
+    const search = element<HTMLInputElement>(".project-sessions .search-box input")
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "Alpha",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: {
+          terminalId: "equivalent",
+          session: { ...projects.sessions[0], cwd: "c:/FIXTURE/alpha/" },
+        },
+      }),
+    )
+    expect(search.value).toBe("")
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "Alpha session",
+    )
+  })
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
