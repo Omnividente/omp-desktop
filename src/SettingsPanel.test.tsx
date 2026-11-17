@@ -178,6 +178,59 @@ describe("SettingsPanel Save state", () => {
     })
   }
 
+  it.each(["ru", "en", "zh"] as const)(
+    "research judge disclosure remains read-only in %s",
+    async (language) => {
+      const snapshot: OmpConfigSnapshot = {
+        ...ompConfig,
+        roles: [
+          {
+            role: "judge",
+            selector: "",
+            model: null,
+            available: false,
+            status: "unset",
+            detail: null,
+          },
+        ],
+        accounts: [],
+        credentials: [],
+      }
+      loadOmpConfigMock.mockResolvedValue(snapshot)
+      const original = JSON.stringify(snapshot)
+      await renderRuntime({ ...runtime, language }, { ...settings, language })
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>('[data-role="judge"]')!
+      expect(row).not.toBeNull()
+      expect(row.querySelector(".role-head strong")?.textContent).toBe(roleLabel(language, "judge"))
+      expect(row.querySelector(".role-description")?.textContent).toBe(t(language, "roleDescJudge"))
+      const clauses = {
+        ru: [
+          "по своей цепочке по умолчанию",
+          "могут оплачиваться",
+          "не означает, что роль выключена",
+        ],
+        en: ["from its default chain", "may incur charges", "not necessarily disabled"],
+        zh: ["从默认链中选择模型", "可能由所选提供商收费", "未分配并不表示该角色已禁用"],
+      }[language]
+      for (const clause of clauses)
+        expect(row.querySelector(".role-description")?.textContent).toContain(clause)
+      const picker = row.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+      expect(picker.disabled).toBe(false)
+      act(() => picker.click())
+      const manual = row.querySelector<HTMLInputElement>(".model-picker-manual input")!
+      expect(manual).not.toBeNull()
+      expect(manual.value).toBe("")
+      expect(manual.disabled).toBe(false)
+      expect(row.querySelector(".role-description")?.textContent).toBe(t(language, "roleDescJudge"))
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(JSON.stringify(snapshot)).toBe(original)
+    },
+  )
+
   it.each([8, 17, 32])(
     "displays the saved terminal font size %i without substituting another option",
     async (size) => {

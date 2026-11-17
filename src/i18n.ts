@@ -685,7 +685,8 @@ export const UI_TEXT = {
     roleDescWeb: "Выполняет веб-поиск; OMP проверяет поддержку поиска у выбранной модели.",
     roleDescSpeech: "Преобразует текст в речь.",
     roleDescDictation: "Преобразует аудио в текст.",
-    roleDescJudge: "Оценивает результаты и выполняет классификацию.",
+    roleDescJudge:
+      "Оценивает результаты и выполняет классификацию. Без явного назначения OMP может выбрать модель по своей цепочке по умолчанию. Дополнительные обращения могут оплачиваться у выбранного провайдера; «не назначена» не означает, что роль выключена.",
     roleDescCustom: "Дополнительная роль, заданная в конфигурации OMP.",
     statusOk: "доступна",
     statusLimited: "близко к лимиту",
@@ -1517,7 +1518,8 @@ export const UI_TEXT = {
     roleDescWeb: "Performs web search; OMP validates search capability for the selected model.",
     roleDescSpeech: "Converts text to speech.",
     roleDescDictation: "Converts audio to text.",
-    roleDescJudge: "Evaluates results and performs classification.",
+    roleDescJudge:
+      "Evaluates results and performs classification. Without an explicit assignment, OMP may select a model from its default chain. Additional calls may incur charges with the selected provider; an unassigned role is not necessarily disabled.",
     roleDescCustom: "An additional role defined in OMP configuration.",
     statusOk: "available",
     statusLimited: "near limit",
@@ -2320,7 +2322,8 @@ export const UI_TEXT = {
     roleDescWeb: "执行网络搜索；OMP 会验证所选模型是否支持搜索。",
     roleDescSpeech: "将文本转换为语音。",
     roleDescDictation: "将音频转换为文本。",
-    roleDescJudge: "评估结果并执行分类。",
+    roleDescJudge:
+      "评估结果并执行分类。未明确分配时，OMP 可能从默认链中选择模型。额外调用可能由所选提供商收费；未分配并不表示该角色已禁用。",
     roleDescCustom: "在 OMP 配置中定义的其他角色。",
     statusOk: "可用",
     statusLimited: "接近上限",
