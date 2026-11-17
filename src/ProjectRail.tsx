@@ -294,7 +294,11 @@ export function ProjectRail({
               disabled={renamingWorkspaceKey !== null}
               onChange={(event) => setProjectSearch(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+                if (
+                  event.key === "Escape" &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229
+                ) {
                   event.preventDefault()
                   event.stopPropagation()
                   setProjectSearch("")

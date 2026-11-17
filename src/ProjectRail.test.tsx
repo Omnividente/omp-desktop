@@ -485,15 +485,41 @@ describe("ProjectRail project search", () => {
       expect(select).not.toHaveBeenCalled()
     },
   )
-  it("does not clear an IME composition with Escape", () => {
+  it.each([
+    { isComposing: true, keyCode: 0 },
+    { isComposing: false, keyCode: 229 },
+  ])("preserves project search on IME Escape ($isComposing/$keyCode)", (marker) => {
     render()
     type("Archive")
-    act(() =>
-      search().dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }),
-      ),
-    )
-    expect(search().value).toBe("Archive")
+    const input = search()
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+      ...marker,
+    })
+    expect(composing.isComposing).toBe(marker.isComposing)
+    expect(composing.keyCode).toBe(marker.keyCode)
+    act(() => input.dispatchEvent(composing))
+    expect.soft(input.value).toBe("Archive")
+    expect.soft(composing.defaultPrevented).toBe(false)
+    expect.soft(rows()).toHaveLength(1)
+    expect.soft(rows()[0]?.textContent).toContain("D:/Archive/App")
+    expect.soft(document.activeElement).toBe(input)
+    expect.soft(select).not.toHaveBeenCalled()
+    // A regular Escape still clears the query without moving focus or selection.
+    type("Archive")
+    const ordinary = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => input.dispatchEvent(ordinary))
+    expect(input.value).toBe("")
+    expect(ordinary.defaultPrevented).toBe(true)
+    expect(rows()).toHaveLength(3)
+    expect(document.activeElement).toBe(input)
+    expect(select).not.toHaveBeenCalled()
   })
   it.each(["collapsed", "autoHide"] as const)(
     "keeps every project reachable when the %s rail hides search",
