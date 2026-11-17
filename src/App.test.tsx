@@ -22,6 +22,7 @@ import type {
   OmpConfigSnapshot,
   SingleInstanceEvent,
   PtySessionEvent,
+  PtyRuntimeEvent,
   TerminalStarted,
   TerminalTab,
 } from "./types"
@@ -89,6 +90,9 @@ vi.mock("./TerminalView", () => ({
         data-terminal-id={tab.id}
         data-active={active}
         data-focus-sequence={focusRequestSequence}
+        data-response-version={tab.completedResponseVersion ?? 0}
+        data-runtime-model={tab.currentModel ?? ""}
+        data-runtime-activity={tab.activity}
       />
     )
   },
@@ -388,6 +392,206 @@ describe("App lifecycle serialization", () => {
     await act(async () => element('[title="Продолжить сессию"]').click())
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
+
+  // Controlled scheduler / mock IPC only: these are committed React-state checks, not native timing.
+  function runtimeScheduler() {
+    let nextId = 8000
+    const callbacks = new Map<number, FrameRequestCallback>()
+    const active = new Set<number>()
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = ++nextId
+      callbacks.set(id, callback)
+      active.add(id)
+      return id
+    })
+    const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      active.delete(id)
+    })
+    return {
+      callbacks,
+      active,
+      cancel,
+      flush() {
+        for (const id of [...active]) {
+          active.delete(id)
+          callbacks.get(id)!(0)
+        }
+      },
+    }
+  }
+
+  function runtimeInput() {
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+    return (patch: Partial<PtyRuntimeEvent> = {}) =>
+      receive({
+        event: "pty-runtime",
+        id: 1,
+        payload: {
+          terminalId: "terminal-1",
+          kind: "activity",
+          activity: "idle",
+          model: null,
+          modelRole: null,
+          thinkingLevel: null,
+          configuredThinkingLevel: null,
+          errorMessage: null,
+          fallbackFrom: null,
+          fallbackTo: null,
+          fallbackRole: null,
+          resolvedModelIsFallback: null,
+          ...patch,
+        },
+      })
+  }
+
+  it.each([63, 64, 65, 129])(
+    "runtime FIFO commits threshold batches with %s held-frame events",
+    async (count) => {
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      await act(async () => {
+        for (let i = 0; i < count; i++) send()
+      })
+      const pane = element('[data-terminal-id="terminal-1"]')
+      expect(pane.getAttribute("data-response-version")).toBe(String(Math.floor(count / 64) * 64))
+      expect(scheduler.cancel).toHaveBeenCalledTimes(Math.floor(count / 64))
+      expect(scheduler.active.size).toBe(count % 64 ? 1 : 0)
+      await act(async () => scheduler.flush())
+      expect(pane.getAttribute("data-response-version")).toBe(String(count))
+    },
+  )
+
+  it("runtime FIFO ignores stale cancelled frames without stealing the next frame", async () => {
+    await mountAndResume()
+    const scheduler = runtimeScheduler()
+    const send = runtimeInput()
+    await act(async () => {
+      for (let i = 0; i < 64; i++) send()
+    })
+    const stale = scheduler.callbacks.get(8001)!
+    expect(stale).toBeDefined()
+    await act(async () => send({ activity: "thinking" }))
+    await act(async () => stale(0))
+    expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-runtime-activity")).toBe(
+      "idle",
+    )
+    await act(async () => send())
+    expect([...scheduler.active]).toEqual([8002])
+    await act(async () => scheduler.flush())
+    expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-response-version")).toBe(
+      "65",
+    )
+    await act(async () => stale(1))
+    expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-response-version")).toBe(
+      "65",
+    )
+  })
+
+  it.each(["close", "unmount"] as const)(
+    "runtime FIFO discards a pending error after %s",
+    async (end) => {
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      await act(async () => {
+        for (let i = 0; i < 64; i++) send()
+      })
+      await act(async () =>
+        send({ kind: "modelError", activity: "error", errorMessage: "Obsolete synthetic error" }),
+      )
+      const pending = scheduler.callbacks.get(8002)!
+      if (end === "close") await act(async () => element(".tab-close").click())
+      else await act(async () => root.render(null))
+      await act(async () => pending(0))
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      expect(container.querySelector(".incident-center-badge")).toBeNull()
+      // Error toast is emitted on IPC receipt, outside the batched tab/incident path.
+      // Closing must suppress stale tab/incidents, not retroactively erase that toast.
+      if (end === "unmount") expect(scheduler.cancel).toHaveBeenCalledWith(8002)
+    },
+  )
+
+  it("runtime FIFO matches ordinary per-frame tabs and incident history across mixed terminals", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1794930000000)
+    async function scenario(hold: boolean) {
+      await mountAndResume()
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({
+        ...started,
+        terminalId: "terminal-2",
+        processId: 102,
+      })
+      await act(async () => element(".new-tab-button").click())
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const events: Partial<PtyRuntimeEvent>[] = []
+      for (let i = 0; i < 34; i++) {
+        const terminalId = i % 2 ? "terminal-2" : "terminal-1"
+        events.push(
+          { terminalId, activity: "thinking" },
+          {
+            terminalId,
+            kind: "modelError",
+            activity: "error",
+            errorMessage: "Synthetic quota",
+            model: "provider/primary",
+          },
+          {
+            terminalId,
+            kind: "retryFallbackApplied",
+            activity: "thinking",
+            model: "provider/backup",
+            fallbackFrom: "provider/primary",
+            fallbackTo: "provider/backup",
+            fallbackRole: "default",
+          },
+          { terminalId, activity: "idle" },
+        )
+      }
+      if (hold)
+        await act(async () => {
+          for (const event of events) send(event)
+        })
+      else
+        for (const event of events)
+          await act(async () => {
+            send(event)
+            scheduler.flush()
+          })
+      await act(async () => scheduler.flush())
+      const tabs = ["terminal-1", "terminal-2"].map((id) => {
+        const pane = element(`[data-terminal-id="${id}"]`)
+        return [
+          pane.getAttribute("data-response-version"),
+          pane.getAttribute("data-runtime-model"),
+          pane.getAttribute("data-runtime-activity"),
+        ]
+      })
+      expect(tabs).toEqual([
+        ["34", "provider/backup", "idle"],
+        ["34", "provider/backup", "idle"],
+      ])
+      await act(async () => element(".incident-center-trigger").click())
+      await act(async () => element(".incident-filter button:nth-child(2)").click())
+      const incidents = [...document.querySelectorAll(".incident-row")].map((row) => ({
+        classes: row.className,
+        text: row.textContent,
+      }))
+      expect(incidents.length).toBeGreaterThan(0)
+      expect(incidents.some((row) => row.classes.includes("is-modelError"))).toBe(true)
+      expect(incidents.some((row) => row.classes.includes("is-fallback"))).toBe(true)
+      await act(async () => root.render(null))
+      vi.mocked(listen).mockClear()
+      vi.mocked(api.startTerminal).mockClear()
+      vi.mocked(api.startTerminal).mockResolvedValue(started)
+      return { tabs, incidents }
+    }
+    const ordinary = await scenario(false)
+    const held = await scenario(true)
+    expect(held).toEqual(ordinary)
+  })
 
   it.each(["en", "ru"] as const)(
     "names the selected Home resume target after choosing an older session (%s)",
