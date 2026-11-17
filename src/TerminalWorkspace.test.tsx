@@ -507,6 +507,97 @@ describe("TerminalWorkspace selected-header reveal", () => {
     outside.remove()
   })
 
+  it("pages in either direction without changing selection or remounting terminals", () => {
+    act(() => root.render(<Harness />))
+    const left = container.querySelector<HTMLButtonElement>('[aria-label="Scroll tabs left"]')!
+    const right = container.querySelector<HTMLButtonElement>('[aria-label="Scroll tabs right"]')!
+    const terminals = [...container.querySelectorAll("[data-terminal-view]")]
+    expect(left.disabled).toBe(true)
+    expect(right.disabled).toBe(false)
+    act(() => right.click())
+    expect(strip().scrollLeft).toBe(240)
+    expect(left.disabled).toBe(false)
+    act(() => {
+      right.click()
+      right.click()
+      right.click()
+      right.click()
+    })
+    expect(strip().scrollLeft).toBe(900)
+    expect(right.disabled).toBe(true)
+    act(() => left.click())
+    expect(strip().scrollLeft).toBe(660)
+    expect(
+      container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+    ).toBe("First")
+    expect([...container.querySelectorAll("[data-terminal-view]")]).toEqual(terminals)
+  })
+
+  it("reveals a keyboard-focused hidden header without selecting it", () => {
+    act(() => root.render(<Harness />))
+    const target = container.querySelector<HTMLButtonElement>('[aria-label^="Third —"]')!
+    act(() => target.focus())
+    expect(strip().scrollLeft).toBe(520)
+    expect(document.activeElement).toBe(target)
+    expect(
+      container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+    ).toBe("First")
+  })
+
+  it("updates end controls after resize and keeps manual scroll on title updates", () => {
+    act(() => root.render(<Harness />))
+    const right = container.querySelector<HTMLButtonElement>('[aria-label="Scroll tabs right"]')!
+    viewportWidth = contentWidth
+    act(() => window.dispatchEvent(new Event("resize")))
+    expect(right.disabled).toBe(true)
+    viewportWidth = 300
+    act(() => window.dispatchEvent(new Event("resize")))
+    expect(right.disabled).toBe(false)
+    act(() => right.click())
+    act(() =>
+      root.render(
+        <Harness
+          visibleTabs={initialTabs.map((tab) => ({ ...tab, label: tab.label + " updated" }))}
+        />,
+      ),
+    )
+    expect(strip().scrollLeft).toBe(240)
+  })
+
+  it("attaches the wheel listener when opening the first tab and after returning home", () => {
+    act(() => root.render(<Harness visibleTabs={[]} />))
+    for (let cycle = 0; cycle < 2; cycle++) {
+      act(() => root.render(<Harness visibleTabs={initialTabs} />))
+      const currentStrip = strip()
+      const event = new WheelEvent("wheel", { deltaY: 80, cancelable: true })
+      act(() => currentStrip.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(true)
+      expect(currentStrip.scrollLeft).toBe(80)
+      act(() => root.render(<Harness visibleTabs={[]} />))
+      const detachedEvent = new WheelEvent("wheel", { deltaY: 80, cancelable: true })
+      currentStrip.dispatchEvent(detachedEvent)
+      expect(detachedEvent.defaultPrevented).toBe(false)
+      expect(currentStrip.scrollLeft).toBe(80)
+    }
+  })
+
+  it("maps an ordinary mouse wheel but leaves horizontal gestures, zoom and boundaries native", () => {
+    act(() => root.render(<Harness />))
+    const wheel = (init: WheelEventInit) => {
+      const event = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init })
+      act(() => strip().dispatchEvent(event))
+      return event.defaultPrevented
+    }
+    expect(wheel({ deltaY: 3, deltaMode: 1 })).toBe(true)
+    expect(strip().scrollLeft).toBe(48)
+    expect(wheel({ deltaX: 20, deltaY: 10 })).toBe(false)
+    expect(wheel({ ctrlKey: true, deltaY: 10 })).toBe(false)
+    expect(strip().scrollLeft).toBe(48)
+    expect(wheel({ deltaY: -100 })).toBe(true)
+    expect(strip().scrollLeft).toBe(0)
+    expect(wheel({ deltaY: -100 })).toBe(false)
+  })
+
   it("reveals selection to either side using the strip's bordered viewport only", () => {
     act(() => root.render(<Harness />))
     const ancestor = container.querySelector<HTMLElement>(".main-stage")!

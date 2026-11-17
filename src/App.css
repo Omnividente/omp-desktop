@@ -4019,6 +4019,34 @@ button:disabled {
   background: var(--chrome-surface-raised, #141714);
 }
 
+.terminal-tabs-navigation {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 26px;
+  min-width: 0;
+}
+
+.terminal-tabs-arrow {
+  display: grid;
+  place-items: center;
+  color: var(--chrome-text-soft, #707973);
+  background: transparent;
+  cursor: pointer;
+}
+
+.terminal-tabs-arrow.is-left svg {
+  transform: rotate(180deg);
+}
+
+.terminal-tabs-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.terminal-tabs-arrow:not(:disabled):hover {
+  color: var(--accent);
+  background: var(--chrome-hover-surface, #242925);
+}
+
 .terminal-tabs-scroll {
   display: flex;
   align-items: stretch;
