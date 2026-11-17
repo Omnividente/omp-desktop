@@ -153,12 +153,14 @@ export function CompletedAnswers({
             {!collapsed && (
               <>
                 <CopyButton
+                  scope={entry}
                   text={content.text}
                   label={t(lang, "copyMessage")}
                   lang={lang}
                   onError={onError}
                 />
                 <CopyButton
+                  scope={entry}
                   text={source}
                   label={t(lang, "copyMarkdown")}
                   lang={lang}

@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { writeText } from "@tauri-apps/plugin-clipboard-manager"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
@@ -7,6 +8,8 @@ import { CompletedAnswers } from "./CompletedAnswers"
 import { applyRuntimeEventToTab } from "./runtimeEvents"
 import type { PtyRuntimeEvent, SessionTranscript, TerminalTab } from "./types"
 import { t, type Lang } from "./i18n"
+
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn() }))
 
 vi.mock("./api", () => ({
   readSessionAnswers: vi.fn(),
@@ -361,4 +364,153 @@ it("keeps drafts and answer navigation usable after a Markdown failure", async (
   expect(input.value).toBe("Unsent draft")
   expect(readSessionAnswers).toHaveBeenCalledTimes(1)
   expect(onError).not.toHaveBeenCalled()
+})
+
+function pendingClipboard() {
+  let resolve!: () => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<void>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+
+it.each([
+  ["copyMessage", "resolve"],
+  ["copyMessage", "reject"],
+  ["copyMarkdown", "resolve"],
+  ["copyMarkdown", "reject"],
+] as const)("isolates pending answer copy %s from navigation and late %s", async (key, outcome) => {
+  const source = "**Same synthetic answer**"
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, source, source))
+  const old = pendingClipboard()
+  const current = pendingClipboard()
+  vi.mocked(writeText).mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)
+  await render()
+  await act(async () => button("Show answer").click())
+  const label = t("en", key)
+  await act(async () => button(label).click())
+  expect(button(label).disabled).toBe(true)
+  await act(async () => button("Previous answer").click())
+  expect(container.querySelector("nav")?.textContent).toContain("1 / 2")
+  // Retain all observations even on baseline so the stale settlement is checked too.
+  const independentlyEnabled = !button(label).disabled
+  const navigationFeedback = button(label).textContent
+  await act(async () => button(label).click())
+  const independentCalls = vi.mocked(writeText).mock.calls.length
+  await act(async () => {
+    if (outcome === "resolve") old.resolve()
+    else old.reject(new Error("Synthetic old clipboard failure"))
+  })
+  const lateFeedback = button(label).textContent
+  const lateDisabled = button(label).disabled
+  const lateErrors = onError.mock.calls.length
+  await act(async () => current.resolve())
+  expect.soft(independentlyEnabled).toBe(true)
+  expect.soft(navigationFeedback).toBe(label)
+  expect.soft(independentCalls).toBe(2)
+  expect.soft(lateFeedback).toBe(t("en", "copying"))
+  expect.soft(lateDisabled).toBe(true)
+  expect.soft(lateErrors).toBe(0)
+  expect.soft(button(label).textContent).toBe(t("en", "clipboardCopied"))
+  expect.soft(button(label).disabled).toBe(false)
+  expect
+    .soft(vi.mocked(writeText).mock.calls)
+    .toEqual([
+      [key === "copyMessage" ? "Same synthetic answer" : source],
+      [key === "copyMessage" ? "Same synthetic answer" : source],
+    ])
+})
+
+it.each(["copyMessage", "copyMarkdown"] as const)(
+  "resets pending answer copy %s when the selected text changes",
+  async (key) => {
+    vi.mocked(readSessionAnswers).mockResolvedValue(
+      transcript(tab.sessionPath!, "Earlier", "Latest"),
+    )
+    const old = pendingClipboard()
+    vi.mocked(writeText).mockReturnValueOnce(old.promise).mockResolvedValueOnce(undefined)
+    await render()
+    await act(async () => button("Show answer").click())
+    const label = t("en", key)
+    await act(async () => button(label).click())
+    await act(async () => button("Previous answer").click())
+    expect(button(label).disabled).toBe(false)
+    await act(async () => old.reject(new Error("Synthetic old failure")))
+    expect(onError).not.toHaveBeenCalled()
+    expect(button(label).textContent).toBe(label)
+    await act(async () => button(label).click())
+    expect(writeText).toHaveBeenNthCalledWith(1, "Latest")
+    expect(writeText).toHaveBeenNthCalledWith(2, "Earlier")
+    expect(button(label).textContent).toBe(t("en", "clipboardCopied"))
+  },
+)
+
+it.each(["copyMessage", "copyMarkdown"] as const)(
+  "reports current answer copy %s rejection and permits retry",
+  async (key) => {
+    vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "Synthetic"))
+    vi.mocked(writeText)
+      .mockRejectedValueOnce(new Error("Synthetic current failure"))
+      .mockResolvedValueOnce(undefined)
+    await render()
+    await act(async () => button("Show answer").click())
+    const label = t("en", key)
+    await act(async () => button(label).click())
+    expect(onError).toHaveBeenCalledExactlyOnceWith("Error: Synthetic current failure")
+    expect(button(label).disabled).toBe(false)
+    expect(button(label).textContent).toBe(label)
+    await act(async () => button(label).click())
+    expect(writeText).toHaveBeenCalledTimes(2)
+    expect(button(label).textContent).toBe(t("en", "clipboardCopied"))
+  },
+)
+
+it.each([
+  ["copyMessage", false],
+  ["copyMessage", true],
+  ["copyMarkdown", false],
+  ["copyMarkdown", true],
+] as const)("handles refreshed answer copy %s entry clone=%s", async (key, clone) => {
+  const value = transcript(tab.sessionPath!, "Synthetic refresh")
+  vi.mocked(readSessionAnswers).mockResolvedValueOnce(value)
+  const old = pendingClipboard()
+  vi.mocked(writeText).mockReturnValueOnce(old.promise)
+  await render()
+  await act(async () => button("Show answer").click())
+  const label = t("en", key)
+  await act(async () => button(label).click())
+  vi.mocked(readSessionAnswers).mockResolvedValueOnce(
+    clone ? { ...value, entries: value.entries.map((entry) => ({ ...entry })) } : value,
+  )
+  await render({ ...tab, completedResponseVersion: 1 })
+  expect(button(label).disabled).toBe(!clone)
+  expect(button(label).textContent).toBe(clone ? label : t("en", "copying"))
+  await act(async () => old.resolve())
+  expect(button(label).textContent).toBe(clone ? label : t("en", "clipboardCopied"))
+  expect(writeText).toHaveBeenCalledTimes(1)
+  expect(onError).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["copyMessage", "resolve"],
+  ["copyMessage", "reject"],
+  ["copyMarkdown", "resolve"],
+  ["copyMarkdown", "reject"],
+] as const)("ignores unmounted answer copy %s late %s", async (key, outcome) => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "Synthetic unmount"))
+  const old = pendingClipboard()
+  vi.mocked(writeText).mockReturnValueOnce(old.promise)
+  await render()
+  await act(async () => button("Show answer").click())
+  await act(async () => button(t("en", key)).click())
+  await act(async () => root.render(null))
+  await act(async () => {
+    if (outcome === "resolve") old.resolve()
+    else old.reject(new Error("Synthetic unmounted failure"))
+  })
+  expect(container.childElementCount).toBe(0)
+  expect(onError).not.toHaveBeenCalled()
+  expect(writeText).toHaveBeenCalledTimes(1)
 })
