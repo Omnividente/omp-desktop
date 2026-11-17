@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act } from "react"
+import { marked } from "marked"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { openContentLink, readSessionAnswers } from "./api"
@@ -139,10 +140,12 @@ it("keeps new answers collapsed after batched thinking/idle without stealing foc
   // App reduces both events before React sees a tab; its final activity is still idle.
   const completed = [event("thinking"), event("idle")].reduce(applyRuntimeEventToTab, tab)
   await render(completed)
-  expect(container.querySelector("h2")?.textContent).toBe("Second answer")
+  expect(container.querySelector("h2")).toBeNull()
   expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
   expect(document.activeElement).toBe(input)
   expect(input.value).toBe("Unsent draft")
+  await act(async () => button("Show answer").click())
+  expect(container.querySelector("h2")?.textContent).toBe("Second answer")
   await act(async () => button("Previous answer").click())
   expect(container.querySelector("h1")?.textContent).toBe("First answer")
 })
@@ -193,6 +196,8 @@ it("ignores a pending read when work resumes and after switching sessions", asyn
   vi.mocked(readSessionAnswers).mockResolvedValueOnce(transcript("/tmp/b.jsonl", "# Other session"))
   await render({ ...tab, sessionPath: "/tmp/b.jsonl" })
   await act(async () => resolveInactive(transcript(tab.sessionPath!, "# Late old session")))
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
+  await act(async () => button("Show answer").click())
   expect(container.querySelector("h1")?.textContent).toBe("Other session")
   expect(container.textContent).not.toContain("Late old session")
 })
@@ -256,6 +261,10 @@ it.each([0, 1])("does not add a latest-answer action for %s loaded answers", asy
   )
   await render()
   expect(container.textContent).not.toContain("Latest loaded answer")
+  if (count) {
+    expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
+    await act(async () => button("Show answer").click())
+  }
   expect(container.querySelector("h1")?.textContent).toBe(count ? "Only" : undefined)
 })
 
@@ -361,4 +370,124 @@ it("keeps drafts and answer navigation usable after a Markdown failure", async (
   expect(input.value).toBe("Unsent draft")
   expect(readSessionAnswers).toHaveBeenCalledTimes(1)
   expect(onError).not.toHaveBeenCalled()
+})
+
+it("defers unrequested markdown and retains revealed DOM through collapse", async () => {
+  const source = "# Deferred\n\n**Synthetic** [file](./fixture.txt)\n\n```ts\nconst value = 1\n```"
+  const lexer = vi.spyOn(marked, "lexer")
+  try {
+    vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, source))
+    await render()
+    const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+    expect(body.hidden).toBe(true)
+    const toggle = button("Show answer")
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBe(body)
+    expect(body.tabIndex).toBe(0)
+    expect(body.querySelectorAll("*")).toHaveLength(0)
+    expect(lexer).not.toHaveBeenCalled()
+    const input = container.querySelector("input")!
+    input.focus()
+    await act(async () => button("Show answer").click())
+    expect(document.activeElement).toBe(input)
+    const heading = body.querySelector("h1")!
+    expect(heading.textContent).toBe("Deferred")
+    expect(lexer.mock.calls.filter(([text]) => text === source)).toHaveLength(1)
+    body.scrollTop = 42
+    await act(async () => button("Collapse answer").click())
+    expect(body.hidden).toBe(true)
+    expect(body.querySelector("h1")).toBe(heading)
+    expect(body.scrollTop).toBe(42)
+    await act(async () => button("Show answer").click())
+    expect(body.querySelector("h1")).toBe(heading)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(document.getElementById(toggle.getAttribute("aria-controls")!)).toBe(body)
+    expect(lexer.mock.calls.filter(([text]) => text === source)).toHaveLength(1)
+    expect(openContentLink).not.toHaveBeenCalled()
+    let resolveLate!: (value: SessionTranscript) => void
+    vi.mocked(readSessionAnswers).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveLate = resolve
+      }),
+    )
+    await render({ ...tab, completedResponseVersion: 1 })
+    await act(async () => root.render(null))
+    const parsesBeforeLate = lexer.mock.calls.length
+    await act(async () => resolveLate(transcript(tab.sessionPath!, "# Unmounted late answer")))
+    expect(container.children).toHaveLength(0)
+    expect(lexer.mock.calls).toHaveLength(parsesBeforeLate)
+  } finally {
+    lexer.mockRestore()
+  }
+})
+
+it("defers same-ID edits before reveal but updates requested content and resets new answers", async () => {
+  const lexer = vi.spyOn(marked, "lexer")
+  try {
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(transcript(tab.sessionPath!, "# Original"))
+    await render()
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(
+      transcript(tab.sessionPath!, "# Edited before"),
+    )
+    await render({ ...tab, completedResponseVersion: 1 })
+    expect(lexer).not.toHaveBeenCalled()
+    expect(container.querySelector("h1")).toBeNull()
+    await act(async () => button("Show answer").click())
+    expect(container.querySelector("h1")?.textContent).toBe("Edited before")
+    await act(async () => button("Collapse answer").click())
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(
+      transcript(tab.sessionPath!, "# Edited after"),
+    )
+    await render({ ...tab, completedResponseVersion: 2 })
+    expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+    expect(container.querySelector("h1")?.textContent).toBe("Edited after")
+    const input = container.querySelector("input")!
+    input.focus()
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(
+      transcript(tab.sessionPath!, "# Edited after", "# New latest"),
+    )
+    await render({ ...tab, completedResponseVersion: 3 })
+    expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
+    expect(container.querySelector("h1")).toBeNull()
+    expect(lexer.mock.calls.some(([text]) => text === "# New latest")).toBe(false)
+    expect(document.activeElement).toBe(input)
+    expect(input.value).toBe("Unsent draft")
+    await act(async () => button("Previous answer").click())
+    expect(container.querySelector("h1")?.textContent).toBe("Edited after")
+    await act(async () => button("Latest loaded answer").click())
+    expect(container.querySelector("h1")?.textContent).toBe("New latest")
+  } finally {
+    lexer.mockRestore()
+  }
+})
+
+it("keeps unrequested content deferred across read error retry and busy transitions", async () => {
+  const lexer = vi.spyOn(marked, "lexer")
+  try {
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(transcript(tab.sessionPath!, "# Initial"))
+    await render()
+    vi.mocked(readSessionAnswers).mockRejectedValueOnce(new Error("Synthetic retry error"))
+    await render({ ...tab, completedResponseVersion: 1 })
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Synthetic retry error",
+    )
+    expect(container.querySelector("h1")).toBeNull()
+    expect(lexer).not.toHaveBeenCalled()
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(transcript(tab.sessionPath!, "# Retried"))
+    await act(async () => button("Reread file").click())
+    expect(container.querySelector('[role="alert"]')).toBeNull()
+    expect(lexer).not.toHaveBeenCalled()
+    await render({ ...tab, activity: "thinking", completedResponseVersion: 1 })
+    expect(container.querySelector(".completed-answers")).toBeNull()
+    vi.mocked(readSessionAnswers).mockResolvedValueOnce(
+      transcript(tab.sessionPath!, "# After busy"),
+    )
+    await render({ ...tab, completedResponseVersion: 2 })
+    expect(lexer).not.toHaveBeenCalled()
+    await act(async () => button("Show answer").click())
+    expect(container.querySelector("h1")?.textContent).toBe("After busy")
+    expect(lexer.mock.calls.filter(([text]) => text === "# After busy")).toHaveLength(1)
+  } finally {
+    lexer.mockRestore()
+  }
 })
