@@ -6,7 +6,8 @@ import { Icon } from "./Icon"
 import { t } from "./i18n"
 import { localeTag } from "./uiUtils"
 import { useVirtualList } from "./useVirtualList"
-import { MarkdownContent, markdownContent } from "./MarkdownContent"
+import { MarkdownContent } from "./MarkdownContent"
+import { TranscriptContentCache } from "./transcriptContentCache"
 import { tryCreateTranscriptSearch } from "./transcriptSearch"
 import { CopyButton } from "./CopyButton"
 import { loadedDialogue } from "./loadedDialogue"
@@ -233,15 +234,26 @@ export function TranscriptModal({
     [transcript, transcriptLoading, transcriptError, transcriptSession.filePath, lang],
   )
   const totalOriginal = transcript?.entries.length ?? 0
+  const contentCache = useMemo(() => new TranscriptContentCache(), [])
   const contents = useMemo(
     () =>
-      visibleEntries.map((entry) =>
-        markdownContent(
-          (transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? "",
-          sourceMode,
-        ),
+      contentCache.project(
+        transcriptSession.filePath,
+        transcript === null
+          ? null
+          : visibleEntries.map(
+              (entry) => (transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? "",
+            ),
+        sourceMode,
       ),
-    [visibleEntries, transcriptMode, sourceMode],
+    [
+      contentCache,
+      transcript,
+      transcriptSession.filePath,
+      visibleEntries,
+      transcriptMode,
+      sourceMode,
+    ],
   )
   const userOutline = useMemo(() => transcriptUserMessages(visibleEntries), [visibleEntries])
   const userMessages = userOutline.messages
