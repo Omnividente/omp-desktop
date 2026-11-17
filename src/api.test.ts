@@ -25,6 +25,26 @@ afterEach(() => {
 })
 
 describe("backend error codes", () => {
+  it.each([
+    ["ru", "Не удалось зафиксировать название сессии"],
+    ["en", "Failed to save the session title"],
+    ["zh", "保存会话标题失败"],
+  ] as const)(
+    "localizes native session-title save failures in %s without exposing details",
+    (lang, expected) => {
+      const error = {
+        code: "session_title_pin_failed",
+        message: "Не удалось зафиксировать название сессии",
+        details: "/synthetic/private/settings.json: write failed",
+      }
+      expect(errorMessage(error, lang)).toBe(expected)
+      expect(errorMessage(JSON.stringify(error), lang)).toBe(expected)
+      expect(errorMessage(error, lang, { includeDetails: true })).toBe(
+        `${expected}: ${error.details}`,
+      )
+    },
+  )
+
   it("classifies a terminal restart that failed after stopping the old process", () => {
     const error = "[terminal_restart_stopped] Не удалось запустить OMP"
 

@@ -408,6 +408,11 @@ const BACKEND_ERROR_TEXT: Record<string, Record<Lang, string>> = {
 
     zh: "重命名会话失败",
   },
+  session_title_pin_failed: {
+    ru: "Не удалось зафиксировать название сессии",
+    en: "Failed to save the session title",
+    zh: "保存会话标题失败",
+  },
   session_delete_failed: {
     ru: "Не удалось удалить сессию",
     en: "Failed to delete the session",
