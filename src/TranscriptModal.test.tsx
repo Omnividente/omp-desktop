@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, useEffect } from "react"
+import { marked } from "marked"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
@@ -1645,4 +1646,217 @@ it("preserves reader actions after an offscreen Markdown failure", async () => {
   await click("Close")
   expect(container.querySelector('[role="dialog"]')).toBeNull()
   expect(container.querySelector("button")?.textContent).toBe("Open transcript")
+})
+
+it.each(["existing varied", "mixed Markdown"] as const)(
+  "reuses formatted bodies on a real Refresh with %s history",
+  async (workload) => {
+    // Existing beforeEach mounts once; start the measured isolated reader only now.
+    act(() => root.unmount())
+    container.replaceChildren()
+    root = createRoot(container)
+    session.filePath = `/tmp/parse-cost-${++sessionNumber}.jsonl`
+    const entries = Array.from({ length: 300 }, (_, index) => {
+      const entry = transcript.entries[index % transcript.entries.length]
+      const body =
+        workload === "existing varied"
+          ? entry.text
+          : `## Entry ${index}\n\n${"Synthetic prose with **emphasis**, Unicode Ж𝄞, and ordinary words. ".repeat(42)}\n\n` +
+            "- first item\n- second item\n\n| Key | Value |\n| --- | --- |\n| sample | 42 |\n\n```ts\nconst value = 42\n```\n"
+      const text = `${body}\n\nretained-marker-${index}-end`
+      return { ...entry, id: `parse-cost-${index}`, text, dialogueText: text }
+    })
+    const initial: SessionTranscript = { ...transcript, session: { ...session }, entries }
+    vi.mocked(readSessionTranscript).mockResolvedValueOnce(initial)
+    const lexer = vi.spyOn(marked, "lexer")
+    await act(async () => root.render(<Harness />))
+    await flushFrames()
+    const initialCalls = lexer.mock.calls.length
+    await searchFor("retained-marker-140-end")
+    expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 1")
+    expect(currentOccurrence()?.textContent).toBe("retained-marker-140-end")
+    expect(lexer.mock.calls.length).toBe(initialCalls)
+    const appended: SessionTranscript = {
+      ...initial,
+      updatedAt: initial.updatedAt + 1,
+      entries: [
+        ...initial.entries.map((entry) => ({ ...entry })),
+        {
+          ...initial.entries[0],
+          id: "parse-cost-appended",
+          text: "Synthetic appended tail",
+          dialogueText: "Synthetic appended tail",
+        },
+      ],
+    }
+    const observations: Array<{ phase: string; calls: number }> = []
+    for (const [phase, snapshot] of [
+      ["appended", appended],
+      ["unchanged", { ...appended, entries: appended.entries.map((entry) => ({ ...entry })) }],
+    ] as const) {
+      let resolveRead!: (value: SessionTranscript) => void
+      vi.mocked(readSessionTranscript).mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveRead = resolve
+        }),
+      )
+      const beforeCalls = lexer.mock.calls.length
+      await click("Reread file")
+      expect(container.querySelector(".transcript-state .mini-loader")).not.toBeNull()
+      expect(container.querySelectorAll("article[data-virtual-index]")).toHaveLength(0)
+      expect(lexer.mock.calls.length).toBe(beforeCalls)
+      await act(async () => resolveRead(snapshot))
+      await flushFrames()
+      observations.push({ phase, calls: lexer.mock.calls.length - beforeCalls })
+      expect(container.querySelector<HTMLInputElement>('input[type="search"]')?.value).toBe(
+        "retained-marker-140-end",
+      )
+      expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 1")
+      expect(currentOccurrence()?.textContent).toBe("retained-marker-140-end")
+    }
+    // Bounded reuse changes parser work, not the complete loaded-text search contract.
+    expect(initialCalls).toBe(initial.entries.length)
+    expect(observations.map((item) => item.calls)).toEqual([1, 0])
+    await searchFor("")
+    await click("Latest message")
+    expect(container.textContent).toContain("Synthetic appended tail")
+    expect(openContentLink).not.toHaveBeenCalled()
+    expect(writeText).not.toHaveBeenCalled()
+  },
+)
+
+it("invalidates reuse for selected text and session changes while keeping Source separate", async () => {
+  const lexer = vi.spyOn(marked, "lexer")
+  const changedProjection: SessionTranscript = {
+    ...transcript,
+    entries: transcript.entries.map((entry, index) =>
+      index === 140 ? { ...entry, dialogueText: "**dialogue-only-marker**" } : { ...entry },
+    ),
+  }
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(changedProjection)
+  await click("Reread file")
+  expect(lexer).not.toHaveBeenCalled()
+  await click("Dialogue only")
+  expect(lexer).toHaveBeenCalledTimes(1)
+  await searchFor("dialogue-only-marker")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 1")
+  expect(currentOccurrence()?.closest("strong")).not.toBeNull()
+  await click("Source")
+  expect(lexer).toHaveBeenCalledTimes(1)
+  expect(currentOccurrence()?.closest(".markdown-source")).not.toBeNull()
+  expect(currentOccurrence()?.closest("strong")).toBeNull()
+  await click("Formatted")
+  expect(lexer).toHaveBeenCalledTimes(1)
+  expect(currentOccurrence()?.closest("strong")).not.toBeNull()
+
+  const edited: SessionTranscript = {
+    ...changedProjection,
+    entries: changedProjection.entries.map((entry, index) =>
+      index === 140
+        ? { ...entry, text: "**edited-marker**", dialogueText: "**edited-marker**" }
+        : { ...entry },
+    ),
+  }
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(edited)
+  await click("Reread file")
+  expect(lexer).toHaveBeenCalledTimes(2)
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("0 / 0")
+  expect(currentOccurrence()).toBeNull()
+  await searchFor("edited-marker")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 1")
+  expect(currentOccurrence()?.textContent).toBe("edited-marker")
+
+  const other = { ...edited, session: { ...session, filePath: `${session.filePath}.other` } }
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(other)
+  lexer.mockClear()
+  await click("Open other transcript")
+  expect(lexer).toHaveBeenCalledTimes(180)
+  await searchFor("edited-marker")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 1")
+  await click("Close")
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(edited)
+  lexer.mockClear()
+  await click("Open transcript")
+  expect(lexer).toHaveBeenCalledTimes(180)
+  expect(openContentLink).not.toHaveBeenCalled()
+  expect(writeText).not.toHaveBeenCalled()
+})
+
+it("keeps duplicate shared documents as separate searchable and copyable entries", async () => {
+  const source = "**shared-marker** body"
+  const value: SessionTranscript = {
+    ...transcript,
+    entries: ["first", "second"].map((id) => ({
+      ...transcript.entries[0],
+      id,
+      text: source,
+      dialogueText: source,
+    })),
+  }
+  const lexer = vi.spyOn(marked, "lexer")
+  vi.mocked(readSessionTranscript).mockResolvedValueOnce(value)
+  await click("Reread file")
+  expect(lexer).toHaveBeenCalledTimes(1)
+  await searchFor("shared-marker")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 2")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("0")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("0")
+  const firstCopy = currentOccurrence()!
+    .closest("article")!
+    .querySelector<HTMLButtonElement>('[aria-label="Copy text"]')!
+  expect(firstCopy).not.toBeNull()
+  await act(async () => firstCopy.click())
+  expect(writeText).toHaveBeenLastCalledWith("shared-marker body")
+  await click("Next match")
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("2 / 2")
+  expect(currentOccurrence()?.closest("article")?.dataset.virtualIndex).toBe("1")
+  expect(currentOccurrence()?.dataset.matchIndex).toBe("1")
+  const secondCopy = currentOccurrence()!
+    .closest("article")!
+    .querySelector<HTMLButtonElement>('[aria-label="Copy text"]')!
+  expect(secondCopy).not.toBe(firstCopy)
+  await act(async () => secondCopy.click())
+  expect(writeText).toHaveBeenCalledTimes(2)
+  expect(writeText).toHaveBeenLastCalledWith("shared-marker body")
+  expect(lexer).toHaveBeenCalledTimes(1)
+  expect(openContentLink).not.toHaveBeenCalled()
+})
+
+it("reuses a retained snapshot only after Retry succeeds without displaying it during failure", async () => {
+  const lexer = vi.spyOn(marked, "lexer")
+  await searchFor("Message 140")
+  let rejectRead!: (error: Error) => void
+  vi.mocked(readSessionTranscript).mockReturnValueOnce(
+    new Promise((_, reject) => {
+      rejectRead = reject
+    }),
+  )
+  await click("Reread file")
+  expect(container.querySelector(".transcript-state .mini-loader")).not.toBeNull()
+  expect(container.querySelectorAll("article[data-virtual-index]")).toHaveLength(0)
+  await act(async () => rejectRead(new Error("Synthetic read failure")))
+  await flushFrames()
+  const error = container.querySelector<HTMLElement>(".transcript-state.is-error")!
+  expect(error.textContent).toContain("Synthetic read failure")
+  expect(container.querySelectorAll("article[data-virtual-index]")).toHaveLength(0)
+  expect(lexer).not.toHaveBeenCalled()
+  let resolveRead!: (value: SessionTranscript) => void
+  vi.mocked(readSessionTranscript).mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveRead = resolve
+    }),
+  )
+  await act(async () => error.querySelector<HTMLButtonElement>("button")!.click())
+  expect(container.querySelector(".transcript-state .mini-loader")).not.toBeNull()
+  expect(container.querySelectorAll("article[data-virtual-index]")).toHaveLength(0)
+  await act(async () =>
+    resolveRead({ ...transcript, entries: transcript.entries.map((entry) => ({ ...entry })) }),
+  )
+  await flushFrames()
+  expect(container.querySelector(".transcript-state.is-error")).toBeNull()
+  expect(container.querySelector('[aria-label="Matches"]')?.textContent).toBe("1 / 1")
+  expect(currentOccurrence()?.textContent).toBe("Message 140")
+  expect(lexer).not.toHaveBeenCalled()
+  expect(writeText).not.toHaveBeenCalled()
+  expect(openContentLink).not.toHaveBeenCalled()
 })
