@@ -383,3 +383,69 @@ it("does not parse explicit source mode or mark ordinary Markdown as a fallback"
   expect(markdownContent("**ordinary**").formattingFailed).toBeUndefined()
   expect(lexer).toHaveBeenCalledTimes(1)
 })
+
+it.each([
+  "![diagram](/tmp/synthetic.png)",
+  "![](/tmp/synthetic.png)",
+  '![](/tmp/synthetic.png "Synthetic title")',
+  "![unsafe](javascript:alert)",
+  "![inline](data:image/png;base64,AA==)",
+])("retains unsupported image destinations as inert source text: %s", (source) => {
+  const onOpen = vi.fn()
+  const content = markdownContent(source)
+  act(() =>
+    root.render(<MarkdownContent content={content} lang="en" onOpen={onOpen} onError={vi.fn()} />),
+  )
+  expect(content.formattingFailed).toBeUndefined()
+  expect(content.sourceMode).toBe(false)
+  expect(content.text).toBe(source)
+  expect(container.textContent).toBe(source)
+  expect(container.querySelector("a, img, iframe, object, embed, script, style")).toBeNull()
+  expect(onOpen).not.toHaveBeenCalled()
+
+  const raw = markdownContent(source, true)
+  act(() =>
+    root.render(<MarkdownContent content={raw} lang="en" onOpen={onOpen} onError={vi.fn()} />),
+  )
+  expect(raw.text).toBe(source)
+  expect(container.querySelector("pre.markdown-source")?.textContent).toBe(source)
+  expect(container.querySelector("a, img, iframe, object, embed, script, style")).toBeNull()
+  expect(onOpen).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["![diagram](/tmp/synthetic.png)", "![diagram](/tmp/synthetic.png)"],
+  ["![diagram](images/synthetic.png)", "diagram"],
+])("keeps the existing outer link target around an image caption: %s", (image, expected) => {
+  const onOpen = vi.fn()
+  const outer = "https://example.test/outer"
+  const source = `[${image}](${outer})`
+  const content = markdownContent(source)
+  act(() =>
+    root.render(<MarkdownContent content={content} lang="en" onOpen={onOpen} onError={vi.fn()} />),
+  )
+  expect(content.formattingFailed).toBeUndefined()
+  expect(content.text).toBe(expected)
+  expect(container.textContent).toBe(expected)
+  const links = container.querySelectorAll("a")
+  expect(links).toHaveLength(1)
+  expect(links[0].getAttribute("href")).toBe(outer)
+  expect(links[0].getAttribute("title")).toBe(outer)
+  expect(links[0].textContent).toBe(expected)
+  expect(container.querySelector("img, iframe, object, embed, script, style")).toBeNull()
+  expect(onOpen).not.toHaveBeenCalled()
+  const click = new MouseEvent("click", { bubbles: true, cancelable: true })
+  act(() => links[0].dispatchEvent(click))
+  expect(click.defaultPrevented).toBe(true)
+  expect(onOpen).toHaveBeenCalledTimes(1)
+  expect(onOpen).toHaveBeenCalledWith(outer)
+
+  const raw = markdownContent(source, true)
+  act(() =>
+    root.render(<MarkdownContent content={raw} lang="en" onOpen={onOpen} onError={vi.fn()} />),
+  )
+  expect(raw.text).toBe(source)
+  expect(container.querySelector("pre.markdown-source")?.textContent).toBe(source)
+  expect(container.querySelector("a, img, iframe, object, embed, script, style")).toBeNull()
+  expect(onOpen).toHaveBeenCalledTimes(1)
+})
