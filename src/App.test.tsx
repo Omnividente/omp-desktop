@@ -991,6 +991,120 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it("preserves a manual title saved while discovery refresh is pending", async () => {
+    const projects = workspacePayload("Alpha")
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: "C:/fixture/Alpha" })
+    await act(async () => root.render(<App />))
+    await act(async () => element(".hero-actions .primary").click())
+    const refresh = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+      }),
+    )
+    invokeMock.mockResolvedValue({
+      ...projects,
+      sessions: projects.sessions.map((session) => ({
+        ...session,
+        title: "Manual synthetic title",
+        pinnedTitle: "Manual synthetic title",
+      })),
+    })
+    await act(async () =>
+      element(`[title="${t(projects.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    const input = element<HTMLInputElement>(".session-rename")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        "Manual synthetic title",
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(element(".terminal-tab-label").textContent).toBe("Manual synthetic title")
+    expect(
+      container.querySelector(`.session-select[aria-label="Manual synthetic title"]`),
+    ).not.toBeNull()
+    await act(async () => refresh.resolve(projects))
+    expect(element(".terminal-tab-label").textContent).toBe("Manual synthetic title")
+    expect(
+      container.querySelector(`.session-select[aria-label="Manual synthetic title"]`),
+    ).not.toBeNull()
+    const receiveTitle = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session-title")![1] as EventCallback<{
+      terminalId: string
+      title: string
+    }>
+    await act(async () =>
+      receiveTitle({
+        event: "pty-session-title",
+        id: 2,
+        payload: { terminalId: started.terminalId, title: "Later generated title" },
+      }),
+    )
+    expect(element(".terminal-tab-label").textContent).toBe("Manual synthetic title")
+    expect(
+      container.querySelector(`.session-select[aria-label="Manual synthetic title"]`),
+    ).not.toBeNull()
+  })
+
+  it.each(["unpin", "rejected-pin"] as const)(
+    "preserves %s outcome across a pending discovery refresh",
+    async (mode) => {
+      const projects = workspacePayload("Alpha")
+      if (mode === "unpin")
+        projects.sessions[0] = {
+          ...projects.sessions[0],
+          title: "Pinned title",
+          pinnedTitle: "Pinned title",
+        }
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: "C:/fixture/Alpha" })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".hero-actions .primary").click())
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      if (mode === "unpin")
+        invokeMock.mockResolvedValue({
+          ...projects,
+          sessions: projects.sessions.map((s) => ({
+            ...s,
+            title: "Underlying title",
+            pinnedTitle: null,
+          })),
+        })
+      else invokeMock.mockRejectedValue(new Error("Synthetic pin rejection"))
+      await act(async () => element(".session-pin").click())
+      const expected = mode === "unpin" ? "Underlying title" : "Alpha session"
+      expect(element(".terminal-tab-label").textContent).toBe(expected)
+      expect(element(".session-pin").getAttribute("aria-pressed")).toBe("false")
+      await act(async () => refresh.resolve(projects))
+      expect(element(".terminal-tab-label").textContent).toBe(expected)
+      expect(element(".session-pin").getAttribute("aria-pressed")).toBe("false")
+    },
+  )
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()

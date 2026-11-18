@@ -2453,7 +2453,28 @@ function App() {
   const updateSessionTitlePin = useCallback(
     async (session: SessionSummary, title: string | null) => {
       try {
-        applyPayload(await setSessionTitlePin(session.filePath, title))
+        const next = await setSessionTitlePin(session.filePath, title)
+        const path = normalizedPath(session.filePath, next.runtime.platform)
+        const saved = next.sessions.find(
+          (candidate) =>
+            candidate.id === session.id &&
+            normalizedPath(candidate.filePath, next.runtime.platform) === path,
+        )
+        if (saved) {
+          for (const [terminalId, discovered] of discoveredSessionsRef.current) {
+            if (
+              discovered.id === saved.id &&
+              normalizedPath(discovered.filePath, next.runtime.platform) === path
+            ) {
+              discoveredSessionsRef.current.set(terminalId, {
+                ...discovered,
+                title: saved.title,
+                pinnedTitle: saved.pinnedTitle,
+              })
+            }
+          }
+        }
+        applyPayload(next)
         return true
       } catch (error) {
         showError(errorMessage(error, lang))
