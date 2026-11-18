@@ -561,6 +561,76 @@ describe("App lifecycle serialization", () => {
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
   })
 
+  it.each(["stale", "fresh", "two-titles", "no-title"] as const)(
+    "preserves a newer live title when discovery refresh settles with %s snapshot",
+    async (snapshot) => {
+      const projects = workspacePayload("Alpha")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({
+        ...started,
+        cwd: "C:/fixture/Alpha",
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".hero-actions .primary").click())
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            session: projects.sessions[0],
+          },
+        }),
+      )
+      const receiveTitle = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session-title")![1] as EventCallback<{
+        terminalId: string
+        title: string
+      }>
+      const titles =
+        snapshot === "no-title"
+          ? []
+          : snapshot === "two-titles"
+            ? ["Earlier live title", "New synthetic title"]
+            : ["New synthetic title"]
+      for (const title of titles) {
+        await act(async () =>
+          receiveTitle({
+            event: "pty-session-title",
+            id: 2,
+            payload: { terminalId: started.terminalId, title },
+          }),
+        )
+      }
+      const expectedTitle = snapshot === "no-title" ? "Alpha session" : "New synthetic title"
+      expect(element(".terminal-tab-label").textContent).toBe(expectedTitle)
+      expect(
+        container.querySelector(`.session-select[aria-label="${expectedTitle}"]`),
+      ).not.toBeNull()
+      await act(async () =>
+        refresh.resolve({
+          ...projects,
+          sessions: [
+            {
+              ...projects.sessions[0],
+              title: snapshot === "fresh" ? "New synthetic title" : "Alpha session",
+            },
+          ],
+        }),
+      )
+      expect(element(".terminal-tab-label").textContent).toBe(expectedTitle)
+      expect(
+        container.querySelector(`.session-select[aria-label="${expectedTitle}"]`),
+      ).not.toBeNull()
+    },
+  )
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
