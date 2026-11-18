@@ -1188,7 +1188,7 @@ function App() {
           if (disposed) return
           const latest = discoveredSessionsRef.current.get(event.terminalId)
           if (latest && latest.id !== session.id) return
-          applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
+          applyPayload(mergeSessionIntoPayload(next, latest ?? session, next.runtime.platform))
           if (
             sessionSelectionRequest !== null &&
             sessionSelectionRequest === sessionSelectionRequestRef.current &&
