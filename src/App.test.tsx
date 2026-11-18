@@ -22,6 +22,7 @@ import type {
   OmpConfigSnapshot,
   SingleInstanceEvent,
   PtySessionEvent,
+  PtyRuntimeEvent,
   TerminalStarted,
   TerminalTab,
 } from "./types"
@@ -87,6 +88,9 @@ vi.mock("./TerminalView", () => ({
     return (
       <div
         data-terminal-id={tab.id}
+        data-runtime-activity={tab.activity}
+        data-runtime-model={tab.currentModel ?? ""}
+        data-response-version={tab.completedResponseVersion ?? 0}
         data-active={active}
         data-focus-sequence={focusRequestSequence}
       />
@@ -382,6 +386,151 @@ describe("App lifecycle serialization", () => {
     expect(button).toBeDefined()
     return button!
   }
+
+  it.each([true, false])(
+    "preserves runtime activity received before the launch acknowledgement (flushBefore=%s)",
+    async (flushBefore) => {
+      const launch = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValue(launch.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".new-session-button").click())
+      const frames: FrameRequestCallback[] = []
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        frames.push(callback)
+        return frames.length
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+      await act(async () => {
+        receive({
+          event: "pty-runtime",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            kind: "activity",
+            activity: "thinking",
+            model: "provider/model-live",
+            modelRole: "default",
+            thinkingLevel: "high",
+            configuredThinkingLevel: "high",
+            errorMessage: null,
+            fallbackFrom: null,
+            fallbackTo: null,
+            fallbackRole: null,
+            resolvedModelIsFallback: null,
+          },
+        })
+      })
+      if (flushBefore) await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      await act(async () => launch.resolve(started))
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(
+        element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-activity"),
+      ).toBe("thinking")
+      expect(
+        element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-model"),
+      ).toBe("provider/model-live")
+    },
+  )
+
+  it.each(["success", "reject"] as const)(
+    "isolates early completion from later publication (%s)",
+    async (outcome) => {
+      const launch = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".new-session-button").click())
+      const frames: FrameRequestCallback[] = []
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        frames.push(callback)
+        return frames.length
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+      const send = (activity: "idle" | "thinking", model: string | null = null) =>
+        receive({
+          event: "pty-runtime",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            kind: "activity",
+            activity,
+            model,
+            modelRole: null,
+            thinkingLevel: null,
+            configuredThinkingLevel: null,
+            errorMessage: null,
+            fallbackFrom: null,
+            fallbackTo: null,
+            fallbackRole: null,
+            resolvedModelIsFallback: null,
+          },
+        })
+      await act(async () => {
+        send("idle")
+        send("idle")
+      })
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      await act(async () => send("idle"))
+      if (outcome === "success") await act(async () => launch.resolve(started))
+      else {
+        await act(async () => launch.reject(new Error("Synthetic launch failure")))
+        vi.mocked(api.startTerminal).mockResolvedValueOnce(started)
+        await act(async () => element(".new-session-button").click())
+      }
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+      expect(pane.getAttribute("data-response-version")).toBe(outcome === "success" ? "3" : "0")
+      await act(async () => send("thinking", "provider/newer"))
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(pane.getAttribute("data-runtime-activity")).toBe("thinking")
+      expect(pane.getAttribute("data-runtime-model")).toBe("provider/newer")
+      expect(pane.getAttribute("data-response-version")).toBe(outcome === "success" ? "3" : "0")
+    },
+  )
+
+  it("does not retain orphan runtime state outside a pending session launch", async () => {
+    await act(async () => root.render(<App />))
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+    await act(async () =>
+      receive({
+        event: "pty-runtime",
+        id: 1,
+        payload: {
+          terminalId: started.terminalId,
+          kind: "activity",
+          activity: "thinking",
+          model: "provider/orphan",
+          modelRole: null,
+          thinkingLevel: null,
+          configuredThinkingLevel: null,
+          errorMessage: null,
+          fallbackFrom: null,
+          fallbackTo: null,
+          fallbackRole: null,
+          resolvedModelIsFallback: null,
+        },
+      }),
+    )
+    await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+    await act(async () => element(".new-session-button").click())
+    expect(
+      element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-activity"),
+    ).toBe("idle")
+    expect(
+      element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-model"),
+    ).not.toBe("provider/orphan")
+  })
 
   async function mountAndResume() {
     await act(async () => root.render(<App />))

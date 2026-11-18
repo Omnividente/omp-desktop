@@ -59,6 +59,8 @@ import { resolveLang, t, type Lang, type UiKey } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import {
   applyRuntimeEventToTab,
+  rememberPendingRuntimeTab,
+  type PendingRuntimeTab,
   runtimeEventFeedback,
   suppressTransientProxyError,
   runtimeFeedbackDedupeKey,
@@ -140,6 +142,7 @@ type PendingLaunchDiscovery = {
   superseded: boolean
 }
 type PendingRuntimeEvent = {
+  prepublication: boolean
   event: PtyRuntimeEvent
   receivedAt: number
   terminalLabel: string | null
@@ -287,6 +290,7 @@ function App() {
   const endedRuntimeTerminalIdsRef = useRef<string[]>([])
   const pendingProxyErrorsRef = useRef(new Set<string>())
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>())
+  const earlyRuntimeRef = useRef(new Map<string, PendingRuntimeTab>())
   const completionNotifiedRef = useRef(new Set<string>())
   const settingsWarningShownRef = useRef<string | null>(null)
   const pendingInitialInputRef = useRef(new Map<string, string>())
@@ -1063,6 +1067,7 @@ function App() {
   }, [acceptStartupWorkspaceWarning, applyPayload, refresh, showError])
   useEffect(() => {
     let disposed = false
+    const earlyRuntime = earlyRuntimeRef.current
     let runtimeFrame: number | null = null
     let pendingRuntimeEvents: PendingRuntimeEvent[] = []
 
@@ -1086,7 +1091,8 @@ function App() {
         ),
       )
       const eventsByTerminal = new Map<string, PtyRuntimeEvent[]>()
-      for (const { event } of batch) {
+      for (const { event, prepublication } of batch) {
+        if (prepublication) continue
         const events = eventsByTerminal.get(event.terminalId)
         if (events) events.push(event)
         else eventsByTerminal.set(event.terminalId, [event])
@@ -1098,8 +1104,12 @@ function App() {
       )
     }
 
-    const queueRuntimeEvent = (event: PtyRuntimeEvent, terminalLabel: string | null) => {
-      pendingRuntimeEvents.push({ event, receivedAt: Date.now(), terminalLabel })
+    const queueRuntimeEvent = (
+      event: PtyRuntimeEvent,
+      terminalLabel: string | null,
+      prepublication: boolean,
+    ) => {
+      pendingRuntimeEvents.push({ event, receivedAt: Date.now(), terminalLabel, prepublication })
       if (runtimeFrame === null) runtimeFrame = window.requestAnimationFrame(flushRuntimeEvents)
     }
 
@@ -1224,7 +1234,18 @@ function App() {
       ) {
         return
       }
-      queueRuntimeEvent(event, terminal?.label ?? null)
+      // A watcher can report before the start IPC acknowledgement publishes its tab.
+      // Retain state, not an unbounded event log; incidents still consume every event once.
+      const prepublication =
+        !terminal &&
+        launchingRef.current &&
+        [...pendingLaunchDiscoveriesRef.current.values()].some(
+          (pending) => pending.terminalId === null,
+        )
+      if (prepublication) {
+        rememberPendingRuntimeTab(earlyRuntimeRef.current, event)
+      }
+      queueRuntimeEvent(event, terminal?.label ?? null, prepublication)
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
         // Retries repeat the same feedback: coalesce exact repeats, but keep
@@ -1268,6 +1289,7 @@ function App() {
       if (runtimeFrame !== null) window.cancelAnimationFrame(runtimeFrame)
       runtimeFrame = null
       pendingRuntimeEvents = []
+      earlyRuntime.clear()
       void unlistenSession.then((stop) => stop?.())
       void unlistenSessionTitle.then((stop) => stop?.())
       void unlistenRuntime.then((stop) => stop?.())
@@ -1742,8 +1764,17 @@ function App() {
             ...discovery,
             terminalId: tab.id,
           })
+        const early = earlyRuntimeRef.current.get(tab.id)
+        const publishedTab: TerminalTab = early
+          ? {
+              ...tab,
+              ...Object.fromEntries(
+                Object.entries(early).filter(([, value]) => value !== undefined),
+              ),
+            }
+          : tab
         unpublishedTerminalIdsRef.current.add(tab.id)
-        setTabs((current) => [...current, tab])
+        setTabs((current) => [...current, publishedTab])
         // Publish the new terminal without taking back a newer explicit tab choice.
         if (tabSelectionRequest === tabSelectionRequestRef.current) setActiveTabId(tab.id)
       } catch (error) {
@@ -1751,6 +1782,7 @@ function App() {
       } finally {
         if (pendingLaunchDiscoveriesRef.current.get(pendingDiscovery)?.terminalId === null)
           pendingLaunchDiscoveriesRef.current.delete(pendingDiscovery)
+        earlyRuntimeRef.current.clear()
         launchingRef.current = false
         setLaunching(null)
       }
@@ -2504,6 +2536,7 @@ function App() {
 
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
+      earlyRuntimeRef.current.delete(event.terminalId)
       rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
