@@ -366,6 +366,181 @@ async function workspaceBackend(initial: BootstrapPayload) {
 }
 
 describe("App lifecycle serialization", () => {
+  it.each([
+    "file",
+    "directory",
+    "unrelated-warning",
+    "authoritative-missing",
+    "manual-selection",
+    "project-override",
+  ] as const)("research partial scan selection recovery: %s", async (mode) => {
+    const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
+    const older = {
+      ...latest,
+      id: "partial-scan-older",
+      title: "Older scan recovery target",
+      filePath: "C:/fixture/sessions/older-scan.jsonl",
+      updatedAt: 1,
+    }
+    const complete = {
+      ...bootstrap,
+      workspaces: [
+        ...bootstrap.workspaces,
+        { ...bootstrap.workspaces[0], key: "other", path: "C:/fixture/other", name: "Other" },
+      ],
+      sessions: [latest, older],
+    }
+    let snapshot: BootstrapPayload = complete
+    vi.mocked(api.bootstrap).mockImplementation(async () => snapshot)
+    await act(async () => root.render(<App />))
+    const choose = async (title: string) => {
+      const row = [...container.querySelectorAll<HTMLButtonElement>(".session-select")].find(
+        (item) => item.getAttribute("aria-label") === title,
+      )
+      expect(row).toBeDefined()
+      await act(async () => row!.click())
+    }
+    const externalRefresh = async () => {
+      const subscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "single-instance")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+      await act(async () => {
+        receive({ event: "single-instance", id: 902, payload: { workspace: null, error: null } })
+      })
+    }
+    await choose(older.title)
+    expect(element(".session-item.is-selected").textContent).toContain(older.title)
+    snapshot = {
+      ...complete,
+      sessions: [latest],
+      sessionWarnings: [
+        {
+          path:
+            mode === "directory"
+              ? "C:/fixture/sessions"
+              : mode === "unrelated-warning"
+                ? "C:/fixture/sessions/unrelated.jsonl"
+                : older.filePath,
+          message: "Synthetic temporary read failure",
+        },
+      ],
+    }
+    await externalRefresh()
+    expect(container.querySelector(".session-item.is-selected")).toBeNull()
+    expect(container.querySelector(`[aria-label="${older.title}"]`)).toBeNull()
+    expect(element(".hero-actions .secondary").textContent).toBe("Продолжить последнюю")
+    expect(element(".app-session-warnings").textContent).toContain(
+      "Synthetic temporary read failure",
+    )
+    expect(api.startTerminal).not.toHaveBeenCalled()
+
+    if (mode === "manual-selection") await choose(latest.title)
+    if (mode === "project-override") {
+      await act(async () => element('.project-item[aria-label^="Other,"]').click())
+      await act(async () => element('.project-item[aria-label^="Fixture,"]').click())
+    }
+    if (mode === "authoritative-missing") {
+      snapshot = { ...complete, sessions: [latest], sessionWarnings: [] }
+      await act(async () => element<HTMLButtonElement>(".app-session-warnings button").click())
+      expect(container.querySelector(".app-session-warnings")).toBeNull()
+      expect(container.querySelector(".session-item.is-selected")).toBeNull()
+    }
+    snapshot = complete
+    if (mode === "authoritative-missing") await externalRefresh()
+    else await act(async () => element<HTMLButtonElement>(".app-session-warnings button").click())
+    expect(container.querySelector(".app-session-warnings")).toBeNull()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    if (mode === "authoritative-missing" || mode === "project-override") {
+      expect(container.querySelector(".session-item.is-selected")).toBeNull()
+      expect(element(".hero-actions .secondary").textContent).toBe("Продолжить последнюю")
+    } else {
+      const expected = mode === "manual-selection" ? latest : older
+      expect(element(".session-item.is-selected").textContent).toContain(expected.title)
+      expect(element(".hero-actions .secondary").textContent).toBe(
+        mode === "manual-selection" ? "Продолжить последнюю" : "Продолжить выбранную",
+      )
+      await act(async () => element<HTMLButtonElement>(".hero-actions .secondary").click())
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        expected.cwd,
+        expected.filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+    }
+  })
+
+  it.each(["cancel", "failure", "success", "newer-selection"] as const)(
+    "research partial scan deletion selection: %s",
+    async (mode) => {
+      const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
+      const older = {
+        ...latest,
+        id: "delete-older",
+        title: "Older delete target",
+        filePath: "C:/fixture/sessions/delete-older.jsonl",
+        updatedAt: 1,
+      }
+      const complete = { ...bootstrap, sessions: [latest, older] }
+      let snapshot: BootstrapPayload = complete
+      vi.mocked(api.bootstrap).mockImplementation(async () => snapshot)
+      const deletion = deferred<BootstrapPayload>()
+      vi.mocked(api.deleteSession).mockReturnValue(deletion.promise)
+      vi.mocked(confirm).mockResolvedValue(mode !== "cancel")
+      await act(async () => root.render(<App />))
+      const select = (title: string) =>
+        [...container.querySelectorAll<HTMLButtonElement>(".session-select")].find(
+          (row) => row.getAttribute("aria-label") === title,
+        )!
+      await act(async () => select(older.title).click())
+      const row = select(older.title).closest(".session-item")!
+      await act(async () => row.querySelector<HTMLButtonElement>(".session-delete")!.click())
+      if (mode === "cancel") {
+        expect(api.deleteSession).not.toHaveBeenCalled()
+      } else {
+        expect(api.deleteSession).toHaveBeenCalledExactlyOnceWith(older.filePath, false)
+        if (mode === "newer-selection") await act(async () => select(latest.title).click())
+        if (mode === "failure") {
+          await act(async () => deletion.reject(new Error("Synthetic deletion refused")))
+        } else {
+          snapshot = {
+            ...complete,
+            sessions: [latest],
+            sessionWarnings: [
+              {
+                path: "C:/fixture/sessions/unrelated.jsonl",
+                message: "Synthetic unrelated scan warning",
+              },
+            ],
+          }
+          await act(async () => deletion.resolve(snapshot))
+          if (mode === "success")
+            expect(container.querySelector(".session-item.is-selected")).toBeNull()
+          else expect(element(".session-item.is-selected").textContent).toContain(latest.title)
+        }
+      }
+      // A later visible same-path entry must not revive an explicitly deleted selection.
+      snapshot = complete
+      const subscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "single-instance")!
+      const receive = subscription[1] as EventCallback<SingleInstanceEvent>
+      await act(async () =>
+        receive({ event: "single-instance", id: 903, payload: { workspace: null, error: null } }),
+      )
+      if (mode === "success")
+        expect(container.querySelector(".session-item.is-selected")).toBeNull()
+      else
+        expect(element(".session-item.is-selected").textContent).toContain(
+          mode === "newer-selection" ? latest.title : older.title,
+        )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   let root: Root
   let container: HTMLDivElement
   let previousDocumentLanguage: string | null
