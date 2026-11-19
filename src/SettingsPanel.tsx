@@ -2564,7 +2564,11 @@ export function SettingsPanel({
                                                 </span>
                                                 <strong>
                                                   {usedPercent === null
-                                                    ? "—"
+                                                    ? limit.status === "exhausted"
+                                                      ? t(language, "accountStatusExhausted")
+                                                      : limit.status === "warning"
+                                                        ? t(language, "accountStatusLimited")
+                                                        : "—"
                                                     : `${formatAccountPercent(language, usedPercent)}% · ${formatAccountPercent(language, 100 - usedPercent)}% ${t(language, "accountRemaining")}`}
                                                 </strong>
                                               </div>
