@@ -782,7 +782,13 @@ function App() {
         return next.workspaces[0]?.key ?? null
       })
       setSelectedSessionPath((current) =>
-        current && next.sessions.some((session) => session.filePath === current) ? current : null,
+        // Partial discovery cannot establish removal. Retain only the path intent;
+        // selectedSession still resolves exclusively from the current workspace snapshot.
+        current &&
+        (next.sessions.some((session) => session.filePath === current) ||
+          next.sessionWarnings.length > 0)
+          ? current
+          : null,
       )
     },
     [acceptStartupWorkspaceWarning, showNotice],
@@ -2495,6 +2501,8 @@ function App() {
         )
         if (!next) return
         for (const tab of matchingTabs) closeTab(tab.id)
+        // An acknowledged deletion is authoritative even if other files failed discovery.
+        setSelectedSessionPath((current) => (current === session.filePath ? null : current))
         applyPayload(next)
         showNotice(t(lang, "sessionDeleted"))
       } catch (error) {
