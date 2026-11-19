@@ -131,6 +131,8 @@ export const UI_TEXT = {
     tryAnotherQuery: "Попробуйте другой запрос",
     jsonlNative: "JSONL · OMP native",
     tabReorderHint: "Переместить вкладку: Alt+Shift+←/→",
+    scrollTabsLeft: "Прокрутить вкладки влево",
+    scrollTabsRight: "Прокрутить вкладки вправо",
     tabReordered: "{title}: вкладка {position} из {count}",
     closeSuccessfulTabs: "Закрыть успешно завершённые вкладки ({count})",
     closeSuccessfulTabsHint:
@@ -968,6 +970,8 @@ export const UI_TEXT = {
     tryAnotherQuery: "Try another query",
     jsonlNative: "JSONL · OMP native",
     tabReorderHint: "Move tab: Alt+Shift+←/→",
+    scrollTabsLeft: "Scroll tabs left",
+    scrollTabsRight: "Scroll tabs right",
     tabReordered: "{title}: tab {position} of {count}",
     closeSuccessfulTabs: "Close successfully exited tabs ({count})",
     closeSuccessfulTabsHint:
@@ -1838,6 +1842,8 @@ export const UI_TEXT = {
     tryAnotherQuery: "尝试其他查询",
     jsonlNative: "JSONL · OMP native",
     tabReorderHint: "移动标签页：Alt+Shift+←/→",
+    scrollTabsLeft: "向左滚动标签页",
+    scrollTabsRight: "向右滚动标签页",
     tabReordered: "{title}：标签页 {position}/{count}",
     closeSuccessfulTabs: "关闭成功退出的标签页（{count}）",
     closeSuccessfulTabsHint:
