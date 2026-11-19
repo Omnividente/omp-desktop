@@ -383,6 +383,79 @@ describe("App lifecycle serialization", () => {
     return button!
   }
 
+  it.each(["after-ack", "before-ack", "pinned", "unknown-terminal"] as const)(
+    "handles generated discovery titles at the launch boundary (%s)",
+    async (mode) => {
+      const projects = workspacePayload("Alpha")
+      if (mode === "pinned") {
+        projects.sessions[0] = {
+          ...projects.sessions[0],
+          title: "Fixed synthetic title",
+          pinnedTitle: "Fixed synthetic title",
+        }
+      }
+      const beforeAck = mode !== "after-ack"
+      const receivesGeneratedTitle = mode === "after-ack" || mode === "before-ack"
+      const initial = { ...projects, sessions: [] }
+      vi.mocked(api.bootstrap).mockResolvedValue(initial)
+      const launch = deferred<TerminalStarted>()
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".hero-actions .primary").click())
+
+      const receiveSession = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+      const receiveTitle = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-session-title")![1] as EventCallback<{
+        terminalId: string
+        title: string
+      }>
+      const title = "Generated while start is pending"
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      await act(async () =>
+        receiveSession({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      expect(
+        container.querySelector(`.session-select[aria-label="${projects.sessions[0].title}"]`),
+      ).not.toBeNull()
+
+      const sendTitle = () =>
+        act(async () =>
+          receiveTitle({
+            event: "pty-session-title",
+            id: 2,
+            payload: {
+              terminalId: mode === "unknown-terminal" ? "another-terminal" : started.terminalId,
+              title,
+            },
+          }),
+        )
+      if (beforeAck) await sendTitle()
+      await act(async () => launch.resolve({ ...started, cwd: "C:/fixture/Alpha" }))
+      if (!beforeAck) await sendTitle()
+      await act(async () => refresh.resolve(projects))
+
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      const rail = (name: string) =>
+        container.querySelector(`.session-select[aria-label="${name}"]`)
+      expect([
+        element(".terminal-tab-label").textContent,
+        rail(title) !== null,
+        rail(projects.sessions[0].title) !== null,
+      ]).toEqual(
+        receivesGeneratedTitle ? [title, true, false] : [projects.sessions[0].title, false, true],
+      )
+    },
+  )
+
   async function mountAndResume() {
     await act(async () => root.render(<App />))
     await act(async () => element('[title="Продолжить сессию"]').click())

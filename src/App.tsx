@@ -136,6 +136,7 @@ type PendingUpdateRestart = {
   sourceTab: TerminalTab | null
 }
 type PendingLaunchDiscovery = {
+  freshSession: boolean
   terminalId: string | null
   superseded: boolean
 }
@@ -1179,12 +1180,30 @@ function App() {
         if (disposed) return
         const title = event.title.trim()
         const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
-        if (!title || !terminal || terminal.pinnedTitle !== null) return
+        const discovered = discoveredSessionsRef.current.get(event.terminalId)
+        if (!title || terminal?.pinnedTitle != null) return
+        // A discovered session may publish its generated title before its tab commits.
+        if (
+          !terminal &&
+          (!discovered ||
+            discovered.pinnedTitle !== null ||
+            endedRuntimeTerminalIdsRef.current.includes(event.terminalId) ||
+            ![...pendingLaunchDiscoveriesRef.current.values()].some(
+              (pending) =>
+                pending.freshSession &&
+                (pending.terminalId === null || pending.terminalId === event.terminalId),
+            ))
+        ) {
+          return
+        }
 
         setTabs((current) =>
-          current.map((tab) => (tab.id === event.terminalId ? { ...tab, label: title } : tab)),
+          current.map((tab) =>
+            tab.id === event.terminalId && tab.pinnedTitle === null
+              ? { ...tab, label: title }
+              : tab,
+          ),
         )
-        const discovered = discoveredSessionsRef.current.get(event.terminalId)
         if (discovered && discovered.pinnedTitle === null) {
           discoveredSessionsRef.current.set(event.terminalId, { ...discovered, title })
         }
@@ -1194,7 +1213,11 @@ function App() {
           const sessions = current.sessions.map((session) => {
             if (
               session.pinnedTitle !== null ||
-              !tabMatchesSession(terminal, session, current.runtime.platform) ||
+              !(terminal
+                ? tabMatchesSession(terminal, session, current.runtime.platform)
+                : discovered &&
+                  normalizedPath(session.filePath, current.runtime.platform) ===
+                    normalizedPath(discovered.filePath, current.runtime.platform)) ||
               session.title === title
             ) {
               return session
@@ -1682,6 +1705,7 @@ function App() {
       const tabSelectionRequest = tabSelectionRequestRef.current
       const pendingDiscovery = Symbol()
       pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
+        freshSession: !session,
         terminalId: null,
         superseded: false,
       })
