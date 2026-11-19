@@ -4172,6 +4172,10 @@ button:disabled {
   font-size: 0.625rem;
 }
 
+.terminal-tab > button:focus-visible {
+  outline-offset: -2px;
+}
+
 .terminal-tab.is-active > button:first-child {
   color: var(--chrome-text, #c8cfcb);
 }
