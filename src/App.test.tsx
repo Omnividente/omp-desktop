@@ -69,6 +69,17 @@ vi.mock("./clientUpdater", () => ({
   installClientUpdate: vi.fn(),
 }))
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: vi.fn().mockResolvedValue("0.9.3") }))
+const dragDropHandler = vi.hoisted(() => ({
+  handler: null as ((event: { payload: unknown }) => void) | null,
+}))
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({
+    onDragDropEvent: (handler: (event: { payload: unknown }) => void) => {
+      dragDropHandler.handler = handler
+      return Promise.resolve(() => undefined)
+    },
+  }),
+}))
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }))
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn(), open: vi.fn() }))
 vi.mock("./TerminalView", () => ({
@@ -374,6 +385,21 @@ describe("App lifecycle serialization", () => {
     const found = container.querySelector<T>(selector) ?? document.body.querySelector<T>(selector)
     expect(found, selector).not.toBeNull()
     return found!
+  }
+  async function dropPaths(target: "rail" | "outside", paths: string[]) {
+    const hit = target === "rail" ? element(".project-rail") : document.body
+    const original = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => hit })
+    try {
+      await act(async () => {
+        dragDropHandler.handler!({
+          payload: { type: "drop", paths, position: { x: 40, y: 80 } },
+        })
+      })
+    } finally {
+      if (original) Object.defineProperty(document, "elementFromPoint", original)
+      else Reflect.deleteProperty(document, "elementFromPoint")
+    }
   }
   function installButton() {
     const button = [
@@ -2110,6 +2136,42 @@ describe("App lifecycle serialization", () => {
     )
     expect(api.saveSettingsBundle).not.toHaveBeenCalled()
   })
+  it("adds a folder dropped on the project rail and selects it", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A"))
+    vi.mocked(api.addWorkspace).mockResolvedValue(workspacePayload("A", "Dropped"))
+    await act(async () => root.render(<App />))
+    await dropPaths("rail", ["C:/fixture/Dropped"])
+    expect(api.addWorkspace).toHaveBeenCalledWith("C:/fixture/Dropped")
+    expect(element(".project-item.is-active").textContent).toContain("Dropped")
+  })
+
+  it("keeps adding folders when one dropped path is not a directory", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A"))
+    vi.mocked(api.addWorkspace)
+      .mockRejectedValueOnce(new Error("Папка проекта не найдена: C:/fixture/file.txt"))
+      .mockResolvedValueOnce(workspacePayload("A", "Kept"))
+    await act(async () => root.render(<App />))
+    await dropPaths("rail", ["C:/fixture/file.txt", "C:/fixture/Kept"])
+    expect(vi.mocked(api.addWorkspace).mock.calls).toEqual([
+      ["C:/fixture/file.txt"],
+      ["C:/fixture/Kept"],
+    ])
+    expect(element(".project-item.is-active").textContent).toContain("Kept")
+  })
+
+  it("ignores drops outside the project rail and adds every dropped folder in order", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A"))
+    vi.mocked(api.addWorkspace)
+      .mockResolvedValueOnce(workspacePayload("A", "One"))
+      .mockResolvedValueOnce(workspacePayload("A", "One", "Two"))
+    await act(async () => root.render(<App />))
+    await dropPaths("outside", ["C:/fixture/Ignored"])
+    expect(api.addWorkspace).not.toHaveBeenCalled()
+    await dropPaths("rail", ["C:/fixture/One", "C:/fixture/Two"])
+    expect(vi.mocked(api.addWorkspace).mock.calls).toEqual([["C:/fixture/One"], ["C:/fixture/Two"]])
+    expect(element(".project-item.is-active").textContent).toContain("Two")
+  })
+
   it("restores the selected workspace after remount without opening a terminal", async () => {
     let remembered: string | null = null
     const projects = workspacePayload("A", "B")

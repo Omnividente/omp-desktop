@@ -440,6 +440,7 @@ button:disabled {
 }
 
 .project-rail {
+  position: relative;
   display: grid;
   grid-template-rows: auto minmax(78px, 0.7fr) minmax(0, 1.85fr) auto auto;
   min-height: 0;
@@ -447,6 +448,31 @@ button:disabled {
   overflow: hidden;
   border-right: 1px solid var(--line);
   background: var(--chrome-surface, #0f1210);
+}
+
+.project-rail.is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.project-drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  color: var(--accent);
+  background: var(--chrome-surface, #0f1210);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+}
+
+.project-rail.is-compact .project-drop-hint {
+  display: none;
 }
 
 .workbench.rail-collapsed,
