@@ -100,6 +100,70 @@ describe("release tag health", () => {
     )
   })
 
+  it("keeps the candidate age gate for other tags when an exact opt-in preview is documented", () => {
+    const preview = { ...release("v0.8.0", false, true), id: 80, immutable: true }
+    const baseline = {
+      tagRefs: [ref("v0.8.0")],
+      releases: [preview],
+      exceptions: [
+        {
+          tag: "v0.8.0",
+          kind: "opt-in-prerelease",
+          releaseId: 80,
+          reason: "Published opt-in preview for feedback",
+        },
+      ],
+      now: "2026-09-04T12:00:00Z",
+    }
+    assert.deepEqual(checkReleaseTagHealth(baseline), {
+      versionTags: 1,
+      publishedReleases: 1,
+      candidatePrereleases: 1,
+      documentedExceptions: 1,
+    })
+    assert.throws(
+      () =>
+        checkReleaseTagHealth({
+          ...baseline,
+          tagRefs: [...baseline.tagRefs, ref("v0.8.1")],
+          releases: [...baseline.releases, release("v0.8.1", false, true)],
+        }),
+      /Candidate prereleases older than 24 hours were not promoted: v0\.8\.1$/,
+    )
+  })
+
+  it("rejects an opt-in exception when the matching immutable prerelease no longer exists", () => {
+    const preview = { ...release("v0.8.0", false, true), id: 80, immutable: true }
+    for (const [scenario, releases] of [
+      ["deleted release", []],
+      ["same tag, different release ID", [{ ...preview, id: 81 }]],
+      ["same release ID, different tag", [{ ...preview, tag_name: "v0.8.1" }]],
+      ["draft release", [{ ...preview, draft: true }]],
+      ["unknown publication state", [{ ...preview, draft: undefined }]],
+      ["mutable release", [{ ...preview, immutable: false }]],
+      ["promoted release", [{ ...preview, prerelease: false }]],
+    ]) {
+      assert.throws(
+        () =>
+          checkReleaseTagHealth({
+            tagRefs: [ref("v0.8.0")],
+            releases,
+            exceptions: [
+              {
+                tag: "v0.8.0",
+                kind: "opt-in-prerelease",
+                releaseId: 80,
+                reason: "Published opt-in preview for feedback",
+              },
+            ],
+            now: "2026-09-04T12:00:00Z",
+          }),
+        /Opt-in prerelease exception v0\.8\.0 requires the exact published immutable prerelease/,
+        scenario,
+      )
+    }
+  })
+
   it("accepts an explicitly documented candidate superseded by a newer stable release", () => {
     assert.deepEqual(
       checkReleaseTagHealth({
