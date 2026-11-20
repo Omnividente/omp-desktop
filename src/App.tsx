@@ -1794,13 +1794,11 @@ function App() {
   )
 
   const launchUpdate = useCallback(async () => {
-    if (
-      !payload?.runtime.ompAvailable ||
-      !selectedWorkspace?.path ||
-      launchingRef.current ||
-      isInstallingClientUpdate()
-    )
+    if (!payload?.runtime.ompAvailable || launchingRef.current || isInstallingClientUpdate()) return
+    if (!selectedWorkspace?.path) {
+      showError(t(lang, "requireProjectDir"))
       return
+    }
     const sourceTab =
       tabs.find((tab) => tab.id === updateSourceTerminalId && tab.status === "running") ??
       tabs.find((tab) => tab.status === "running" && tab.kind === "agent") ??
