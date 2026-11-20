@@ -18,5 +18,11 @@
     "tag": "v0.9.11",
     "kind": "superseded-candidate",
     "reason": "The immutable v0.9.11 prerelease is superseded by published stable v0.9.12; retain its tag and assets without promoting the historical candidate."
+  },
+  {
+    "tag": "v0.9.13",
+    "kind": "opt-in-prerelease",
+    "releaseId": 445156302,
+    "reason": "Documented opt-in feedback release, not an automatic stable promotion candidate. See the v0.9.13 release notes; remove or replace this exception when its release state changes."
   }
 ]
