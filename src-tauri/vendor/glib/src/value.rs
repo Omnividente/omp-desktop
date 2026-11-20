@@ -1518,6 +1518,25 @@ mod tests {
     }
 
     #[test]
+    fn test_boxed_inline_slice_transfer_container() {
+        let values = ["example".to_value()];
+        let stash: Stash<'_, *mut gobject_ffi::GValue, [Value]> = values[..].to_glib_container();
+        assert!(!stash.0.is_null());
+        assert_ne!(stash.0, values[0].as_ptr());
+
+        // A transfer-container recipient reads the value and frees only the buffer.
+        let payload = unsafe {
+            let payload = gobject_ffi::g_value_get_string(stash.0);
+            ffi::g_free(stash.0.cast());
+            payload
+        };
+        assert_eq!(payload, unsafe {
+            gobject_ffi::g_value_get_string(values[0].as_ptr())
+        });
+        assert_eq!(values[0].get::<&str>(), Ok("example"));
+    }
+
+    #[test]
     fn test_from_to_value() {
         let v = 123.to_value();
         assert_eq!(v.get(), Ok(123));

@@ -309,10 +309,17 @@ macro_rules! glib_boxed_inline_wrapper {
             }
 
             fn to_glib_container_from_slice(t: &'a [Self]) -> (*mut $ffi_name, Self::Storage) {
-                (
-                    $crate::translate::ToGlibContainerFromSlice::<'a, *mut $ffi_name>::to_glib_full_from_slice(t),
-                    std::marker::PhantomData,
-                )
+                let ptr = unsafe {
+                    let ptr = $crate::ffi::g_malloc_n(t.len(), std::mem::size_of::<$ffi_name>()) as *mut $ffi_name;
+                    if !ptr.is_null() {
+                        // The repr(transparent) records borrow their payloads from t.
+                        // The callee may free the buffer, but must not clear the elements
+                        // or use their payloads after the borrow ends.
+                        std::ptr::copy_nonoverlapping(t.as_ptr().cast(), ptr, t.len());
+                    }
+                    ptr
+                };
+                (ptr, std::marker::PhantomData)
             }
 
             fn to_glib_full_from_slice(t: &[Self]) -> *mut $ffi_name {
