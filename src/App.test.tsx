@@ -4777,6 +4777,53 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each([".update-pill", ".update-toast .button.primary"])(
+    "explains the missing project for OMP update from %s",
+    async (selector) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language: "en", lastWorkspace: null },
+        workspaces: [],
+        sessions: [],
+      })
+      vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+        hasUpdate: true,
+        currentVersion: "18.1.19",
+        latestVersion: "99.0.0",
+        message: "Fixture runtime update",
+      })
+      await act(async () => root.render(<App />))
+      expect(container.querySelector(".empty-workspace")).not.toBeNull()
+      expect(container.textContent).not.toContain(t("en", "requireProjectDir"))
+      await act(async () => element<HTMLButtonElement>(selector).click())
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(container.textContent).toContain(t("en", "requireProjectDir"))
+    },
+  )
+
+  it("starts the explicit OMP update normally with a selected project", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en" },
+    })
+    vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+      hasUpdate: true,
+      currentVersion: "18.1.19",
+      latestVersion: "99.0.0",
+      message: "Fixture runtime update",
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element<HTMLButtonElement>(".update-pill").click())
+    expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+      bootstrap.workspaces[0].path,
+      null,
+      120,
+      36,
+      ["update"],
+    )
+    expect(container.textContent).not.toContain(t("en", "requireProjectDir"))
+  })
+
   it.each(["session", "utility"] as const)(
     "guards a successful %s spawn before React publishes its tab",
     async (kind) => {
