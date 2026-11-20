@@ -318,6 +318,7 @@ export function ProjectRail({
           const active = selectedWorkspace?.key === workspace.key
           const renaming = renamingWorkspaceKey === workspace.key
           const busy = workspaceBusyKey === workspace.key
+          const recentStatus = workspace.pinned ? t(lang, "projectInRecentList") : null
           return (
             <div className={`project-item-row${active ? " is-active" : ""}`} key={workspace.key}>
               {renaming ? (
@@ -365,7 +366,7 @@ export function ProjectRail({
                     setProjectSearch("")
                     onSelectWorkspace(workspace.key)
                   }}
-                  title={`${workspace.name}\n${workspace.path}`}
+                  title={`${workspace.name}\n${workspace.path}${recentStatus ? `\n${recentStatus}` : ""}`}
                   type="button"
                 >
                   <span className="project-glyph">
@@ -380,7 +381,9 @@ export function ProjectRail({
                   <span aria-hidden="true" className="project-expand-marker">
                     <Icon name="chevron" size={13} />
                   </span>
-                  {workspace.pinned && <span className="pin-dot" title="pinned" />}
+                  {recentStatus && (
+                    <span aria-hidden="true" className="pin-dot" title={recentStatus} />
+                  )}
                 </button>
               )}
               {!renaming && (

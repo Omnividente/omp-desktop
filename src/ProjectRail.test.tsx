@@ -3,6 +3,7 @@
 import { act, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { t } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import type { SessionListProps } from "./SessionList"
 import type { WorkspaceSummary } from "./types"
@@ -58,14 +59,19 @@ function sessionList(): SessionListProps {
 function RemovalFixture({
   remove,
   lastWorkspace = false,
+  language = "ru",
 }: {
   remove: () => Promise<boolean>
   lastWorkspace?: boolean
+  language?: SessionListProps["lang"]
 }) {
   const [workspaces, setWorkspaces] = useState(
     lastWorkspace
       ? [workspace]
-      : [workspace, { ...workspace, key: "other", name: "Other", path: "D:/Projects/Other" }],
+      : [
+          workspace,
+          { ...workspace, key: "other", name: "Other", path: "D:/Projects/Other", pinned: false },
+        ],
   )
   const [busy, setBusy] = useState<string | null>(null)
   return (
@@ -78,7 +84,7 @@ function RemovalFixture({
         modeSaving={false}
         workspaces={workspaces}
         selectedWorkspace={workspaces[0] ?? null}
-        sessionList={sessionList()}
+        sessionList={{ ...sessionList(), lang: language }}
         renamingWorkspaceKey={null}
         workspaceNameValue=""
         workspaceBusyKey={busy}
@@ -116,6 +122,25 @@ describe("ProjectRail workspace actions", () => {
     act(() => root.unmount())
     container.remove()
   })
+
+  it.each([
+    ["ru", "В списке недавних проектов"],
+    ["en", "In recent projects"],
+    ["zh", "在最近项目中"],
+  ] as const)(
+    "describes recent project membership without changing the button name (%s)",
+    (language, description) => {
+      act(() => root.render(<RemovalFixture remove={async () => false} language={language} />))
+      const [recent, discovered] = container.querySelectorAll<HTMLButtonElement>(".project-item")
+      expect(recent.getAttribute("aria-label")).toBe(`App, 2 ${t(language, "sessShort")}`)
+      expect(recent.title).toBe(`App\nD:/Projects/App\n${description}`)
+      const dot = recent.querySelector<HTMLElement>(".pin-dot")
+      expect(dot?.title).toBe(description)
+      expect(dot?.getAttribute("aria-hidden")).toBe("true")
+      expect(discovered.title).toBe("Other\nD:/Projects/Other")
+      expect(discovered.querySelector(".pin-dot")).toBeNull()
+    },
+  )
 
   it("restores the edit control after Escape without reclaiming a newer focus", () => {
     let moveFocusOnCancel = false
