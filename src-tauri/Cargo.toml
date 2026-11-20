@@ -67,4 +67,6 @@ keyring = { version = "4.1.5", default-features = false, features = ["v1", "appl
 # GTK3/WebKitGTK bindings require glib 0.18. Keep the published 0.18.5 API and
 # backport gtk-rs/gtk-rs-core#1343 (RUSTSEC-2024-0429) until the bindings migrate.
 # Upstream archive SHA-256: 233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5
+# Downstream: atomic GObject ref-count loads, unwind-safe PtrSlice truncation,
+# correctly initialized boxed-inline arrays, and a StrV test bounds correction.
 glib = { path = "vendor/glib" }

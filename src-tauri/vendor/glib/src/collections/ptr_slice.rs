@@ -882,25 +882,14 @@ impl<T: TransparentPtrType> PtrSlice<T> {
     }
 
     // rustdoc-stripper-ignore-next
-    /// Shortens the slice by keeping the last `len` items.
+    /// Shortens the slice by keeping the first `len` items.
     ///
     /// If there are fewer than `len` items then this has no effect.
     #[inline]
     pub fn truncate(&mut self, len: usize) {
-        if self.len <= len {
-            return;
-        }
-
-        unsafe {
-            while self.len > len {
-                self.len -= 1;
-                let p = self.ptr.as_ptr().add(self.len);
-                ptr::drop_in_place::<T>(p as *mut T);
-                ptr::write(
-                    p,
-                    Ptr::from(ptr::null_mut::<<T as GlibPtrDefault>::GlibType>()),
-                );
-            }
+        while self.len > len {
+            // Restore the C terminator before running a destructor that may unwind.
+            drop(self.pop());
         }
     }
 }
@@ -1310,6 +1299,30 @@ mod test {
                 b.kind::<crate::FileError>().unwrap()
             );
         }
+    }
+
+    #[test]
+    fn test_truncate_terminator() {
+        let mut slice = PtrSlice::from([
+            crate::Error::new(crate::FileError::Failed, "first"),
+            crate::Error::new(crate::FileError::Failed, "second"),
+            crate::Error::new(crate::FileError::Failed, "third"),
+        ]);
+
+        slice.truncate(2);
+        assert_eq!(slice[0].message(), "first");
+        assert_eq!(slice[1].message(), "second");
+        (&slice).run_with_ptr_slice(|ptrs| {
+            assert_eq!(ptrs.len(), 3);
+            assert!(ptrs[2].is_null());
+        });
+
+        slice.truncate(0);
+        assert!(slice.is_empty());
+        (&slice).run_with_ptr_slice(|ptrs| {
+            assert_eq!(ptrs.len(), 1);
+            assert!(ptrs[0].is_null());
+        });
     }
 
     #[test]

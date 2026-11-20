@@ -467,7 +467,11 @@ impl FromGlibPtrNone<*mut gobject_ffi::GObject> for ObjectRef {
     #[inline]
     unsafe fn from_glib_none(ptr: *mut gobject_ffi::GObject) -> Self {
         debug_assert!(!ptr.is_null());
-        debug_assert_ne!((*ptr).ref_count, 0);
+        // GLib changes ref_count atomically, including while another reference is live.
+        debug_assert_ne!(
+            ffi::g_atomic_int_get(ptr::addr_of!((*ptr).ref_count).cast()),
+            0,
+        );
 
         // Attention: This takes ownership of floating references!
         Self {
@@ -490,7 +494,10 @@ impl FromGlibPtrFull<*mut gobject_ffi::GObject> for ObjectRef {
     #[inline]
     unsafe fn from_glib_full(ptr: *mut gobject_ffi::GObject) -> Self {
         debug_assert!(!ptr.is_null());
-        debug_assert_ne!((*ptr).ref_count, 0);
+        debug_assert_ne!(
+            ffi::g_atomic_int_get(ptr::addr_of!((*ptr).ref_count).cast()),
+            0,
+        );
 
         Self {
             inner: ptr::NonNull::new_unchecked(ptr),
@@ -503,7 +510,10 @@ impl FromGlibPtrBorrow<*mut gobject_ffi::GObject> for ObjectRef {
     #[inline]
     unsafe fn from_glib_borrow(ptr: *mut gobject_ffi::GObject) -> Borrowed<Self> {
         debug_assert!(!ptr.is_null());
-        debug_assert_ne!((*ptr).ref_count, 0);
+        debug_assert_ne!(
+            ffi::g_atomic_int_get(ptr::addr_of!((*ptr).ref_count).cast()),
+            0,
+        );
 
         Borrowed::new(Self {
             inner: ptr::NonNull::new_unchecked(ptr),
@@ -1050,7 +1060,7 @@ macro_rules! glib_object_wrapper {
             unsafe fn from_value(value: &'a $crate::Value) -> Self {
                 let ptr = $crate::gobject_ffi::g_value_dup_object($crate::translate::ToGlibPtr::to_glib_none(value).0);
                 debug_assert!(!ptr.is_null());
-                debug_assert_ne!((*ptr).ref_count, 0);
+                debug_assert_ne!($crate::ffi::g_atomic_int_get(std::ptr::addr_of!((*ptr).ref_count).cast()), 0);
                 <Self as $crate::translate::FromGlibPtrFull<*mut $ffi_name>>::from_glib_full(ptr as *mut $ffi_name)
             }
         }
@@ -1064,7 +1074,10 @@ macro_rules! glib_object_wrapper {
                 debug_assert_eq!(std::mem::size_of::<Self>(), std::mem::size_of::<$crate::ffi::gpointer>());
                 let value = &*(value as *const $crate::Value as *const $crate::gobject_ffi::GValue);
                 debug_assert!(!value.data[0].v_pointer.is_null());
-                debug_assert_ne!((*(value.data[0].v_pointer as *const $crate::gobject_ffi::GObject)).ref_count, 0);
+                debug_assert_ne!({
+                    let ptr = value.data[0].v_pointer.cast::<$crate::gobject_ffi::GObject>();
+                    $crate::ffi::g_atomic_int_get(std::ptr::addr_of!((*ptr).ref_count).cast())
+                }, 0);
                 <$name $(<$($generic),+>)? as $crate::object::ObjectType>::from_glib_ptr_borrow(&value.data[0].v_pointer as *const $crate::ffi::gpointer as *const *const $ffi_name)
             }
         }
@@ -3062,7 +3075,7 @@ impl<T: ObjectType> ObjectExt for T {
         let stash = self.as_object_ref().to_glib_none();
         let ptr: *mut gobject_ffi::GObject = stash.0;
 
-        unsafe { ffi::g_atomic_int_get(&(*ptr).ref_count as *const u32 as *const i32) as u32 }
+        unsafe { ffi::g_atomic_int_get(ptr::addr_of!((*ptr).ref_count).cast()) as u32 }
     }
 
     #[inline]
@@ -4527,6 +4540,13 @@ mod tests {
         let obj2 = v.get::<&Object>().unwrap();
 
         assert_eq!(obj1.as_ptr(), obj2.as_ptr());
+
+        let count = obj1.ref_count();
+        let owned = v.get::<Object>().unwrap();
+        assert_eq!(owned.as_ptr(), obj1.as_ptr());
+        assert_eq!(obj1.ref_count(), count + 1);
+        drop(owned);
+        assert_eq!(obj1.ref_count(), count);
     }
 
     #[test]

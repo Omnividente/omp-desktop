@@ -441,7 +441,7 @@ impl<T: ToValueOptional + StaticType + ?Sized> ToValueOptional for &T {
 
 #[inline]
 unsafe fn copy_value(value: *const gobject_ffi::GValue) -> *mut gobject_ffi::GValue {
-    let copy = ffi::g_malloc0(mem::size_of::<gobject_ffi::GValue>()) as *mut gobject_ffi::GValue;
+    let copy = ffi::g_malloc(mem::size_of::<gobject_ffi::GValue>()) as *mut gobject_ffi::GValue;
     copy_into_value(copy, value);
     copy
 }
@@ -459,6 +459,8 @@ unsafe fn init_value(value: *mut gobject_ffi::GValue) {
 
 #[inline]
 unsafe fn copy_into_value(dest: *mut gobject_ffi::GValue, src: *const gobject_ffi::GValue) {
+    // Boxed-inline slice copies also pass freshly allocated storage here.
+    init_value(dest);
     gobject_ffi::g_value_init(dest, (*src).g_type);
     gobject_ffi::g_value_copy(src, dest);
 }
@@ -1500,6 +1502,19 @@ mod tests {
             v.get::<Vec<GString>>(),
             Ok(vec![GString::from("123"), GString::from("456")])
         );
+    }
+
+    #[test]
+    fn test_boxed_inline_slice_roundtrip() {
+        let values = [7i32.to_value(), "example".to_value()];
+        let len = values.len();
+        let ptr: *mut gobject_ffi::GValue = Value::to_glib_full_from_slice(&values);
+        drop(values);
+
+        // The copies own their contents after the original values are dropped.
+        let copied = unsafe { Value::from_glib_full_num_as_vec(ptr, len) };
+        assert_eq!(copied[0].get::<i32>(), Ok(7));
+        assert_eq!(copied[1].get::<&str>(), Ok("example"));
     }
 
     #[test]
