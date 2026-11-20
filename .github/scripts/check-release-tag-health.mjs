@@ -73,14 +73,14 @@ export function checkReleaseTagHealth({
 
   const exceptionTags = new Set()
   const orphanExceptionTags = new Set()
-  const candidateExceptionTags = new Set()
+  const candidateAgeExceptionTags = new Set()
   for (const exception of requireArray(exceptions, "Release tag exceptions")) {
     const tag = exception?.tag
     const kind = exception?.kind
     const reason = exception?.reason
     if (
       !SEMVER_TAG.test(tag ?? "") ||
-      !["orphan-tag", "superseded-candidate"].includes(kind) ||
+      !["orphan-tag", "superseded-candidate", "opt-in-prerelease"].includes(kind) ||
       typeof reason !== "string" ||
       !reason.trim()
     ) {
@@ -96,6 +96,20 @@ export function checkReleaseTagHealth({
         throw new Error(`Orphan tag exception ${tag} is stale because a published release exists`)
       }
       orphanExceptionTags.add(tag)
+    } else if (kind === "opt-in-prerelease") {
+      if (
+        !Number.isSafeInteger(exception.releaseId) ||
+        exception.releaseId <= 0 ||
+        release?.id !== exception.releaseId ||
+        release.immutable !== true ||
+        release.prerelease !== true
+      ) {
+        throw new Error(
+          `Opt-in prerelease exception ${tag} requires the exact published immutable prerelease`,
+        )
+      }
+      timestamp(release.published_at, `Opt-in prerelease ${tag} published_at`)
+      candidateAgeExceptionTags.add(tag)
     } else {
       if (!release || release.prerelease !== true) {
         throw new Error(
@@ -105,14 +119,15 @@ export function checkReleaseTagHealth({
       if (!stableReleaseTags.some((stableTag) => stableTagIsNewer(stableTag, tag))) {
         throw new Error(`Superseded candidate exception ${tag} requires a newer stable release`)
       }
-      candidateExceptionTags.add(tag)
+      candidateAgeExceptionTags.add(tag)
     }
     exceptionTags.add(tag)
   }
 
   const staleCandidates = publishedReleases
     .filter(
-      (release) => release.prerelease === true && !candidateExceptionTags.has(release.tag_name),
+      (release) =>
+        release.prerelease === true && !candidateAgeExceptionTags.has(release.tag_name),
     )
     .filter((release) => {
       const publishedAt = timestamp(
