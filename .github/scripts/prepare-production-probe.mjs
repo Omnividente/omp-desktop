@@ -5,6 +5,8 @@ import { createHash } from "node:crypto"
 import { readFile, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve, isAbsolute } from "node:path"
 import { fileURLToPath } from "node:url"
+import { TARGET_VERSION } from "./production-smoke-guards.mjs"
+
 const harness = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const target = resolve(process.cwd())
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex")
@@ -81,7 +83,7 @@ async function inputs() {
   )
   const configBytes = await readFile(join(target, "src-tauri/tauri.conf.json"))
   const config = JSON.parse(configBytes)
-  assert.equal(config.version, "0.9.13")
+  assert.equal(config.version, TARGET_VERSION)
   assert.equal(config.identifier, "com.ompdesk.desktop")
   assert.deepEqual(config.plugins.updater.endpoints, [
     "https://github.com/Omnividente/omp-desktop/releases/latest/download/latest.json",
@@ -92,7 +94,7 @@ async function inputs() {
     targetSource: process.env.PRODUCTION_TARGET_SHA,
     probeSource: process.env.PRODUCTION_HARNESS_SHA,
     probeVersion: "0.9.12",
-    targetVersion: "0.9.13",
+    targetVersion: TARGET_VERSION,
     releaseId: process.env.PRODUCTION_TARGET_RELEASE_ID,
     trust: "unchanged-production",
     configSha256: sha(configBytes),

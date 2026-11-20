@@ -12,6 +12,9 @@ const TARGET_ENV: &str = "OMP_DESKTOP_UPDATER_E2E_TARGET";
 const MARKER_ARG: &str = "--updater-e2e-marker=";
 const TARGET_ARG: &str = "--updater-e2e-target=";
 
+// The diagnostic overlay changes Tauri's running version, not the Cargo source version.
+const PRODUCTION_TARGET_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn process_value(env_name: &str, argument_prefix: &str) -> Option<String> {
     env::var(env_name)
         .ok()
@@ -159,7 +162,7 @@ fn production_guard(config: &tauri::Config) -> Result<PathBuf, String> {
             && guard["targetSha"].as_str() == Some(target)
             && guard["harnessSha"].as_str() == Some(harness)
             && guard["releaseId"].as_str() == Some(release)
-            && guard["targetVersion"].as_str() == Some("0.9.13")
+            && guard["targetVersion"].as_str() == Some(PRODUCTION_TARGET_VERSION)
             && guard["probeVersion"].as_str() == Some("0.9.12"),
         "Production probe build/guard identities differ",
     )?;
@@ -254,11 +257,14 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
         .update
         .ok_or("Production candidate not discovered")?;
     require(
-        candidate.version == "0.9.13"
+        candidate.version == PRODUCTION_TARGET_VERSION
             && candidate.prerelease
             && Some(candidate.release_id.as_str()) == option_env!("OMP_PRODUCTION_RELEASE_ID")
             && candidate.release_url
-                == "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.13",
+                == concat!(
+                    "https://github.com/Omnividente/omp-desktop/releases/tag/v",
+                    env!("CARGO_PKG_VERSION")
+                ),
         "Native production discovery returned a different immutable target",
     )?;
     record_channel(
@@ -276,7 +282,7 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
         marker,
         "production-install-requested",
         version,
-        serde_json::json!({"target":"0.9.13"}),
+        serde_json::json!({"target":PRODUCTION_TARGET_VERSION}),
     )?;
     let installed = desktop_updater::install(app, &candidate.candidate_id).await?;
     require(
@@ -287,7 +293,7 @@ async fn run_production(app: &AppHandle, marker: &Path, version: &str) -> Result
         marker,
         "production-installed",
         version,
-        serde_json::json!({"target":"0.9.13"}),
+        serde_json::json!({"target":PRODUCTION_TARGET_VERSION}),
     )?;
     // Windows SDK exits into NSIS and relaunches independently. Linux returns
     // here and Tauri restarts the replaced AppImage. TARGET emits no test marker.
