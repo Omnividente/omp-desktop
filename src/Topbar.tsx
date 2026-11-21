@@ -86,7 +86,9 @@ export function Topbar({
       </div>
       <div className="topbar-context">
         <Icon name="folder" size={15} />
-        <span>{selectedWorkspace?.name ?? t(language, "projectNotSelected")}</span>
+        <span title={selectedWorkspace?.name}>
+          {selectedWorkspace?.name ?? t(language, "projectNotSelected")}
+        </span>
         {selectedWorkspace && <small>{selectedWorkspace.path}</small>}
       </div>
       <div className="topbar-actions">
