@@ -22,6 +22,23 @@ def require(value, code="native-contract"):
         raise NativeContractError(code)
 
 
+def windows_terminal_runtime(desktop_pid, runtime, project):
+    import psutil
+
+    # portable-pty calls CreateProcessW from Desktop. OMP can spawn its own
+    # same-executable workers in the workspace, but they do not own the tab.
+    matches = []
+    for child in psutil.Process(desktop_pid).children(recursive=False):
+        try:
+            if (Path(child.exe()).resolve() == runtime
+                    and Path(child.cwd()).resolve() == project and child.is_running()):
+                matches.append((child.pid, child.create_time()))
+        except psutil.NoSuchProcess:
+            continue
+    require(len(matches) == 1, "native-conpty-match-count")
+    return matches[0]
+
+
 def run(*args):
     return subprocess.check_output(args, stderr=subprocess.DEVNULL, timeout=15).decode().strip()
 
@@ -777,10 +794,7 @@ def main(q):
         project = Path(q["project"]).resolve(strict=True)
         require(within(root, project))
         if windows:
-            matches = [p for p in psutil.Process(pid).children(recursive=True)
-                       if Path(p.exe()).resolve() == runtime and Path(p.cwd()).resolve() == project]
-            require(len(matches) == 1)
-            child_pid = matches[0].pid
+            child_pid, create_time = windows_terminal_runtime(pid, runtime, project)
             pty = "Windows native child in Desktop terminal (ConPTY launcher)"
         else:
             import termios
@@ -820,6 +834,8 @@ def main(q):
             child_pid, pty = matches[0], "Linux /dev/pts stdin, noncanonical input and owned Desktop ancestry"
         identity["runtime"] = {"pid": child_pid, "path": str(runtime),
                                "sha256": file_hash(runtime), "cwd": str(project), "pty": pty}
+        if windows:
+            identity["runtime"]["createTime"] = create_time
     elif operation == "escape":
         keys("{ESC}" if windows else ["Escape"])
     elif operation == "close":

@@ -891,6 +891,7 @@ async function completedAnswerJourney(fixture) {
     project: fixture.project,
   }
   const before = await native(request, true)
+  if (windows) await proof("answer-real-pty-before.json", before.runtime)
   const answer = fixture.messages.find((message) => message.role === "assistant").text
   await native(
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
@@ -931,6 +932,10 @@ async function completedAnswerJourney(fixture) {
   const after = await native(request)
   assert.equal(after.runtime.pid, before.runtime.pid, "Answer controls replaced the actual runtime")
   assert.equal(after.runtime.sha256, before.runtime.sha256)
+  if (windows) {
+    assert(Number.isFinite(before.runtime.createTime) && before.runtime.createTime > 0)
+    assert.equal(after.runtime.createTime, before.runtime.createTime, "Windows reused the OMP PID")
+  }
   await proof("minimal-251-native-synthetic-answer.json", {
     status: "PASS",
     defaultCollapsed: true,
