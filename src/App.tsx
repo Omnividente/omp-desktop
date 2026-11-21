@@ -1289,7 +1289,7 @@ function App() {
         suppressTransientProxyError(
           pendingProxyErrorsRef.current,
           event,
-          terminal?.currentModel,
+          terminal?.currentModel ?? earlyRuntimeRef.current.get(event.terminalId)?.currentModel,
           proxyProvidersRef.current,
         )
       ) {

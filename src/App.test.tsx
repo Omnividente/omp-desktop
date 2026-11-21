@@ -780,6 +780,109 @@ describe("App lifecycle serialization", () => {
     ).not.toBe("provider/orphan")
   })
 
+  it("composes early runtime, bounded batches, live title, and workspace navigation", async () => {
+    const projects = workspacePayload("Alpha", "Beta")
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    const launch = deferred<TerminalStarted>()
+    const refresh = deferred<BootstrapPayload>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+    await act(async () => element(".hero-actions .primary").click())
+    const scheduler = runtimeScheduler()
+    const send = runtimeInput()
+    await act(async () => element('.project-item[aria-label^="Beta,"]').click())
+    await act(async () => element('.session-select[aria-label="Beta session"]').click())
+    const search = element<HTMLInputElement>(".project-sessions .search-box input")
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "Beta",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    const receiveSession = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+    const receiveTitle = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session-title")![1] as EventCallback<{
+      terminalId: string
+      title: string
+    }>
+    vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+    await act(async () => {
+      receiveSession({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+      })
+      send({ kind: "modelChange", model: "provider/live", activity: "thinking" })
+      for (let i = 0; i < 130; i++) send({ activity: "idle" })
+      receiveTitle({
+        event: "pty-session-title",
+        id: 2,
+        payload: { terminalId: started.terminalId, title: "Live title before acknowledgement" },
+      })
+    })
+    expect(container.querySelector(".terminal-tab")).toBeNull()
+    expect(search.value).toBe("Beta")
+    await act(async () => launch.resolve({ ...started, cwd: "C:/fixture/Alpha" }))
+    await act(async () => scheduler.flush())
+    await act(async () => refresh.resolve(projects))
+    const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+    expect(pane.getAttribute("data-response-version")).toBe("130")
+    expect(pane.getAttribute("data-runtime-model")).toBe("provider/live")
+    expect(pane.getAttribute("data-runtime-activity")).toBe("idle")
+    expect(element(".terminal-tab-label").textContent).toBe("Live title before acknowledgement")
+    expect(element(".project-item.is-active").textContent).toContain("Beta")
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "Beta session",
+    )
+    expect(search.value).toBe("Beta")
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses the early model for proxy-error suppression before launch acknowledgement", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en", proxyProviders: ["proxy-provider"] },
+    })
+    const launch = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => element(".new-session-button").click())
+    const scheduler = runtimeScheduler()
+    const send = runtimeInput()
+    await act(async () => {
+      send({ kind: "modelChange", model: "proxy-provider/model", activity: null })
+      send({
+        kind: "modelError",
+        model: null,
+        activity: "error",
+        errorMessage: "Synthetic first proxy retry",
+      })
+    })
+    expect(container.textContent).not.toContain("Synthetic first proxy retry")
+    await act(async () => launch.resolve(started))
+    await act(async () => scheduler.flush())
+    const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+    expect(pane.getAttribute("data-runtime-model")).toBe("proxy-provider/model")
+    expect(pane.getAttribute("data-response-version")).toBe("0")
+    await act(async () => {
+      send({
+        kind: "modelError",
+        model: null,
+        activity: "error",
+        errorMessage: "Synthetic repeated proxy failure",
+      })
+      scheduler.flush()
+    })
+    expect(container.textContent).toContain("Synthetic repeated proxy failure")
+    expect(pane.getAttribute("data-runtime-activity")).toBe("error")
+    expect(pane.getAttribute("data-response-version")).toBe("1")
+  })
+
   async function mountAndResume() {
     await act(async () => root.render(<App />))
     await act(async () => element('[title="Продолжить сессию"]').click())
