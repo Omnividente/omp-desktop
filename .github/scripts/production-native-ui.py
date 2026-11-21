@@ -603,32 +603,21 @@ def main(q):
             keys(["ctrl+a"], handle)
             type_text(path_text, handle)
 
-            # GTK can leave Select disabled until the typed location is committed.
-            # GTK updates accessibility text asynchronously; the exact
-            # chosen directory is asserted in the caller after native selection.
+            # GTK publishes the edited value asynchronously. Verify it while the
+            # owned location entry still has focus, before Return can accept it.
+            def location_matches():
+                current = location()
+                # GTK autocompletes an existing directory with a trailing slash.
+                return current == entry and read_text(current) in (path_text, f"{path_text}/")
+
+            require(wait_for(location_matches), "native-folder-location-mismatch")
 
             def closed():
                 return not any(int(line.split()[0], 16) == int(handle, 0)
                                for line in run("wmctrl", "-l").splitlines() if line.split())
 
             keys(["Return"], handle)
-            # Some native GTK pickers accept the directory on Return.
-            if wait_for(closed, seconds=2):
-                return
-
-            def accept_ready():
-                buttons = [n for n in nodes(picker) if visible(n) and n.getRoleName() == "push button"
-                           and name(n) in {"Select", "Open"}]
-                require(len(buttons) <= 1, "native-folder-accept-count")
-                return buttons[0] if buttons and enabled(buttons[0]) else None
-
-            button = wait_for(accept_ready)
-            require(button, "native-folder-accept-unavailable")
-            action = button.queryAction()
-            options = [i for i in range(action.nActions) if action.getName(i).lower() in {"click", "press", "activate"}]
-            require(len(options) == 1 and enabled(button) and visible(button), "native-folder-accept-disabled")
-            guard(handle)
-            require(action.doAction(options[0]), "native-folder-accept-failed")
+            # If Return does not close the picker, do not accept another selection.
             require(wait_for(closed), "native-folder-dialog-not-closed")
 
         def capture(path):
