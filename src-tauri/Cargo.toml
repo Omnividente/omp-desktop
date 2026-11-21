@@ -42,7 +42,7 @@ url = "2"
 semver = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls-no-provider"] }
 minisign-verify = "0.3"
-sha2 = "0.10"
+sha2 = "0.11"
 ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tracing = "0.1"
