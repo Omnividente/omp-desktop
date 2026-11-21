@@ -23,6 +23,7 @@ import type {
   SingleInstanceEvent,
   PtySessionEvent,
   PtyRuntimeEvent,
+  PtyExitEvent,
   TerminalStarted,
   TerminalTab,
 } from "./types"
@@ -30,6 +31,7 @@ import type {
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
 const terminalReady = vi.hoisted(() => new Map<string, (terminalId: string) => void>())
+const terminalExits = vi.hoisted(() => new Map<string, (event: PtyExitEvent) => void>())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
@@ -78,18 +80,22 @@ vi.mock("./TerminalView", () => ({
     active,
     focusRequestSequence,
     onReady,
+    onExit,
   }: {
     tab: TerminalTab
     active: boolean
     focusRequestSequence: number
     onReady: (terminalId: string) => void
+    onExit: (event: PtyExitEvent) => void
   }) => {
     terminalReady.set(tab.id, onReady)
+    terminalExits.set(tab.id, onExit)
     return (
       <div
         data-terminal-id={tab.id}
         data-runtime-activity={tab.activity}
         data-runtime-model={tab.currentModel ?? ""}
+        data-runtime-model-role={tab.currentModelRole ?? ""}
         data-response-version={tab.completedResponseVersion ?? 0}
         data-active={active}
         data-focus-sequence={focusRequestSequence}
@@ -926,6 +932,70 @@ describe("App lifecycle serialization", () => {
       expect(pane.getAttribute("data-response-version")).toBe(
         nextProvider === "proxy-provider" ? "0" : "1",
       )
+    },
+  )
+
+  it.each([
+    ["proxy-provider", true],
+    ["ordinary-provider", true],
+    ["proxy-provider", false],
+    ["ordinary-provider", false],
+  ] as const)(
+    "keeps the latest model when a pending pin restart observes exit (%s, flushed=%s)",
+    async (nextProvider, flushBeforeExit) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: ["proxy-provider"] },
+      })
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValueOnce(restart.promise)
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const previousProvider =
+        nextProvider === "proxy-provider" ? "ordinary-provider" : "proxy-provider"
+      await act(async () => {
+        send({ kind: "modelChange", model: `${previousProvider}/previous`, activity: null })
+        scheduler.flush()
+      })
+      await act(async () => element(".primary-provider-pin").click())
+      expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        send({
+          kind: "modelChange",
+          model: `${nextProvider}/current`,
+          activity: null,
+          modelRole: "slow",
+        })
+        if (flushBeforeExit) scheduler.flush()
+      })
+      await act(async () =>
+        terminalExits.get(started.terminalId)!({
+          terminalId: started.terminalId,
+          exitCode: 0,
+          success: true,
+          error: null,
+        }),
+      )
+      const replacement = { ...started, terminalId: "restarted-after-model-change", processId: 102 }
+      await act(async () => restart.resolve(replacement))
+      const pane = element(`[data-terminal-id="${replacement.terminalId}"]`)
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${nextProvider}/current`)
+      expect(pane.getAttribute("data-runtime-model-role")).toBe("slow")
+      await act(async () =>
+        send({
+          terminalId: replacement.terminalId,
+          kind: "modelError",
+          model: null,
+          activity: "error",
+          errorMessage: "Synthetic replacement model failure",
+        }),
+      )
+      if (nextProvider === "proxy-provider") {
+        expect(container.textContent).not.toContain("Synthetic replacement model failure")
+      } else {
+        expect(container.textContent).toContain("Synthetic replacement model failure")
+      }
     },
   )
 
@@ -2184,6 +2254,7 @@ describe("App lifecycle serialization", () => {
     vi.clearAllMocks()
     invokeMock.mockReset()
     terminalReady.clear()
+    terminalExits.clear()
     vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)

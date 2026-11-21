@@ -283,7 +283,9 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
-  const runtimeModelsRef = useRef(new Map<string, string>())
+  const runtimeModelsRef = useRef(
+    new Map<string, Pick<TerminalTab, "currentModel" | "currentModelRole">>(),
+  )
   const unpublishedTerminalIdsRef = useRef(new Set<string>())
   useLayoutEffect(() => {
     const unpublished = unpublishedTerminalIdsRef.current
@@ -1161,7 +1163,12 @@ function App() {
         (tabsRef.current.some((tab) => tab.id === event.terminalId) ||
           unpublishedTerminalIdsRef.current.has(event.terminalId))
       ) {
-        runtimeModelsRef.current.set(event.terminalId, session.model)
+        runtimeModelsRef.current.set(event.terminalId, {
+          currentModel: session.model,
+          currentModelRole:
+            runtimeModelsRef.current.get(event.terminalId)?.currentModelRole ??
+            tabsRef.current.find((tab) => tab.id === event.terminalId)?.currentModelRole,
+        })
       }
       setPayload((current) =>
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
@@ -1305,13 +1312,20 @@ function App() {
         event.model !== null &&
         (terminal || unpublishedTerminalIdsRef.current.has(event.terminalId))
       ) {
-        runtimeModelsRef.current.set(event.terminalId, event.model)
+        const next = applyRuntimeEventToTab(
+          { id: event.terminalId, ...terminal, ...runtimeModelsRef.current.get(event.terminalId) },
+          event,
+        )
+        runtimeModelsRef.current.set(event.terminalId, {
+          currentModel: next.currentModel,
+          currentModelRole: next.currentModelRole,
+        })
       }
       if (
         suppressTransientProxyError(
           pendingProxyErrorsRef.current,
           event,
-          runtimeModelsRef.current.get(event.terminalId) ??
+          runtimeModelsRef.current.get(event.terminalId)?.currentModel ??
             terminal?.currentModel ??
             earlyRuntimeRef.current.get(event.terminalId)?.currentModel,
           proxyProvidersRef.current,
@@ -1855,7 +1869,10 @@ function App() {
             }
           : tab
         if (publishedTab.currentModel)
-          runtimeModelsRef.current.set(tab.id, publishedTab.currentModel)
+          runtimeModelsRef.current.set(tab.id, {
+            currentModel: publishedTab.currentModel,
+            currentModelRole: publishedTab.currentModelRole,
+          })
         unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, publishedTab])
         // Publish the new terminal without taking back a newer explicit tab choice.
@@ -2172,7 +2189,10 @@ function App() {
           tab.currentThinking ?? null,
           tab.currentThinkingConfigured ?? tab.currentThinking ?? null,
         )
-        runtimeModelsRef.current.set(terminalId, runtime.model)
+        runtimeModelsRef.current.set(terminalId, {
+          currentModel: runtime.model,
+          currentModelRole: runtime.modelRole,
+        })
         setTabs((current) =>
           current.map((candidate) =>
             candidate.id === terminalId
@@ -2362,7 +2382,13 @@ function App() {
 
         const discoveredSession = discoveredSessionsRef.current.get(terminalId)
         discoveredSessionsRef.current.delete(terminalId)
-        const runtimeModel = runtimeModelsRef.current.get(terminalId) ?? tab.currentModel
+        const latestTab = tabsRef.current.find((candidate) => candidate.id === terminalId)
+        const runtimeModel =
+          runtimeModelsRef.current.get(terminalId) ??
+          (latestTab && {
+            currentModel: latestTab.currentModel,
+            currentModelRole: latestTab.currentModelRole,
+          })
         runtimeModelsRef.current.delete(terminalId)
         if (runtimeModel) runtimeModelsRef.current.set(started.terminalId, runtimeModel)
         if (discoveredSession) {
@@ -2380,7 +2406,12 @@ function App() {
 
         setTabs((current) =>
           current.map((candidate) =>
-            replaceTerminalAfterRestart(candidate, terminalId, started, pinned),
+            replaceTerminalAfterRestart(
+              candidate.id === terminalId ? { ...candidate, ...runtimeModel } : candidate,
+              terminalId,
+              started,
+              pinned,
+            ),
           ),
         )
         setActiveTabId((current) => (current === terminalId ? started.terminalId : current))
@@ -2397,6 +2428,7 @@ function App() {
         const stopped =
           exitEvent !== undefined || backendErrorCode(error) === "terminal_restart_stopped"
         restartExitEventsRef.current.delete(terminalId)
+        if (stopped) runtimeModelsRef.current.delete(terminalId)
         setTabs((current) =>
           current.map((candidate) =>
             candidate.id === terminalId
@@ -2646,7 +2678,8 @@ function App() {
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
       earlyRuntimeRef.current.delete(event.terminalId)
-      runtimeModelsRef.current.delete(event.terminalId)
+      if (!restartingTerminalIdsRef.current.has(event.terminalId))
+        runtimeModelsRef.current.delete(event.terminalId)
       rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
