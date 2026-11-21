@@ -582,9 +582,8 @@ def main(q):
             type_text(path_text, handle)
 
             # GTK can leave Select disabled until the typed location is committed.
-            # Check the exact requested path before native Return; the caller
-            # independently verifies the resulting project's persisted path.
-            require(location() == entry and read_text(entry) == path_text, "native-folder-location-mismatch")
+            # GTK updates accessibility text asynchronously; the exact
+            # chosen directory is asserted in the caller after native selection.
 
             def closed():
                 return not any(int(line.split()[0], 16) == int(handle, 0)
