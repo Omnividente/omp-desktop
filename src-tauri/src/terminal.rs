@@ -125,9 +125,9 @@ impl Drop for WindowsJobObject {
     }
 }
 
-/// Префикс имени файла breadcrumb, который OMP-агент пишет для привязки terminal_id к сессии.
+/// Префикс fallback breadcrumb для TERM_SESSION_ID; Unix предпочитает имя выделенного PTY.
 /// Wire contract (не менять без доказанного стабильного OMP RPC):
-///   Файл: <terminal-sessions>/apple-{terminal_id}
+///   Файл: <terminal-sessions>/<TTY key>, например pts-42, или apple-{terminal_id}.
 ///   Содержимое (две строки, без кавычек):
 ///     <cwd проекта>\n
 ///     <полный путь к session.jsonl>\n
@@ -494,6 +494,7 @@ struct TerminalProcess {
     session_lease: Option<SessionLease>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
+    breadcrumb_name: String,
     output: SharedTerminalOutput,
     exit_pending: bool,
     exited: bool,
@@ -643,11 +644,11 @@ impl TerminalState {
         let active = {
             let processes = lock_processes(self);
             processes
-                .iter()
-                .filter(|(_, process)| !process.exited)
-                .map(|(terminal_id, process)| {
+                .values()
+                .filter(|process| !process.exited)
+                .map(|process| {
                     (
-                        terminal_id.clone(),
+                        process.breadcrumb_name.clone(),
                         process.resume_path.clone(),
                         process.pending_resume_path.clone(),
                         process.cwd.clone(),
@@ -658,7 +659,7 @@ impl TerminalState {
                 .collect::<Vec<_>>()
         };
         let mut active_paths = HashSet::new();
-        for (terminal_id, resume_path, pending_path, cwd, directory, snapshot) in active {
+        for (breadcrumb_name, resume_path, pending_path, cwd, directory, snapshot) in active {
             for path in [resume_path.as_deref(), pending_path.as_deref()]
                 .into_iter()
                 .flatten()
@@ -667,7 +668,7 @@ impl TerminalState {
             }
             // A fresh writer can materialize its first JSONL before the discovery tick.
             if let Some(path) = resolve_resume_path_for_current(
-                &terminal_id,
+                &breadcrumb_name,
                 &cwd,
                 &directory,
                 &snapshot,
@@ -697,7 +698,7 @@ impl TerminalState {
     }
     fn is_session_active(&self, path: &str) -> bool {
         let key = path_key(path);
-        lock_processes(self).iter().any(|(terminal_id, process)| {
+        lock_processes(self).values().any(|process| {
             !process.exited
                 && ([
                     process.resume_path.as_deref(),
@@ -707,7 +708,7 @@ impl TerminalState {
                 .flatten()
                 .any(|path| path_key(path) == key)
                     || resolve_resume_path_for_current(
-                        terminal_id,
+                        &process.breadcrumb_name,
                         &process.cwd,
                         &process.terminal_sessions_dir,
                         &process.breadcrumb_snapshot,
@@ -1190,7 +1191,7 @@ fn set_terminal_primary_provider_pin_blocking(
 ) -> Result<TerminalStarted, String> {
     let terminals = app.state::<TerminalState>();
     let settings_state = app.state::<SettingsState>();
-    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot, breadcrumb_name) = {
         let processes = lock_processes(&terminals);
         let process = processes
             .get(&request.terminal_id)
@@ -1215,6 +1216,7 @@ fn set_terminal_primary_provider_pin_blocking(
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
+            process.breadcrumb_name.clone(),
         )
     };
 
@@ -1225,7 +1227,7 @@ fn set_terminal_primary_provider_pin_blocking(
             .clone()
             .or_else(|| {
                 resolve_resume_path(
-                    &request.terminal_id,
+                    &breadcrumb_name,
                     &cwd,
                     &terminal_sessions_dir,
                     &breadcrumb_snapshot,
@@ -1318,7 +1320,14 @@ fn switch_terminal_blocking(
 ) -> Result<TerminalRuntime, TerminalSwitchError> {
     validate_switch_request(&request).map_err(TerminalSwitchError::from)?;
     let terminals = app.state::<TerminalState>();
-    let (known_resume_path, pending_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+    let (
+        known_resume_path,
+        pending_resume_path,
+        cwd,
+        terminal_sessions_dir,
+        breadcrumb_snapshot,
+        breadcrumb_name,
+    ) = {
         let processes = lock_processes(&terminals);
         let process = processes.get(&request.terminal_id).ok_or_else(|| {
             TerminalSwitchError::new(
@@ -1357,6 +1366,7 @@ fn switch_terminal_blocking(
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
+            process.breadcrumb_name.clone(),
         )
     };
     let resume_path = known_resume_path
@@ -1364,7 +1374,7 @@ fn switch_terminal_blocking(
         .or_else(|| pending_resume_path.clone())
         .or_else(|| {
             resolve_resume_path(
-                &request.terminal_id,
+                &breadcrumb_name,
                 &cwd,
                 &terminal_sessions_dir,
                 &breadcrumb_snapshot,
@@ -1382,7 +1392,7 @@ fn switch_terminal_blocking(
             .as_deref()
             .is_some_and(|pending| path_key(pending) == path_key(&resume_path))
             || is_pending_fresh_breadcrumb(
-                &request.terminal_id,
+                &breadcrumb_name,
                 &cwd,
                 &terminal_sessions_dir,
                 &resume_path,
@@ -2314,6 +2324,11 @@ fn spawn_terminal_process(
     let pair = pty_system
         .openpty(size)
         .map_err(|error| format!("Не удалось создать PTY: {error}"))?;
+    #[cfg(unix)]
+    let breadcrumb_name =
+        breadcrumb_name_for_terminal(&terminal_id, pair.master.tty_name().as_deref());
+    #[cfg(not(unix))]
+    let breadcrumb_name = breadcrumb_name_for_terminal(&terminal_id, None);
     #[cfg(windows)]
     let containment = match WindowsJobObject::new() {
         Ok(job) => job,
@@ -2448,6 +2463,7 @@ fn spawn_terminal_process(
         session_lease,
         terminal_sessions_dir,
         breadcrumb_snapshot,
+        breadcrumb_name,
         output: output.clone(),
         exit_pending: false,
         exited: false,
@@ -2532,23 +2548,34 @@ fn breadcrumb_modified(path: &Path) -> Option<u128> {
         .map(|duration| duration.as_nanos())
 }
 
+fn breadcrumb_name_for_terminal(terminal_id: &str, tty_name: Option<&Path>) -> String {
+    // OMP prefers its actual stdin TTY identity over TERM_SESSION_ID on Unix.
+    // Only the PTY allocated for this process is eligible; never scan other terminals.
+    tty_name
+        .and_then(Path::to_str)
+        .and_then(|path| path.strip_prefix("/dev/"))
+        .filter(|path| !path.is_empty())
+        .map(|path| path.replace('/', "-"))
+        .unwrap_or_else(|| format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"))
+}
+
 fn resolve_resume_path(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
 ) -> Option<String> {
-    resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, None)
+    resolve_resume_path_for_current(breadcrumb_name, cwd, directory, snapshot, None)
 }
 
 fn resolve_resume_path_for_current(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
     current_path: Option<&str>,
 ) -> Option<String> {
-    let direct = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    let direct = directory.join(breadcrumb_name);
     if !breadcrumb_changed(&direct, snapshot) {
         return None;
     }
@@ -2585,12 +2612,12 @@ fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
 }
 
 fn is_pending_fresh_breadcrumb(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     expected_path: &str,
 ) -> bool {
-    let breadcrumb = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    let breadcrumb = directory.join(breadcrumb_name);
     read_breadcrumb_state(&breadcrumb, cwd).is_some_and(|(session_path, fresh)| {
         fresh
             && path_key(&session_path) == path_key(expected_path)
@@ -2609,14 +2636,14 @@ enum SessionDiscovery {
 }
 
 fn discover_session(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
     current_path: Option<&str>,
 ) -> Option<SessionDiscovery> {
     let resume_path =
-        resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, current_path)?;
+        resolve_resume_path_for_current(breadcrumb_name, cwd, directory, snapshot, current_path)?;
     if !Path::new(&resume_path).is_file() {
         return Some(SessionDiscovery::PendingFresh { resume_path });
     }
@@ -2736,10 +2763,11 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
             process.breadcrumb_snapshot.clone(),
             process.resume_path.clone(),
             process.output.clone(),
+            process.breadcrumb_name.clone(),
         )
     };
     let Some(discovery) = discover_session(
-        terminal_id,
+        &context.5,
         &context.0,
         &context.1,
         &context.2,
@@ -5273,21 +5301,25 @@ mod tests {
                 .join(std::path::Path::new(&path).file_name().unwrap())
                 .to_string_lossy()
                 .into_owned();
-            for active_kind in ["resume", "pending", "breadcrumb"] {
+            for active_kind in ["resume", "pending", "breadcrumb", "tty-breadcrumb"] {
                 let mut process = terminal_process(None, None);
                 match active_kind {
                     "resume" => process.resume_path = Some(alias.clone()),
                     "pending" => process.pending_resume_path = Some(alias.clone()),
                     _ => {
                         process.terminal_sessions_dir = root.clone();
+                        if active_kind == "tty-breadcrumb" {
+                            process.breadcrumb_name = "pts-42".to_owned();
+                        }
                         fs::write(
-                            root.join("apple-terminal-1"),
+                            root.join(&process.breadcrumb_name),
                             format!("/tmp/project\n{alias}\nfresh\n"),
                         )
                         .unwrap();
                     }
                 }
                 lock_processes(&state).insert("terminal-1".to_owned(), process);
+                assert!(state.is_session_active(&path), "{active_kind}");
                 let refused = state
                     .import_sessions(&[request.clone()], &session_root)
                     .remove(0);
@@ -5618,10 +5650,11 @@ mod tests {
     }
 
     use super::{
-        append_switch_input, begin_terminal_switch, breadcrumb_modified, build_omp_command,
-        cli_path_arg, decode_terminal_binary, discard_switch_input_recovery_from_state,
-        discover_session, drain_output_batches, encode_session_dir_name, feed_runtime_lines,
-        finalize_switch_result, initial_agent_args_with_config, initial_terminal_args_with_config,
+        append_switch_input, begin_terminal_switch, breadcrumb_modified,
+        breadcrumb_name_for_terminal, build_omp_command, cli_path_arg, decode_terminal_binary,
+        discard_switch_input_recovery_from_state, discover_session, drain_output_batches,
+        encode_session_dir_name, feed_runtime_lines, finalize_switch_result,
+        initial_agent_args_with_config, initial_terminal_args_with_config,
         is_pending_fresh_breadcrumb, lock_processes, lock_session_files, lock_terminal_output,
         model_switch_input, normalize_thinking_level, output_event_name, pending_fresh_switch_plan,
         poll_resume_path_locked, poll_runtime_file, publish_discovered_session, read_runtime_tail,
@@ -5637,10 +5670,9 @@ mod tests {
         MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
         PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
     };
+    use super::{native_pty_system, CommandBuilder, PtySize};
     #[cfg(windows)]
-    use super::{
-        native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity, WindowsJobObject,
-    };
+    use super::{RuntimeFileIdentity, WindowsJobObject};
     #[cfg(windows)]
     use std::time::Instant;
     use std::{
@@ -5649,7 +5681,7 @@ mod tests {
         ffi::OsStr,
         fs,
         io::{self, Seek, SeekFrom, Write},
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::{mpsc, Arc, Mutex},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -5807,6 +5839,7 @@ mod tests {
             session_lease: None,
             terminal_sessions_dir: PathBuf::new(),
             breadcrumb_snapshot: HashMap::new(),
+            breadcrumb_name: "apple-terminal-1".to_owned(),
             output: Arc::new(Mutex::new(TerminalOutputState::new(7))),
             exit_pending: false,
             exited: false,
@@ -7015,7 +7048,7 @@ mod tests {
         .expect("fresh breadcrumb should be writable");
 
         assert!(is_pending_fresh_breadcrumb(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &root,
             &session_file.to_string_lossy(),
@@ -7023,7 +7056,7 @@ mod tests {
 
         fs::write(&session_file, "session data").expect("session file should materialize");
         assert!(!is_pending_fresh_breadcrumb(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &root,
             &session_file.to_string_lossy(),
@@ -7364,6 +7397,99 @@ mod tests {
         );
         assert!(session_title_from_line(br#"{"type":"title_change","title":"   "}"#).is_none());
         assert!(session_title_from_line(br#"{"type":"message","title":"ignored"}"#).is_none());
+    }
+
+    #[test]
+    fn breadcrumb_identity_matches_tty_before_environment_fallback() {
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", Some(Path::new("/dev/pts/42"))),
+            "pts-42"
+        );
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", Some(Path::new("/dev/ttys003"))),
+            "ttys003"
+        );
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", None),
+            "apple-terminal-1"
+        );
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", Some(Path::new("invalid"))),
+            "apple-terminal-1"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_pty_breadcrumb_matches_child_and_discovers_only_own_session() {
+        let root = std::env::temp_dir().join(format!(
+            "omp-pty-breadcrumb-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let own_name =
+            breadcrumb_name_for_terminal("synthetic-terminal", pair.master.tty_name().as_deref());
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.arg("-c");
+        command.arg("p=$(tty); p=${p#/dev/}; printf '%s' \"$p\" | tr / -");
+        command.env("TERM_SESSION_ID", "synthetic-terminal");
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        assert!(child.wait().unwrap().success());
+        let mut bytes = vec![0_u8; own_name.len()];
+        reader.read_exact(&mut bytes).unwrap();
+        assert_eq!(String::from_utf8_lossy(&bytes), own_name);
+        assert_ne!(own_name, "apple-synthetic-terminal");
+        let session_path = root.join("own.jsonl");
+        fs::write(
+            &session_path,
+            "{\"type\":\"session\",\"id\":\"own\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(&own_name),
+            format!("/tmp/project\n{}\n", session_path.display()),
+        )
+        .unwrap();
+        assert!(discover_session(
+            "apple-synthetic-terminal",
+            "/tmp/project",
+            &root,
+            &HashMap::new(),
+            None
+        )
+        .is_none());
+        let Some(SessionDiscovery::Ready { session, .. }) =
+            discover_session(&own_name, "/tmp/project", &root, &HashMap::new(), None)
+        else {
+            panic!("actual PTY breadcrumb must discover the session")
+        };
+        assert_eq!(session.id, "own");
+        let stale = super::snapshot_breadcrumbs(&root);
+        assert!(discover_session(&own_name, "/tmp/project", &root, &stale, None).is_none());
+        fs::write(
+            root.join("pts-other"),
+            format!("/tmp/project\n{}\n", session_path.display()),
+        )
+        .unwrap();
+        fs::remove_file(root.join(&own_name)).unwrap();
+        assert!(
+            discover_session(&own_name, "/tmp/project", &root, &HashMap::new(), None).is_none()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -8677,7 +8803,7 @@ mod tests {
         .expect("breadcrumb fixture should be writable");
 
         assert!(discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8694,7 +8820,7 @@ mod tests {
             resume_path: resolved,
             session,
         }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8728,7 +8854,7 @@ mod tests {
         .expect("fresh breadcrumb should be writable");
 
         let Some(SessionDiscovery::PendingFresh { resume_path }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8745,7 +8871,7 @@ mod tests {
         .expect("lazy session should materialize");
         assert!(matches!(
             discover_session(
-                "terminal-1",
+                "apple-terminal-1",
                 "/tmp/project",
                 &directory,
                 &HashMap::new(),
@@ -8793,7 +8919,7 @@ mod tests {
             resume_path: resolved_old,
             session: old_session,
         }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8816,7 +8942,7 @@ mod tests {
             resume_path: resolved_new,
             session: new_session,
         }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8830,7 +8956,7 @@ mod tests {
 
         let new_path_string = new_path.to_string_lossy().into_owned();
         assert!(discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8888,14 +9014,14 @@ mod tests {
         ]);
         let current_path = current_session.to_string_lossy().into_owned();
         let resolved = resolve_resume_path_for_current(
-            "terminal-2",
+            "apple-terminal-2",
             "/tmp/project",
             &directory,
             &snapshot,
             Some(&current_path),
         );
         let new_terminal_resolved = resolve_resume_path_for_current(
-            "terminal-3",
+            "apple-terminal-3",
             "/tmp/project",
             &directory,
             &snapshot,

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   applyRuntimeEventToTab,
+  rememberPendingRuntimeTab,
+  type PendingRuntimeTab,
   runtimeEventFeedback,
   suppressTransientProxyError,
 } from "./runtimeEvents"
@@ -171,5 +173,44 @@ describe("proxy runtime policy", () => {
         ["codex-lb"],
       ),
     ).toBe(false)
+  })
+})
+
+describe("pending runtime publication", () => {
+  it("bounds orphan identities and retains latest state without keeping event arrays", () => {
+    const pending = new Map<string, PendingRuntimeTab>()
+    for (let i = 0; i < 65; i++)
+      rememberPendingRuntimeTab(pending, event({ terminalId: `t${i}`, activity: "thinking" }))
+    expect(pending.size).toBe(64)
+    expect(pending.has("t0")).toBe(false)
+    for (let i = 0; i < 1000; i++)
+      rememberPendingRuntimeTab(pending, event({ terminalId: "t64", activity: "idle" }))
+    rememberPendingRuntimeTab(
+      pending,
+      event({ terminalId: "t64", activity: "thinking", model: "provider/latest" }),
+    )
+    expect(pending.size).toBe(64)
+    expect(pending.get("t64")).toMatchObject({
+      activity: "thinking",
+      currentModel: "provider/latest",
+      completedResponseVersion: 1000,
+    })
+  })
+  it("matches direct reduction while absent runtime fields preserve launch metadata", () => {
+    const pending = new Map<string, PendingRuntimeTab>()
+    const events = [
+      event({ model: null, modelRole: "ignored", activity: "idle" }),
+      event({ activity: "thinking" }),
+    ]
+    for (const item of events) rememberPendingRuntimeTab(pending, item)
+    const published = {
+      ...tab,
+      ...Object.fromEntries(
+        Object.entries(pending.get(tab.id)!).filter(([, value]) => value !== undefined),
+      ),
+    }
+    expect(published).toEqual(events.reduce(applyRuntimeEventToTab, tab))
+    expect(published.currentModelRole).toBe("default")
+    expect(published.currentThinking).toBe("medium")
   })
 })

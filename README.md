@@ -29,7 +29,7 @@ Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi
 - **История и диагностика:** импорт OMP/Codex JSONL, просмотр и поиск переписки, предупреждения и монитор ресурсов.
 - **Windows и Linux:** единая кодовая база, установочные пакеты и обновления с подтверждением при работающих терминалах.
 
-> Подробное поведение ниже описывает исходники, которые могут опережать стабильную сборку. Для установленной версии используйте [описание соответствующего релиза](https://github.com/Omnividente/omp-desktop/releases). Текущий стабильный выпуск — [v0.9.12](.github/release-notes/v0.9.12.md); изменения предварительной 0.9.13 и инструкции обратной связи — в [отдельных release notes](.github/release-notes/v0.9.13.md). Проверки исходников не означают проверку production-пакетов или установку.
+> Подробное поведение ниже описывает исходники, которые могут опережать стабильную сборку. Для установленной версии используйте [описание соответствующего релиза](https://github.com/Omnividente/omp-desktop/releases). Текущий стабильный выпуск — [v0.9.12](.github/release-notes/v0.9.12.md); изменения кандидата 0.9.15 и инструкции обратной связи — в [отдельных release notes](.github/release-notes/v0.9.15.md). Проверки исходников не означают проверку production-пакетов или установку.
 
 <details>
 <summary>Подробные возможности, ограничения и поведение</summary>
@@ -144,6 +144,12 @@ Independent desktop workspace for [Oh My Pi](https://github.com/can1357/oh-my-pi
 
 </details>
 
+### Приватность истории
+
+Читаемый transcript — не полный аудит файла сессии. При включённой `display.shellVisualization` OMP может сохранять в shell traces раскрытые значения переменных и аргументов, даже если команда их не печатает. Desktop Read не показывает все такие поля; импорт и копирование OMP JSONL не являются очисткой чувствительных данных.
+
+Проверяйте предназначенные для передачи копии файлов и вывода и удаляйте из них чувствительные данные. Отсутствие секрета в Read не доказывает его отсутствие в JSONL. Отключение визуализации для будущих запусков не очищает старые записи и не скрывает явно напечатанные секреты. См. [сообщение upstream и актуальный статус](https://github.com/can1357/oh-my-pi/issues/19355).
+
 ### Установка
 
 1. [Установите и настройте Oh My Pi](https://github.com/can1357/oh-my-pi#install) для текущего пользователя. Desktop не включает OMP runtime или подписку на API-провайдера.
@@ -173,6 +179,14 @@ sudo dnf install ./OMP.Desktop-*.x86_64.rpm
 sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
 
+### Подключение провайдеров и безопасность аккаунта
+
+Совместимость API не означает, что провайдер разрешает использовать потребительскую подписку или OAuth-вход в стороннем приложении. Перед подключением проверьте официальные условия выбранного провайдера; подписка и доступ по API могут оплачиваться отдельно.
+
+По состоянию на 15 ноября 2026 года [условия Google Antigravity](https://antigravity.google/terms) и [официальный FAQ](https://antigravity.google/docs/faq/) предупреждают, что сторонний доступ к Antigravity может привести к приостановке или прекращению доступа к Antigravity и/или Gemini CLI. FAQ также уточняет: headless-режим `agy` предназначен для скриптов и CI, но обёртки вокруг него внутри сторонних агентов или приложений не поддерживаются потребительскими планами. Для сторонних агентов Google указывает API-ключи Google AI Studio или Gemini Enterprise; отдельно проверьте доступность, условия и стоимость выбранного маршрута.
+
+OMP Desktop не предоставляет исключений из правил провайдера. Не публикуйте токены и ключи в issues или диагностических материалах.
+
 ### Поддержка и обратная связь
 
 - [Ошибки и предложения Desktop](https://github.com/Omnividente/omp-desktop/issues) — укажите версии Desktop/OMP, ОС и шаги воспроизведения.
@@ -198,7 +212,7 @@ For users who want graphical project and settings controls while retaining the O
 - **History and diagnostics:** OMP/Codex JSONL import, transcript viewing and search, warnings, and resource monitoring.
 - **Windows and Linux:** one codebase, installable packages, and updates that require confirmation when terminals are running.
 
-> The detailed behavior below describes source code that may be ahead of the stable build. For an installed version, see its [release notes](https://github.com/Omnividente/omp-desktop/releases). The current stable release is [v0.9.12](.github/release-notes/v0.9.12.md); the preliminary 0.9.13 changes and feedback instructions have [separate release notes](.github/release-notes/v0.9.13.md). Source checks do not imply production-package verification or installation.
+> The detailed behavior below describes source code that may be ahead of the stable build. For an installed version, see its [release notes](https://github.com/Omnividente/omp-desktop/releases). The current stable release is [v0.9.12](.github/release-notes/v0.9.12.md); the 0.9.15 candidate changes and feedback instructions have [separate release notes](.github/release-notes/v0.9.15.md). Source checks do not imply production-package verification or installation.
 
 <details>
 <summary>Detailed features, limitations, and behavior</summary>
@@ -342,6 +356,14 @@ sudo dnf install ./OMP.Desktop-*.x86_64.rpm
 sudo zypper install ./OMP.Desktop-*.x86_64.rpm
 ```
 
+### Provider connections and account safety
+
+API compatibility does not mean a provider permits using a consumer subscription or OAuth login in a third-party application. Before connecting, check the provider's official terms; a subscription and API access may be billed separately.
+
+As checked on November 15, 2026, the [Google Antigravity terms](https://antigravity.google/terms) and [official FAQ](https://antigravity.google/docs/faq/) warn that third-party access to Antigravity can result in suspension or termination of access to Antigravity and/or Gemini CLI. The FAQ also clarifies that `agy` headless mode is intended for scripting and CI, but wrapping it inside third-party agents or applications is not supported under consumer plans. For third-party agents, Google points to API keys from Google AI Studio or Gemini Enterprise; check the availability, terms and pricing of the chosen route separately.
+
+OMP Desktop does not provide exceptions to provider policies. Never publish tokens or keys in issues or diagnostic material.
+
 ### Support and feedback
 
 - [Desktop bugs and feature requests](https://github.com/Omnividente/omp-desktop/issues): include Desktop/OMP versions, OS, and reproduction steps.
@@ -375,15 +397,15 @@ The same workflow also has an explicit `channels` scenario. It builds PROBE and 
 
 On Windows, the channels fixture carries its loopback URL and marker through the SDK/NSIS command line. The test-only startup restores only validated owned-profile paths before Tauri initializes paths or runtime threads; it does not assume the desktop-shell relaunch inherits environment variables. The isolated application identity and existing loopback/source guards remain mandatory; normal and production launches do not use this restoration.
 
-For the **0.9.14 candidate**, `Verify Production Installer State` (`production-install-smoke.yml`) acquires **every** asset from immutable production v0.9.12 and v0.9.14, verifies annotated signed tags, release/run/source identity, production Minisign signatures and full manifests/checksums, and rechecks frozen metadata and downloaded bytes after each scenario. Base v0.9.12 is pinned by commit, tag object and Release ID in `prepare-production-assets.mjs`. Dispatch at the signature-verified `harness_sha`, with `target_sha`, `target_release_id` and `target_run_id` identifying the published, non-latest v0.9.14 candidate. Both checkouts' executed helpers/config must match their commits; the cryptographic verifier stays byte-identical to TARGET. Evidence records the workflow ref, both source SHAs and helper digests.
+For the **0.9.15 candidate**, `Verify Production Installer State` (`production-install-smoke.yml`) acquires **every** asset from immutable production v0.9.12 and v0.9.15, verifies annotated signed tags, release/run/source identity, production Minisign signatures and full manifests/checksums, and rechecks frozen metadata and downloaded bytes after each scenario. Base v0.9.12 is pinned by commit, tag object and Release ID in `prepare-production-assets.mjs`. Dispatch at the signature-verified `harness_sha`, with `target_sha`, `target_release_id` and `target_run_id` identifying the published, non-latest v0.9.15 candidate. Both checkouts' executed helpers/config must match their commits; the cryptographic verifier stays byte-identical to TARGET. Evidence records the workflow ref, both source SHAs and helper digests.
 
 The normal-install gate retains separate **Windows Server 2022 NSIS clean/upgrade** VMs with visible native HWND, actual UI Save, native bootstrap, PE/file versions, persisted preferences, rendered synthetic transcript and changed process IDs. **Ubuntu 22.04 AppImage replacement** additionally runs actual production images in Xvfb/dbus/Openbox, proves baseline native UI Save and loaded transcript, replaces only its owned working image, and observes TARGET version, native AT-SPI window/process ownership, preferences and transcript through replacement and another process restart. A normal working-image copy is explicitly **not an updater result**. Original downloaded assets, original synthetic JSONL and workspace-content hashes must remain unchanged.
 
 `Verify Production Trust New Broker` (`production-updater-smoke.yml`) is a **separate Windows/Linux production-trust gate**, not the test-key `channels`/`legacy` workflows. It compiles an unsigned diagnostic **PROBE with running version 0.9.12** from the signed harness source. Normal frontend/native/core/config/crypto/build inputs must match pinned production TARGET. Only the `cfg(updater-e2e)` diagnostic module and its exact private startup guard may differ; evidence records both refs. The overlay changes the running version, disables diagnostic signing artifacts and uses an `about:blank` window. Application identity, public key, GitHub metadata source, updater endpoints, capabilities and security configuration remain unchanged. No signing key, loopback fixture, custom releases URL or SDK trust override is supplied.
 
-The private PROBE refuses execution without embedded source/release identities, a new marker and a matching guard in its owned `RUNNER_TEMP` installation on a fresh GitHub-hosted VM. It observes stable-only with v0.9.12 still latest, saves explicit prerelease opt-in, and then requires the real Rust broker to discover the exact v0.9.14 candidate. The SDK must verify and install its immutable production NSIS or AppImage. Windows starts from normal shipped v0.9.12 installation/registration before staging the diagnostic EXE. A separate normal TARGET install provides an independent executable-hash oracle, then is uninstalled before the baseline starts. Its bytes never supply the SDK update. Linux requires the SDK to replace the diagnostic working image with the exact verified production bytes.
+The private PROBE refuses execution without embedded source/release identities, a new marker and a matching guard in its owned `RUNNER_TEMP` installation on a fresh GitHub-hosted VM. It observes stable-only with v0.9.12 still latest, saves explicit prerelease opt-in, and then requires the real Rust broker to discover the exact v0.9.15 candidate. The SDK must verify and install its immutable production NSIS or AppImage. Windows starts from normal shipped v0.9.12 installation/registration before staging the diagnostic EXE. A separate normal TARGET install provides an independent executable-hash oracle, then is uninstalled before the baseline starts. Its bytes never supply the SDK update. Linux requires the SDK to replace the diagnostic working image with the exact verified production bytes.
 
-The controller makes **no installation writes or TARGET launch between PROBE start and the first SDK relaunch observation**. Windows UI Automation and Linux AT-SPI/X11 verify the owned window of the ordinary TARGET: new PID, actual rendered v0.9.14, preferences, synthetic workspace/transcript and exact installed image/PE bytes. The separately observed ordinary restart must retain the same state. Missing native accessibility or desktop fails the gate; PROBE markers never substitute for TARGET observations. Metadata credentials are scoped to admission, acquisition and final recheck; native children use a credential-free environment. Uploads contain only bounded public identities, synthetic-state evidence and screenshots, not raw profiles, application logs or credentials.
+The controller makes **no installation writes or TARGET launch between PROBE start and the first SDK relaunch observation**. Windows UI Automation and Linux AT-SPI/X11 verify the owned window of the ordinary TARGET: new PID, actual rendered v0.9.15, preferences, synthetic workspace/transcript and exact installed image/PE bytes. The separately observed ordinary restart must retain the same state. Missing native accessibility or desktop fails the gate; PROBE markers never substitute for TARGET observations. Metadata credentials are scoped to admission, acquisition and final recheck; native children use a credential-free environment. Uploads contain only bounded public identities, synthetic-state evidence and screenshots, not raw profiles, application logs or credentials.
 
 **Release-gate evidence:** inspect `production-assets-gate.json` and `production-assets-final-gate.json` in both workflows for the same immutable TARGET IDs and exact signed harness. Require the Windows clean/upgrade `production-windows-result.json`, the Linux normal `production-native-result.json`, and the Windows/Linux updater receipts (`production-native-result.json`, `production-broker-events.json`, `production-probe-source.json`). Check the first SDK-started PID, rendered version, installed hash and preserved state. Source/build checks, test-key E2E, an install-request marker and normal file replacement cannot substitute for those observations. Complete both workflows before promotion; they require the candidate to remain non-latest throughout.
 
@@ -415,6 +437,7 @@ npm run tauri build
 
 ## Privacy and security
 
+- **Session metadata and shell traces:** the readable transcript is not an audit of the complete session file. With `display.shellVisualization` enabled, OMP can retain expanded variable and argument values in shell traces even when the command does not print them. Desktop Read does not display every such field; importing or copying OMP JSONL is not a sanitization step. Inspect copies of files and output intended for sharing and remove sensitive data from those copies. Absence from Read does not establish absence from JSONL. Disabling visualization for future runs does not clean existing records or hide explicitly printed secrets. See the [upstream report and current status](https://github.com/can1357/oh-my-pi/issues/19355).
 - **Local data:** Desktop preferences and provider-key names are stored in `settings.json`. Import copies selected JSONL sessions and bounded regular-file artifact trees into the local OMP session root; links and special files are rejected.
 - **Provider credentials added through Desktop:** values use the OS credential store when available. If it is unavailable, Desktop shows a warning and uses a per-user JSON fallback file with restricted filesystem permissions. That fallback is not an encrypted credential store. Secret values are not returned in settings snapshots.
 - **Network boundary:** Desktop invokes the installed OMP process for models, usage, and live agent sessions. OMP may send prompts, context, and credentials to configured remote providers and use networked tools; a local Desktop window does not mean offline inference. Desktop has no hosted session service. Its updater contacts GitHub for update metadata and packages.

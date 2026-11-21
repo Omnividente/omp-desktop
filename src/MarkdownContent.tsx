@@ -152,6 +152,7 @@ export function markdownContent(source: string, sourceMode = false): MarkdownDoc
         }
         case "image": {
           const uri = decodeEntities(token.href)
+          if (!isContentLink(uri)) return [leaf(token.raw)]
           // Images are captions with an explicit link, never <img> or CSS URLs.
           const caption = token.text || token.title || token.href
           const children = [leaf(decodeEntities(caption))]

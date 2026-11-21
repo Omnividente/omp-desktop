@@ -283,3 +283,57 @@ it("resumes live follow after explicitly returning from history to the bottom", 
   expect(terminal.buffer.active.viewportY).toBe(terminal.buffer.active.baseY)
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
 })
+
+it.each([
+  {
+    kind: "OSC-8 folder",
+    uri: "file:///tmp/folder",
+    output: "\x1b]8;;file:///tmp/folder\x1b\\Folder link\x1b]8;;\x1b\\",
+  },
+  { kind: "plain web URL", uri: "https://example.test/path", output: "https://example.test/path" },
+])("keeps exited transcript selection and $kind links usable", async ({ uri, output }) => {
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={{ ...tab, status: "exited" }}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={() => undefined}
+        onError={() => undefined}
+        onReady={() => undefined}
+      />,
+    ),
+  )
+
+  await act(
+    async () =>
+      new Promise<void>((resolve) => terminal.write(output + " trailing text\r\n", resolve)),
+  )
+  mouse("mousemove", 25)
+  await vi.waitFor(() =>
+    expect(container.querySelector(".terminal-link-preview")?.textContent).toBe(uri),
+  )
+  mouse("mousedown", 25, 1)
+  mouse("mouseup", 25)
+  expect(openContentLink).toHaveBeenCalledExactlyOnceWith(uri, tab.sessionPath)
+  mouse("mousemove", 355)
+  expect(terminal.getSelection()).toBe("")
+
+  // A deliberate drag can still select link text without following the link.
+  mouse("mousemove", 25)
+  await vi.waitFor(() =>
+    expect(container.querySelector(".terminal-link-preview")?.textContent).toBe(uri),
+  )
+  mouse("mousedown", 25, 1)
+  mouse("mousemove", 75, 1)
+  mouse("mouseup", 75)
+  const selected = terminal.getSelection()
+  expect(selected).toBe(uri.startsWith("file:") ? "lder " : "tps:/")
+  expect(openContentLink).toHaveBeenCalledTimes(1)
+  mouse("mousemove", 355)
+  expect(terminal.getSelection()).toBe(selected)
+})

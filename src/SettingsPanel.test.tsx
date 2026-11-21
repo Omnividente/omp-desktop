@@ -178,6 +178,59 @@ describe("SettingsPanel Save state", () => {
     })
   }
 
+  it.each(["ru", "en", "zh"] as const)(
+    "research judge disclosure remains read-only in %s",
+    async (language) => {
+      const snapshot: OmpConfigSnapshot = {
+        ...ompConfig,
+        roles: [
+          {
+            role: "judge",
+            selector: "",
+            model: null,
+            available: false,
+            status: "unset",
+            detail: null,
+          },
+        ],
+        accounts: [],
+        credentials: [],
+      }
+      loadOmpConfigMock.mockResolvedValue(snapshot)
+      const original = JSON.stringify(snapshot)
+      await renderRuntime({ ...runtime, language }, { ...settings, language })
+      act(() => container.querySelector<HTMLButtonElement>("#settings-tab-models")!.click())
+      const row = container.querySelector<HTMLElement>('[data-role="judge"]')!
+      expect(row).not.toBeNull()
+      expect(row.querySelector(".role-head strong")?.textContent).toBe(roleLabel(language, "judge"))
+      expect(row.querySelector(".role-description")?.textContent).toBe(t(language, "roleDescJudge"))
+      const clauses = {
+        ru: [
+          "по своей цепочке по умолчанию",
+          "могут оплачиваться",
+          "не означает, что роль выключена",
+        ],
+        en: ["from its default chain", "may incur charges", "not necessarily disabled"],
+        zh: ["从默认链中选择模型", "可能由所选提供商收费", "未分配并不表示该角色已禁用"],
+      }[language]
+      for (const clause of clauses)
+        expect(row.querySelector(".role-description")?.textContent).toContain(clause)
+      const picker = row.querySelector<HTMLButtonElement>(".model-picker-trigger")!
+      expect(picker.disabled).toBe(false)
+      act(() => picker.click())
+      const manual = row.querySelector<HTMLInputElement>(".model-picker-manual input")!
+      expect(manual).not.toBeNull()
+      expect(manual.value).toBe("")
+      expect(manual.disabled).toBe(false)
+      expect(row.querySelector(".role-description")?.textContent).toBe(t(language, "roleDescJudge"))
+      expect(
+        container.querySelector<HTMLButtonElement>(".settings-actions .primary")!.disabled,
+      ).toBe(true)
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(JSON.stringify(snapshot)).toBe(original)
+    },
+  )
+
   it.each([8, 17, 32])(
     "displays the saved terminal font size %i without substituting another option",
     async (size) => {
@@ -472,6 +525,105 @@ describe("SettingsPanel Save state", () => {
   function openProviders() {
     act(() => container.querySelector<HTMLButtonElement>("#settings-tab-providers")!.click())
   }
+
+  it.each(["ru", "en", "zh"] as const)(
+    "shows fractionless limit warnings without inventing usage in %s",
+    async (language) => {
+      const account = ompConfig.accounts[0]
+      const limit = account.limits[0]
+      const snapshot = {
+        ...ompConfig,
+        accounts: [
+          {
+            ...account,
+            limits: [
+              {
+                ...limit,
+                id: "credits-empty",
+                label: "Empty credits",
+                status: "exhausted",
+                usedPercent: null,
+              },
+              {
+                ...limit,
+                id: "credits-warning",
+                label: "Warning credits",
+                status: "warning",
+                usedPercent: null,
+              },
+              {
+                ...limit,
+                id: "credits-unknown",
+                label: "Unknown credits",
+                status: "unknown",
+                usedPercent: null,
+              },
+              {
+                ...limit,
+                id: "credits-default",
+                label: "Default credits",
+                status: "ok",
+                usedPercent: null,
+              },
+              { ...limit, id: "credits-zero", label: "Known zero", status: "ok", usedPercent: 0 },
+              {
+                ...limit,
+                id: "credits-numeric",
+                label: "Known usage",
+                status: "warning",
+                usedPercent: 82,
+              },
+            ],
+          },
+        ],
+      }
+      loadOmpConfigMock.mockResolvedValue(snapshot)
+      await renderRuntime(runtime, { ...settings, language })
+      openProviders()
+      const rows = [...container.querySelectorAll(".provider-account-limit")]
+      const row = (label: string) =>
+        rows.find((item) => item.querySelector("div > span")?.textContent?.startsWith(label))!
+      expect(row("Empty credits").querySelector("strong")?.textContent).toBe(
+        t(language, "accountStatusExhausted"),
+      )
+      expect(row("Warning credits").querySelector("strong")?.textContent).toBe(
+        t(language, "accountStatusLimited"),
+      )
+      for (const label of ["Unknown credits", "Default credits"]) {
+        expect(row(label).querySelector("strong")?.textContent).toBe("—")
+      }
+      for (const label of [
+        "Empty credits",
+        "Warning credits",
+        "Unknown credits",
+        "Default credits",
+      ]) {
+        expect(row(label).querySelector('[role="meter"]')).toBeNull()
+        expect(row(label).querySelector("i")?.style.width).toBe("0%")
+        expect(row(label).querySelector("small")?.textContent).toBe(
+          t(language, "accountResetUnknown"),
+        )
+      }
+      expect(row("Known zero").querySelector('[role="meter"]')?.getAttribute("aria-valuenow")).toBe(
+        "0",
+      )
+      expect(row("Known zero").querySelector("strong")?.textContent).toBe(
+        `0% · 100% ${t(language, "accountRemaining")}`,
+      )
+      expect(
+        row("Known usage").querySelector('[role="meter"]')?.getAttribute("aria-valuenow"),
+      ).toBe("82")
+      expect(row("Known usage").querySelector("strong")?.textContent).toBe(
+        `82% · 18% ${t(language, "accountRemaining")}`,
+      )
+      expect(container.querySelector(".provider-account")?.classList.contains("is-limited")).toBe(
+        true,
+      )
+      expect(container.querySelector(".provider-account .is-eligible")).not.toBeNull()
+      expect(saveSettingsBundleMock).not.toHaveBeenCalled()
+      expect(snapshot.accounts[0].limits[0].usedPercent).toBeNull()
+    },
+  )
 
   it.each(
     (["ru", "en", "zh"] as const).flatMap((language) =>

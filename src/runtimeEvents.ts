@@ -86,7 +86,23 @@ export function suppressTransientProxyError(
   return true
 }
 
-export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent): TerminalTab {
+export type PendingRuntimeTab = Pick<TerminalTab, "id"> &
+  Partial<
+    Pick<
+      TerminalTab,
+      | "currentModel"
+      | "currentModelRole"
+      | "currentThinking"
+      | "currentThinkingConfigured"
+      | "activity"
+      | "completedResponseVersion"
+    >
+  >
+
+export function applyRuntimeEventToTab<T extends PendingRuntimeTab>(
+  tab: T,
+  event: PtyRuntimeEvent,
+): T {
   if (tab.id !== event.terminalId) return tab
 
   return {
@@ -107,4 +123,18 @@ export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent)
         ? (tab.completedResponseVersion ?? 0) + 1
         : tab.completedResponseVersion,
   }
+}
+
+/** Temporary launch state only. Bound unrelated orphan identities without retaining event arrays. */
+export function rememberPendingRuntimeTab(
+  pending: Map<string, PendingRuntimeTab>,
+  event: PtyRuntimeEvent,
+) {
+  if (!pending.has(event.terminalId) && pending.size >= 64) {
+    pending.delete(pending.keys().next().value!)
+  }
+  pending.set(
+    event.terminalId,
+    applyRuntimeEventToTab(pending.get(event.terminalId) ?? { id: event.terminalId }, event),
+  )
 }

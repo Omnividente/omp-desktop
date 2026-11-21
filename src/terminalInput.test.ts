@@ -71,6 +71,12 @@ describe("terminal desktop input editing", () => {
     expect(cursorMoveInput(terminal, { x: 8, y: 0 })).toBe(left.repeat(14))
   })
 
+  it("blocks an exited terminal without blocking an otherwise identical live terminal", () => {
+    const gates = { switching: false, primaryProviderPinPending: false, switchRecovery: null }
+    expect(terminalInputBlocked({ ...gates, status: "exited" })).toBe(true)
+    expect(terminalInputBlocked({ ...gates, status: "running" })).toBe(false)
+  })
+
   it("unblocks ordinary input while failed-switch bytes await an explicit decision", () => {
     const recovery = {
       terminalId: "terminal-1",
@@ -81,6 +87,7 @@ describe("terminal desktop input editing", () => {
     }
     expect(
       terminalInputBlocked({
+        status: "running",
         switching: false,
         primaryProviderPinPending: false,
         switchRecovery: recovery,
@@ -88,6 +95,7 @@ describe("terminal desktop input editing", () => {
     ).toBe(false)
     expect(
       terminalInputBlocked({
+        status: "running",
         switching: true,
         primaryProviderPinPending: false,
         switchRecovery: recovery,

@@ -78,6 +78,7 @@ export const UI_TEXT = {
     emptyTitle: "Откройте папку проекта",
     emptyDesc: "OMP Desktop запустит агента в выбранной папке и соберёт связанные с ней сессии.",
     btnOpenFolder: "Открыть папку",
+    projectInRecentList: "В списке недавних проектов",
     startWork: "Начало работы",
     workspaceReady: "Рабочая папка готова",
     workspaceOverview: "Обзор выбранного проекта",
@@ -131,6 +132,8 @@ export const UI_TEXT = {
     tryAnotherQuery: "Попробуйте другой запрос",
     jsonlNative: "JSONL · OMP native",
     tabReorderHint: "Переместить вкладку: Alt+Shift+←/→",
+    scrollTabsLeft: "Прокрутить вкладки влево",
+    scrollTabsRight: "Прокрутить вкладки вправо",
     tabReordered: "{title}: вкладка {position} из {count}",
     closeSuccessfulTabs: "Закрыть успешно завершённые вкладки ({count})",
     closeSuccessfulTabsHint:
@@ -685,7 +688,8 @@ export const UI_TEXT = {
     roleDescWeb: "Выполняет веб-поиск; OMP проверяет поддержку поиска у выбранной модели.",
     roleDescSpeech: "Преобразует текст в речь.",
     roleDescDictation: "Преобразует аудио в текст.",
-    roleDescJudge: "Оценивает результаты и выполняет классификацию.",
+    roleDescJudge:
+      "Оценивает результаты и выполняет классификацию. Без явного назначения OMP может выбрать модель по своей цепочке по умолчанию. Дополнительные обращения могут оплачиваться у выбранного провайдера; «не назначена» не означает, что роль выключена.",
     roleDescCustom: "Дополнительная роль, заданная в конфигурации OMP.",
     statusOk: "доступна",
     statusLimited: "близко к лимиту",
@@ -772,7 +776,7 @@ export const UI_TEXT = {
     customProviderResponsesHelp:
       "Responses API отправляет запросы на /responses. Выбирайте только если сервер явно поддерживает этот формат; он не заменяет Chat Completions автоматически.",
     customProviderAnthropicHelp:
-      "Anthropic Messages отправляет запросы на /v1/messages. Подходит для Anthropic-совместимых серверов, включая Antigravity Claude Proxy. Адрес можно указать с /v1 или без него.",
+      "Anthropic Messages отправляет запросы на /v1/messages. Подходит для Anthropic-совместимых серверов. Адрес можно указать с /v1 или без него.",
     customProviderKey: "API key",
     customProviderSecretHelp:
       "Ключ сохраняется защищённым механизмом Desktop. В models.yml записываются только адрес, протокол и имя переменной ключа.",
@@ -913,6 +917,7 @@ export const UI_TEXT = {
     emptyTitle: "Open project folder",
     emptyDesc: "OMP Desktop will launch the agent in the selected folder and collect its sessions.",
     btnOpenFolder: "Open folder",
+    projectInRecentList: "In recent projects",
     startWork: "Getting started",
     workspaceReady: "Workspace ready",
     workspaceOverview: "Selected project overview",
@@ -967,6 +972,8 @@ export const UI_TEXT = {
     tryAnotherQuery: "Try another query",
     jsonlNative: "JSONL · OMP native",
     tabReorderHint: "Move tab: Alt+Shift+←/→",
+    scrollTabsLeft: "Scroll tabs left",
+    scrollTabsRight: "Scroll tabs right",
     tabReordered: "{title}: tab {position} of {count}",
     closeSuccessfulTabs: "Close successfully exited tabs ({count})",
     closeSuccessfulTabsHint:
@@ -1517,7 +1524,8 @@ export const UI_TEXT = {
     roleDescWeb: "Performs web search; OMP validates search capability for the selected model.",
     roleDescSpeech: "Converts text to speech.",
     roleDescDictation: "Converts audio to text.",
-    roleDescJudge: "Evaluates results and performs classification.",
+    roleDescJudge:
+      "Evaluates results and performs classification. Without an explicit assignment, OMP may select a model from its default chain. Additional calls may incur charges with the selected provider; an unassigned role is not necessarily disabled.",
     roleDescCustom: "An additional role defined in OMP configuration.",
     statusOk: "available",
     statusLimited: "near limit",
@@ -1604,7 +1612,7 @@ export const UI_TEXT = {
     customProviderResponsesHelp:
       "Responses API sends requests to /responses. Select it only when the server explicitly supports this format; it does not automatically replace Chat Completions.",
     customProviderAnthropicHelp:
-      "Anthropic Messages sends requests to /v1/messages. Use it for Anthropic-compatible servers, including Antigravity Claude Proxy. The base address can include or omit /v1.",
+      "Anthropic Messages sends requests to /v1/messages. Use it for Anthropic-compatible servers. The base address can include or omit /v1.",
     customProviderKey: "API key",
     customProviderSecretHelp:
       "The key uses Desktop's protected credential storage. models.yml receives only the address, protocol, and key variable name.",
@@ -1785,6 +1793,7 @@ export const UI_TEXT = {
     emptyTitle: "打开项目文件夹",
     emptyDesc: "OMP Desktop 将在所选文件夹中启动智能体并收集其会话。",
     btnOpenFolder: "打开文件夹",
+    projectInRecentList: "在最近项目中",
     startWork: "开始使用",
     workspaceReady: "工作区已就绪",
     workspaceOverview: "所选项目概览",
@@ -1836,6 +1845,8 @@ export const UI_TEXT = {
     tryAnotherQuery: "尝试其他查询",
     jsonlNative: "JSONL · OMP native",
     tabReorderHint: "移动标签页：Alt+Shift+←/→",
+    scrollTabsLeft: "向左滚动标签页",
+    scrollTabsRight: "向右滚动标签页",
     tabReordered: "{title}：标签页 {position}/{count}",
     closeSuccessfulTabs: "关闭成功退出的标签页（{count}）",
     closeSuccessfulTabsHint:
@@ -2320,7 +2331,8 @@ export const UI_TEXT = {
     roleDescWeb: "执行网络搜索；OMP 会验证所选模型是否支持搜索。",
     roleDescSpeech: "将文本转换为语音。",
     roleDescDictation: "将音频转换为文本。",
-    roleDescJudge: "评估结果并执行分类。",
+    roleDescJudge:
+      "评估结果并执行分类。未明确分配时，OMP 可能从默认链中选择模型。额外调用可能由所选提供商收费；未分配并不表示该角色已禁用。",
     roleDescCustom: "在 OMP 配置中定义的其他角色。",
     statusOk: "可用",
     statusLimited: "接近上限",
@@ -2404,7 +2416,7 @@ export const UI_TEXT = {
     customProviderResponsesHelp:
       "Responses API 将请求发送到 /responses。仅在服务器明确支持该格式时选择；它不会自动替代 Chat Completions。",
     customProviderAnthropicHelp:
-      "Anthropic Messages 将请求发送到 /v1/messages。适用于兼容 Anthropic 的服务器，包括 Antigravity Claude Proxy。基础地址可包含或不包含 /v1。",
+      "Anthropic Messages 将请求发送到 /v1/messages。适用于兼容 Anthropic 的服务器。基础地址可包含或不包含 /v1。",
     customProviderKey: "API 密钥",
     customProviderSecretHelp:
       "密钥由 Desktop 的受保护凭据存储保存。models.yml 只记录地址、协议和密钥变量名。",

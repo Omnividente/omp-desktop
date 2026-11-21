@@ -1693,6 +1693,24 @@ fn transcript_entry_from_value(value: &Value, line_index: usize) -> Option<Trans
                 .get("content")
                 .and_then(Value::as_str)
                 .map(str::to_owned)
+                .or_else(|| {
+                    // Visible custom messages may persist text/image blocks (for example
+                    // Collab prompts). Keep hidden messages and non-text payloads unchanged.
+                    if event_type != "custom_message"
+                        || value.get("display").and_then(Value::as_bool) != Some(true)
+                    {
+                        return None;
+                    }
+                    let text = value
+                        .get("content")?
+                        .as_array()?
+                        .iter()
+                        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                        .filter_map(|block| block.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("\n\n");
+                    (!text.trim().is_empty()).then_some(text)
+                })
                 .or_else(|| value.get("data").map(render_json_value))
                 .filter(|text| !text.trim().is_empty())?;
             Some(TranscriptEntry {
@@ -5012,6 +5030,81 @@ mod tests {
         assert!(transcript.incomplete_last_record);
         assert!(!transcript.truncated);
 
+        fs::remove_dir_all(root).expect("fixture root should be removable");
+    }
+
+    #[test]
+    fn transcript_reader_preserves_visible_custom_message_text_blocks() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after Unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "omp-desktop-custom-transcript-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("fixture directory should be writable");
+        let path = root.join("session.jsonl");
+        let contents = concat!(
+            r#"{"type":"session","id":"custom-content","timestamp":"2026-11-15T00:00:00Z","cwd":"/synthetic/project"}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"visible-array","customType":"collab-prompt","display":true,"content":[{"type":"text","text":"First block"},{"type":"image","mimeType":"image/png","data":"SYNTHETIC_IMAGE_BYTES"},{"type":"text","text":"Second block"},{"type":"thinking","thinking":"NOT_CUSTOM_TEXT"},{"type":"unknown","text":"NOT_CUSTOM_TEXT"}],"details":{"private":"NOT_CONTENT"}}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"legacy-string","display":false,"content":"Existing string"}"#,
+            "\n",
+            r#"{"type":"custom","id":"legacy-data","display":true,"content":[{"type":"text","text":"DO_NOT_CHANGE_CUSTOM"}],"data":{"label":"legacy data"}}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"empty-array-data","display":true,"content":[{"type":"text","text":" "}],"data":{"label":"empty fallback"}}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"image-array-data","display":true,"content":[{"type":"image","data":"SYNTHETIC_IMAGE_BYTES"}],"data":{"label":"image fallback"}}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"hidden-array","display":false,"content":[{"type":"text","text":"DO_NOT_EXPAND_HIDDEN"}]}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"unmarked-array","content":[{"type":"text","text":"DO_NOT_EXPAND_UNMARKED"}]}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"non-text-array","display":true,"content":[{"type":"thinking","thinking":"NOT_CONTENT"},{"type":"toolCall","name":"NOT_CONTENT"},{"type":"unknown","text":"NOT_CONTENT"}]}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"details-only","display":true,"details":{"text":"NOT_CONTENT"}}"#,
+            "\n",
+            r#"{"type":"custom_message","id":"empty-string","display":true,"content":"","data":{"label":"DO_NOT_CHANGE_EMPTY_STRING"}}"#,
+            "\n"
+        );
+        fs::write(&path, contents).expect("fixture should be writable");
+        let transcript = read_session_transcript(path.to_string_lossy().as_ref(), &root)
+            .expect("transcript should be readable");
+        assert_eq!(
+            transcript
+                .entries
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "visible-array",
+                "legacy-string",
+                "legacy-data",
+                "empty-array-data",
+                "image-array-data"
+            ]
+        );
+        assert_eq!(transcript.entries[0].text, "First block\n\nSecond block");
+        assert_eq!(transcript.entries[0].kind.as_deref(), Some("collab-prompt"));
+        assert_eq!(transcript.entries[1].text, "Existing string");
+        for (entry, label) in
+            transcript.entries[2..]
+                .iter()
+                .zip(["legacy data", "empty fallback", "image fallback"])
+        {
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&entry.text).unwrap(),
+                serde_json::json!({"label": label})
+            );
+        }
+        assert!(transcript
+            .entries
+            .iter()
+            .all(|entry| entry.category == TranscriptEntryCategory::Service
+                && entry.dialogue_text.is_none()));
+        assert_eq!(fs::read(&path).unwrap(), contents.as_bytes());
         fs::remove_dir_all(root).expect("fixture root should be removable");
     }
 

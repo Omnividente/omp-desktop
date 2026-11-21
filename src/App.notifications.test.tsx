@@ -321,4 +321,117 @@ describe("terminal completion notification payloads", () => {
     expect(isPermissionGranted).not.toHaveBeenCalled()
     expect(sendNotification).not.toHaveBeenCalled()
   })
+
+  async function beginOmpUpdate(language: Lang, keepSourceRunning = false) {
+    vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+      hasUpdate: true,
+      currentVersion: "18.1.19",
+      latestVersion: "18.2.0",
+      message: "",
+    })
+    await launch(language, "Saved answer")
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({
+      terminalId: "terminal-update",
+      processId: 102,
+      cwd: bootstrap.workspaces[0].path,
+    })
+    const update = container.querySelector<HTMLButtonElement>(".update-pill")
+    expect(update).not.toBeNull()
+    await act(async () => update!.click())
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+    expect(terminalExits.has("terminal-update")).toBe(true)
+    if (!keepSourceRunning) await exit(true)
+    vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+      hasUpdate: false,
+      currentVersion: "18.2.0",
+      latestVersion: null,
+      message: "",
+    })
+  }
+
+  async function finishOmpUpdate() {
+    await act(async () =>
+      terminalExits.get("terminal-update")!({
+        terminalId: "terminal-update",
+        success: true,
+        error: null,
+        exitCode: 0,
+      }),
+    )
+  }
+
+  it.each(["en", "ru", "zh"] as const)(
+    "%s: does not claim session resumed while its post-update launch is pending or rejected",
+    async (language) => {
+      await beginOmpUpdate(language)
+      let rejectResume!: (reason: Error) => void
+      const resume = new Promise<TerminalStarted>((_resolve, reject) => {
+        rejectResume = reject
+      })
+      vi.mocked(api.startTerminal).mockReturnValueOnce(resume)
+      await finishOmpUpdate()
+      expect(api.startTerminal).toHaveBeenCalledTimes(3)
+      expect(api.startTerminal).toHaveBeenLastCalledWith(
+        bootstrap.workspaces[0].path,
+        bootstrap.sessions[0].filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+      const pendingText = container.textContent
+      await act(async () => rejectResume(new Error("Synthetic resume failure")))
+      expect(container.textContent).toContain("Synthetic resume failure")
+      expect(container.textContent).toContain(t(language, "updateInstalled"))
+      expect(container.querySelectorAll('[data-terminal-status="running"]')).toHaveLength(0)
+      const prematureSuccess = t(language, "updateRestarted").replace("{title}", "Saved answer")
+      expect(pendingText).not.toContain(prematureSuccess)
+      expect(container.textContent).not.toContain(prematureSuccess)
+    },
+  )
+
+  it("still resumes an exited source session after a successful OMP update", async () => {
+    await beginOmpUpdate("en")
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({
+      terminalId: "terminal-resumed",
+      processId: 103,
+      cwd: bootstrap.workspaces[0].path,
+    })
+    await finishOmpUpdate()
+    expect(api.startTerminal).toHaveBeenCalledTimes(3)
+    expect(api.startTerminal).toHaveBeenLastCalledWith(
+      bootstrap.workspaces[0].path,
+      bootstrap.sessions[0].filePath,
+      120,
+      36,
+      null,
+      false,
+    )
+    expect(
+      container.querySelector(
+        '[data-terminal-id="terminal-resumed"][data-terminal-status="running"]',
+      ),
+    ).not.toBeNull()
+    expect(container.textContent).toContain(t("en", "updateInstalled"))
+    expect(
+      container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+    ).toBe("Saved answer")
+    expect(container.querySelector(".terminal-tab.is-active .status-dot.is-running")).not.toBeNull()
+  })
+
+  it("reuses a source session that remained running without starting another terminal", async () => {
+    await beginOmpUpdate("en", true)
+    await finishOmpUpdate()
+    expect(api.startTerminal).toHaveBeenCalledTimes(2)
+    expect(
+      container.querySelector(
+        '[data-terminal-id="terminal-notification"][data-terminal-status="running"]',
+      ),
+    ).not.toBeNull()
+    expect(container.textContent).toContain(t("en", "updateInstalled"))
+    expect(
+      container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+    ).toBe("Saved answer")
+    expect(container.querySelector(".terminal-tab.is-active .status-dot.is-running")).not.toBeNull()
+  })
 })

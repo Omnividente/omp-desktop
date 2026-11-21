@@ -59,6 +59,8 @@ import { resolveLang, t, type Lang, type UiKey } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import {
   applyRuntimeEventToTab,
+  rememberPendingRuntimeTab,
+  type PendingRuntimeTab,
   runtimeEventFeedback,
   suppressTransientProxyError,
   runtimeFeedbackDedupeKey,
@@ -136,10 +138,13 @@ type PendingUpdateRestart = {
   sourceTab: TerminalTab | null
 }
 type PendingLaunchDiscovery = {
+  freshSession: boolean
   terminalId: string | null
+  workspaceSelectionRequest: number
   superseded: boolean
 }
 type PendingRuntimeEvent = {
+  prepublication: boolean
   event: PtyRuntimeEvent
   receivedAt: number
   terminalLabel: string | null
@@ -247,10 +252,20 @@ function App() {
       mountedRef.current = false
     }
   }, [])
+  const runtimePlatformRef = useRef(payload?.runtime.platform ?? "")
+  runtimePlatformRef.current = payload?.runtime.platform ?? ""
   const proxyProvidersRef = useRef<readonly string[]>([])
   proxyProvidersRef.current = payload?.settings.proxyProviders ?? []
   const [appVersion, setAppVersion] = useState(packageMetadata.version)
   const [selectedWorkspaceKey, setSelectedWorkspaceKey] = useState<string | null>(null)
+  const selectedWorkspace = useMemo(() => {
+    if (!payload || !selectedWorkspaceKey) return null
+    return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
+  }, [payload, selectedWorkspaceKey])
+
+  const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
+  const currentWorkspacePathRef = useRef(selectedWorkspacePath)
+  currentWorkspacePathRef.current = selectedWorkspacePath
   const workspaceSelectionRequestRef = useRef(0)
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
@@ -268,9 +283,17 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  const runtimeModelsRef = useRef(
+    new Map<string, Pick<TerminalTab, "currentModel" | "currentModelRole">>(),
+  )
   const unpublishedTerminalIdsRef = useRef(new Set<string>())
   useLayoutEffect(() => {
     const unpublished = unpublishedTerminalIdsRef.current
+    // A command response may race tab closure; keep only owned live identities.
+    for (const terminalId of runtimeModelsRef.current.keys()) {
+      if (!tabs.some((tab) => tab.id === terminalId) && !unpublished.has(terminalId))
+        runtimeModelsRef.current.delete(terminalId)
+    }
     if (unpublished.size === 0) return
     // A spawned process remains guarded until its tab reaches the committed tree.
     for (const tab of tabs) unpublished.delete(tab.id)
@@ -287,6 +310,7 @@ function App() {
   const endedRuntimeTerminalIdsRef = useRef<string[]>([])
   const pendingProxyErrorsRef = useRef(new Set<string>())
   const discoveredSessionsRef = useRef(new Map<string, SessionSummary>())
+  const earlyRuntimeRef = useRef(new Map<string, PendingRuntimeTab>())
   const completionNotifiedRef = useRef(new Set<string>())
   const settingsWarningShownRef = useRef<string | null>(null)
   const pendingInitialInputRef = useRef(new Map<string, string>())
@@ -766,7 +790,13 @@ function App() {
         return next.workspaces[0]?.key ?? null
       })
       setSelectedSessionPath((current) =>
-        current && next.sessions.some((session) => session.filePath === current) ? current : null,
+        // Partial discovery cannot establish removal. Retain only the path intent;
+        // selectedSession still resolves exclusively from the current workspace snapshot.
+        current &&
+        (next.sessions.some((session) => session.filePath === current) ||
+          next.sessionWarnings.length > 0)
+          ? current
+          : null,
       )
     },
     [acceptStartupWorkspaceWarning, showNotice],
@@ -1063,10 +1093,15 @@ function App() {
   }, [acceptStartupWorkspaceWarning, applyPayload, refresh, showError])
   useEffect(() => {
     let disposed = false
+    const earlyRuntime = earlyRuntimeRef.current
+    const runtimeModels = runtimeModelsRef.current
     let runtimeFrame: number | null = null
+    let runtimeFrameGeneration = 0
+    const runtimeBatchLimit = 64
     let pendingRuntimeEvents: PendingRuntimeEvent[] = []
 
     const flushRuntimeEvents = () => {
+      runtimeFrameGeneration++
       runtimeFrame = null
       if (disposed) {
         pendingRuntimeEvents = []
@@ -1086,7 +1121,8 @@ function App() {
         ),
       )
       const eventsByTerminal = new Map<string, PtyRuntimeEvent[]>()
-      for (const { event } of batch) {
+      for (const { event, prepublication } of batch) {
+        if (prepublication) continue
         const events = eventsByTerminal.get(event.terminalId)
         if (events) events.push(event)
         else eventsByTerminal.set(event.terminalId, [event])
@@ -1098,9 +1134,23 @@ function App() {
       )
     }
 
-    const queueRuntimeEvent = (event: PtyRuntimeEvent, terminalLabel: string | null) => {
-      pendingRuntimeEvents.push({ event, receivedAt: Date.now(), terminalLabel })
-      if (runtimeFrame === null) runtimeFrame = window.requestAnimationFrame(flushRuntimeEvents)
+    const queueRuntimeEvent = (
+      event: PtyRuntimeEvent,
+      terminalLabel: string | null,
+      prepublication: boolean,
+    ) => {
+      pendingRuntimeEvents.push({ event, receivedAt: Date.now(), terminalLabel, prepublication })
+      // A hidden WebView can deliver IPC while pausing animation frames.
+      // Bound this batch by event count without dropping intermediate transitions.
+      if (pendingRuntimeEvents.length >= runtimeBatchLimit) {
+        if (runtimeFrame !== null) window.cancelAnimationFrame(runtimeFrame)
+        flushRuntimeEvents()
+      } else if (runtimeFrame === null) {
+        const generation = ++runtimeFrameGeneration
+        runtimeFrame = window.requestAnimationFrame(() => {
+          if (generation === runtimeFrameGeneration) flushRuntimeEvents()
+        })
+      }
     }
 
     const unlistenSession = listen<PtySessionEvent>("pty-session", ({ payload: event }) => {
@@ -1108,6 +1158,19 @@ function App() {
       forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       const { session } = event
       discoveredSessionsRef.current.set(event.terminalId, session)
+      if (
+        session.model &&
+        (tabsRef.current.some((tab) => tab.id === event.terminalId) ||
+          unpublishedTerminalIdsRef.current.has(event.terminalId) ||
+          runtimeModelsRef.current.has(event.terminalId))
+      ) {
+        runtimeModelsRef.current.set(event.terminalId, {
+          currentModel: session.model,
+          currentModelRole:
+            runtimeModelsRef.current.get(event.terminalId)?.currentModelRole ??
+            tabsRef.current.find((tab) => tab.id === event.terminalId)?.currentModelRole,
+        })
+      }
       setPayload((current) =>
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
@@ -1120,11 +1183,19 @@ function App() {
         !tabsRef.current.some((tab) => tab.id === event.terminalId) &&
         [...pendingLaunchDiscoveriesRef.current.values()].some(
           (pending) =>
-            pending.superseded &&
+            (pending.superseded ||
+              pending.workspaceSelectionRequest !== workspaceSelectionRequestRef.current) &&
             (pending.terminalId === null || pending.terminalId === event.terminalId),
         )
+      const workspacePath = currentWorkspacePathRef.current
+      const otherWorkspace =
+        !workspacePath ||
+        normalizedPath(workspacePath, runtimePlatformRef.current) !==
+          normalizedPath(session.cwd, runtimePlatformRef.current)
       const sessionSelectionRequest =
-        background || supersededLaunch ? null : ++sessionSelectionRequestRef.current
+        background || supersededLaunch || otherWorkspace
+          ? null
+          : ++sessionSelectionRequestRef.current
       if (sessionSelectionRequest !== null) {
         setSelectedSessionPath(session.filePath)
         setSearch("")
@@ -1151,12 +1222,13 @@ function App() {
         ),
       )
       const workspaceSelectionRequest = workspaceSelectionRequestRef.current
+      const payloadRevision = payloadRevisionRef.current
       void loadBootstrap()
         .then((next) => {
-          if (disposed) return
+          if (disposed || payloadRevision !== payloadRevisionRef.current) return
           const latest = discoveredSessionsRef.current.get(event.terminalId)
           if (latest && latest.id !== session.id) return
-          applyPayload(mergeSessionIntoPayload(next, session, next.runtime.platform))
+          applyPayload(mergeSessionIntoPayload(next, latest ?? session, next.runtime.platform))
           if (
             sessionSelectionRequest !== null &&
             sessionSelectionRequest === sessionSelectionRequestRef.current &&
@@ -1179,12 +1251,30 @@ function App() {
         if (disposed) return
         const title = event.title.trim()
         const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
-        if (!title || !terminal || terminal.pinnedTitle !== null) return
+        const discovered = discoveredSessionsRef.current.get(event.terminalId)
+        if (!title || terminal?.pinnedTitle != null) return
+        // A discovered session may publish its generated title before its tab commits.
+        if (
+          !terminal &&
+          (!discovered ||
+            discovered.pinnedTitle !== null ||
+            endedRuntimeTerminalIdsRef.current.includes(event.terminalId) ||
+            ![...pendingLaunchDiscoveriesRef.current.values()].some(
+              (pending) =>
+                pending.freshSession &&
+                (pending.terminalId === null || pending.terminalId === event.terminalId),
+            ))
+        ) {
+          return
+        }
 
         setTabs((current) =>
-          current.map((tab) => (tab.id === event.terminalId ? { ...tab, label: title } : tab)),
+          current.map((tab) =>
+            tab.id === event.terminalId && tab.pinnedTitle === null
+              ? { ...tab, label: title }
+              : tab,
+          ),
         )
-        const discovered = discoveredSessionsRef.current.get(event.terminalId)
         if (discovered && discovered.pinnedTitle === null) {
           discoveredSessionsRef.current.set(event.terminalId, { ...discovered, title })
         }
@@ -1194,7 +1284,11 @@ function App() {
           const sessions = current.sessions.map((session) => {
             if (
               session.pinnedTitle !== null ||
-              !tabMatchesSession(terminal, session, current.runtime.platform) ||
+              !(terminal
+                ? tabMatchesSession(terminal, session, current.runtime.platform)
+                : discovered &&
+                  normalizedPath(session.filePath, current.runtime.platform) ===
+                    normalizedPath(discovered.filePath, current.runtime.platform)) ||
               session.title === title
             ) {
               return session
@@ -1214,17 +1308,47 @@ function App() {
       if (disposed) return
       if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
+      // Error records may omit their model. Classification must follow IPC order,
+      // including model changes waiting for a frame or a batched React commit.
+      if (
+        event.model !== null &&
+        (terminal ||
+          unpublishedTerminalIdsRef.current.has(event.terminalId) ||
+          runtimeModelsRef.current.has(event.terminalId))
+      ) {
+        const next = applyRuntimeEventToTab(
+          { id: event.terminalId, ...terminal, ...runtimeModelsRef.current.get(event.terminalId) },
+          event,
+        )
+        runtimeModelsRef.current.set(event.terminalId, {
+          currentModel: next.currentModel,
+          currentModelRole: next.currentModelRole,
+        })
+      }
       if (
         suppressTransientProxyError(
           pendingProxyErrorsRef.current,
           event,
-          terminal?.currentModel,
+          runtimeModelsRef.current.get(event.terminalId)?.currentModel ??
+            terminal?.currentModel ??
+            earlyRuntimeRef.current.get(event.terminalId)?.currentModel,
           proxyProvidersRef.current,
         )
       ) {
         return
       }
-      queueRuntimeEvent(event, terminal?.label ?? null)
+      // A watcher can report before the start IPC acknowledgement publishes its tab.
+      // Retain state, not an unbounded event log; incidents still consume every event once.
+      const prepublication =
+        !terminal &&
+        launchingRef.current &&
+        [...pendingLaunchDiscoveriesRef.current.values()].some(
+          (pending) => pending.terminalId === null,
+        )
+      if (prepublication) {
+        rememberPendingRuntimeTab(earlyRuntimeRef.current, event)
+      }
+      queueRuntimeEvent(event, terminal?.label ?? null, prepublication)
       const feedback = runtimeEventFeedback(event)
       if (feedback) {
         // Retries repeat the same feedback: coalesce exact repeats, but keep
@@ -1265,9 +1389,12 @@ function App() {
 
     return () => {
       disposed = true
+      runtimeFrameGeneration++
       if (runtimeFrame !== null) window.cancelAnimationFrame(runtimeFrame)
       runtimeFrame = null
       pendingRuntimeEvents = []
+      earlyRuntime.clear()
+      runtimeModels.clear()
       void unlistenSession.then((stop) => stop?.())
       void unlistenSessionTitle.then((stop) => stop?.())
       void unlistenRuntime.then((stop) => stop?.())
@@ -1340,14 +1467,6 @@ function App() {
     updateSourceTerminalId,
   ])
 
-  const selectedWorkspace = useMemo(() => {
-    if (!payload || !selectedWorkspaceKey) return null
-    return payload.workspaces.find((workspace) => workspace.key === selectedWorkspaceKey) ?? null
-  }, [payload, selectedWorkspaceKey])
-
-  const selectedWorkspacePath = payload ? (selectedWorkspace?.path ?? null) : undefined
-  const currentWorkspacePathRef = useRef(selectedWorkspacePath)
-  currentWorkspacePathRef.current = selectedWorkspacePath
   codexContextRef.current = { open: codexOpen, path: selectedWorkspacePath }
   useEffect(() => {
     // Feedback belongs to this import view and destination, not another project.
@@ -1682,7 +1801,9 @@ function App() {
       const tabSelectionRequest = tabSelectionRequestRef.current
       const pendingDiscovery = Symbol()
       pendingLaunchDiscoveriesRef.current.set(pendingDiscovery, {
+        freshSession: !session,
         terminalId: null,
+        workspaceSelectionRequest: workspaceSelectionRequestRef.current,
         superseded: false,
       })
       try {
@@ -1742,8 +1863,22 @@ function App() {
             ...discovery,
             terminalId: tab.id,
           })
+        const early = earlyRuntimeRef.current.get(tab.id)
+        const publishedTab: TerminalTab = early
+          ? {
+              ...tab,
+              ...Object.fromEntries(
+                Object.entries(early).filter(([, value]) => value !== undefined),
+              ),
+            }
+          : tab
+        if (publishedTab.currentModel)
+          runtimeModelsRef.current.set(tab.id, {
+            currentModel: publishedTab.currentModel,
+            currentModelRole: publishedTab.currentModelRole,
+          })
         unpublishedTerminalIdsRef.current.add(tab.id)
-        setTabs((current) => [...current, tab])
+        setTabs((current) => [...current, publishedTab])
         // Publish the new terminal without taking back a newer explicit tab choice.
         if (tabSelectionRequest === tabSelectionRequestRef.current) setActiveTabId(tab.id)
       } catch (error) {
@@ -1751,6 +1886,7 @@ function App() {
       } finally {
         if (pendingLaunchDiscoveriesRef.current.get(pendingDiscovery)?.terminalId === null)
           pendingLaunchDiscoveriesRef.current.delete(pendingDiscovery)
+        earlyRuntimeRef.current.clear()
         launchingRef.current = false
         setLaunching(null)
       }
@@ -1794,13 +1930,11 @@ function App() {
   )
 
   const launchUpdate = useCallback(async () => {
-    if (
-      !payload?.runtime.ompAvailable ||
-      !selectedWorkspace?.path ||
-      launchingRef.current ||
-      isInstallingClientUpdate()
-    )
+    if (!payload?.runtime.ompAvailable || launchingRef.current || isInstallingClientUpdate()) return
+    if (!selectedWorkspace?.path) {
+      showError(t(lang, "requireProjectDir"))
       return
+    }
     const sourceTab =
       tabs.find((tab) => tab.id === updateSourceTerminalId && tab.status === "running") ??
       tabs.find((tab) => tab.status === "running" && tab.kind === "agent") ??
@@ -2059,6 +2193,10 @@ function App() {
           tab.currentThinking ?? null,
           tab.currentThinkingConfigured ?? tab.currentThinking ?? null,
         )
+        runtimeModelsRef.current.set(terminalId, {
+          currentModel: runtime.model,
+          currentModelRole: runtime.modelRole,
+        })
         setTabs((current) =>
           current.map((candidate) =>
             candidate.id === terminalId
@@ -2248,6 +2386,15 @@ function App() {
 
         const discoveredSession = discoveredSessionsRef.current.get(terminalId)
         discoveredSessionsRef.current.delete(terminalId)
+        const latestTab = tabsRef.current.find((candidate) => candidate.id === terminalId)
+        const runtimeModel =
+          runtimeModelsRef.current.get(terminalId) ??
+          (latestTab && {
+            currentModel: latestTab.currentModel,
+            currentModelRole: latestTab.currentModelRole,
+          })
+        runtimeModelsRef.current.delete(terminalId)
+        if (runtimeModel) runtimeModelsRef.current.set(started.terminalId, runtimeModel)
         if (discoveredSession) {
           discoveredSessionsRef.current.set(started.terminalId, {
             ...discoveredSession,
@@ -2263,7 +2410,12 @@ function App() {
 
         setTabs((current) =>
           current.map((candidate) =>
-            replaceTerminalAfterRestart(candidate, terminalId, started, pinned),
+            replaceTerminalAfterRestart(
+              candidate.id === terminalId ? { ...candidate, ...runtimeModel } : candidate,
+              terminalId,
+              started,
+              pinned,
+            ),
           ),
         )
         setActiveTabId((current) => (current === terminalId ? started.terminalId : current))
@@ -2280,6 +2432,7 @@ function App() {
         const stopped =
           exitEvent !== undefined || backendErrorCode(error) === "terminal_restart_stopped"
         restartExitEventsRef.current.delete(terminalId)
+        if (stopped) runtimeModelsRef.current.delete(terminalId)
         setTabs((current) =>
           current.map((candidate) =>
             candidate.id === terminalId
@@ -2329,6 +2482,7 @@ function App() {
       readyTerminalIdsRef.current.delete(terminalId)
       discoveredSessionsRef.current.delete(terminalId)
       pendingProxyErrorsRef.current.delete(terminalId)
+      runtimeModelsRef.current.delete(terminalId)
       completionNotifiedRef.current.delete(terminalId)
       restartingTerminalIdsRef.current.delete(terminalId)
       restartExitEventsRef.current.delete(terminalId)
@@ -2413,6 +2567,8 @@ function App() {
         )
         if (!next) return
         for (const tab of matchingTabs) closeTab(tab.id)
+        // An acknowledged deletion is authoritative even if other files failed discovery.
+        setSelectedSessionPath((current) => (current === session.filePath ? null : current))
         applyPayload(next)
         showNotice(t(lang, "sessionDeleted"))
       } catch (error) {
@@ -2427,7 +2583,28 @@ function App() {
   const updateSessionTitlePin = useCallback(
     async (session: SessionSummary, title: string | null) => {
       try {
-        applyPayload(await setSessionTitlePin(session.filePath, title))
+        const next = await setSessionTitlePin(session.filePath, title)
+        const path = normalizedPath(session.filePath, next.runtime.platform)
+        const saved = next.sessions.find(
+          (candidate) =>
+            candidate.id === session.id &&
+            normalizedPath(candidate.filePath, next.runtime.platform) === path,
+        )
+        if (saved) {
+          for (const [terminalId, discovered] of discoveredSessionsRef.current) {
+            if (
+              discovered.id === saved.id &&
+              normalizedPath(discovered.filePath, next.runtime.platform) === path
+            ) {
+              discoveredSessionsRef.current.set(terminalId, {
+                ...discovered,
+                title: saved.title,
+                pinnedTitle: saved.pinnedTitle,
+              })
+            }
+          }
+        }
+        applyPayload(next)
         return true
       } catch (error) {
         showError(errorMessage(error, lang))
@@ -2504,6 +2681,9 @@ function App() {
 
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
+      earlyRuntimeRef.current.delete(event.terminalId)
+      if (!restartingTerminalIdsRef.current.has(event.terminalId))
+        runtimeModelsRef.current.delete(event.terminalId)
       rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
@@ -2571,7 +2751,6 @@ function App() {
               configuredThinkingLevel: pendingUpdate.sourceTab.currentThinkingConfigured ?? null,
               primaryProviderPinned: pendingUpdate.sourceTab.primaryProviderPinned,
             }
-            showNotice(t(lang, "updateRestarted").replace("{title}", pendingUpdate.sourceTab.label))
             void launchSession(targetSession)
           }
         }

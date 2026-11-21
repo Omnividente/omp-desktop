@@ -257,8 +257,10 @@ export function TerminalView({
       selectAllArmedRef.current = false
       setInputSelectionArmed(false)
     }
+    let connectionFailed = false
     const sendInput = (data: string) => {
-      if (inputBlockedRef.current) return
+      if (connectionFailed || exitHandled || deferredExit !== null || inputBlockedRef.current)
+        return
       void writeTerminal(tab.id, data).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -523,6 +525,9 @@ export function TerminalView({
       }
     }
     const unlisteners: UnlistenFn[] = []
+    const stopListening = () => {
+      for (const unlisten of unlisteners.splice(0)) unlisten()
+    }
     const attachmentId =
       globalThis.crypto?.randomUUID?.() ??
       `${tab.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
@@ -683,7 +688,8 @@ export function TerminalView({
 
     const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
-      if (inputBlockedRef.current) return
+      if (connectionFailed || exitHandled || deferredExit !== null || inputBlockedRef.current)
+        return
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -691,7 +697,7 @@ export function TerminalView({
 
     const connect = async () => {
       const stopOutput = await listen<PtyOutputEvent>(`pty-output:${tab.id}`, ({ payload }) => {
-        if (!disposed) queueOutput(payload)
+        if (!disposed && !(connectionFailed && !outputReady)) queueOutput(payload)
       })
       if (disposed) {
         stopOutput()
@@ -700,7 +706,7 @@ export function TerminalView({
       unlisteners.push(stopOutput)
 
       const stopExit = await listen<PtyExitEvent>("pty-exit", ({ payload }) => {
-        if (!disposed && payload.terminalId === tab.id) {
+        if (!disposed && !(connectionFailed && !outputReady) && payload.terminalId === tab.id) {
           if (outputReady) {
             handleExit(payload)
           } else {
@@ -769,6 +775,12 @@ export function TerminalView({
     }
 
     void connect().catch((error) => {
+      connectionFailed = true
+      if (!outputReady) {
+        deferredOutput = []
+        deferredExit = null
+        stopListening()
+      }
       if (!disposed) {
         onErrorRef.current(errorMessage(error, languageRef.current))
       }
@@ -798,9 +810,7 @@ export function TerminalView({
       binarySubscription.dispose()
       selectionSubscription.dispose()
       scrollSubscription.dispose()
-      for (const unlisten of unlisteners) {
-        unlisten()
-      }
+      stopListening()
       terminalRef.current = null
       disposeMotion()
       terminal.dispose()

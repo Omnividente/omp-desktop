@@ -22,6 +22,8 @@ import type {
   OmpConfigSnapshot,
   SingleInstanceEvent,
   PtySessionEvent,
+  PtyRuntimeEvent,
+  PtyExitEvent,
   TerminalStarted,
   TerminalTab,
 } from "./types"
@@ -29,6 +31,7 @@ import type {
 const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }))
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
 const terminalReady = vi.hoisted(() => new Map<string, (terminalId: string) => void>())
+const terminalExits = vi.hoisted(() => new Map<string, (event: PtyExitEvent) => void>())
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
 
@@ -77,16 +80,23 @@ vi.mock("./TerminalView", () => ({
     active,
     focusRequestSequence,
     onReady,
+    onExit,
   }: {
     tab: TerminalTab
     active: boolean
     focusRequestSequence: number
     onReady: (terminalId: string) => void
+    onExit: (event: PtyExitEvent) => void
   }) => {
     terminalReady.set(tab.id, onReady)
+    terminalExits.set(tab.id, onExit)
     return (
       <div
         data-terminal-id={tab.id}
+        data-runtime-activity={tab.activity}
+        data-runtime-model={tab.currentModel ?? ""}
+        data-runtime-model-role={tab.currentModelRole ?? ""}
+        data-response-version={tab.completedResponseVersion ?? 0}
         data-active={active}
         data-focus-sequence={focusRequestSequence}
       />
@@ -366,6 +376,181 @@ async function workspaceBackend(initial: BootstrapPayload) {
 }
 
 describe("App lifecycle serialization", () => {
+  it.each([
+    "file",
+    "directory",
+    "unrelated-warning",
+    "authoritative-missing",
+    "manual-selection",
+    "project-override",
+  ] as const)("research partial scan selection recovery: %s", async (mode) => {
+    const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
+    const older = {
+      ...latest,
+      id: "partial-scan-older",
+      title: "Older scan recovery target",
+      filePath: "C:/fixture/sessions/older-scan.jsonl",
+      updatedAt: 1,
+    }
+    const complete = {
+      ...bootstrap,
+      workspaces: [
+        ...bootstrap.workspaces,
+        { ...bootstrap.workspaces[0], key: "other", path: "C:/fixture/other", name: "Other" },
+      ],
+      sessions: [latest, older],
+    }
+    let snapshot: BootstrapPayload = complete
+    vi.mocked(api.bootstrap).mockImplementation(async () => snapshot)
+    await act(async () => root.render(<App />))
+    const choose = async (title: string) => {
+      const row = [...container.querySelectorAll<HTMLButtonElement>(".session-select")].find(
+        (item) => item.getAttribute("aria-label") === title,
+      )
+      expect(row).toBeDefined()
+      await act(async () => row!.click())
+    }
+    const externalRefresh = async () => {
+      const subscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "single-instance")
+      expect(subscription).toBeDefined()
+      const receive = subscription![1] as EventCallback<SingleInstanceEvent>
+      await act(async () => {
+        receive({ event: "single-instance", id: 902, payload: { workspace: null, error: null } })
+      })
+    }
+    await choose(older.title)
+    expect(element(".session-item.is-selected").textContent).toContain(older.title)
+    snapshot = {
+      ...complete,
+      sessions: [latest],
+      sessionWarnings: [
+        {
+          path:
+            mode === "directory"
+              ? "C:/fixture/sessions"
+              : mode === "unrelated-warning"
+                ? "C:/fixture/sessions/unrelated.jsonl"
+                : older.filePath,
+          message: "Synthetic temporary read failure",
+        },
+      ],
+    }
+    await externalRefresh()
+    expect(container.querySelector(".session-item.is-selected")).toBeNull()
+    expect(container.querySelector(`[aria-label="${older.title}"]`)).toBeNull()
+    expect(element(".hero-actions .secondary").textContent).toBe("Продолжить последнюю")
+    expect(element(".app-session-warnings").textContent).toContain(
+      "Synthetic temporary read failure",
+    )
+    expect(api.startTerminal).not.toHaveBeenCalled()
+
+    if (mode === "manual-selection") await choose(latest.title)
+    if (mode === "project-override") {
+      await act(async () => element('.project-item[aria-label^="Other,"]').click())
+      await act(async () => element('.project-item[aria-label^="Fixture,"]').click())
+    }
+    if (mode === "authoritative-missing") {
+      snapshot = { ...complete, sessions: [latest], sessionWarnings: [] }
+      await act(async () => element<HTMLButtonElement>(".app-session-warnings button").click())
+      expect(container.querySelector(".app-session-warnings")).toBeNull()
+      expect(container.querySelector(".session-item.is-selected")).toBeNull()
+    }
+    snapshot = complete
+    if (mode === "authoritative-missing") await externalRefresh()
+    else await act(async () => element<HTMLButtonElement>(".app-session-warnings button").click())
+    expect(container.querySelector(".app-session-warnings")).toBeNull()
+    expect(api.startTerminal).not.toHaveBeenCalled()
+    if (mode === "authoritative-missing" || mode === "project-override") {
+      expect(container.querySelector(".session-item.is-selected")).toBeNull()
+      expect(element(".hero-actions .secondary").textContent).toBe("Продолжить последнюю")
+    } else {
+      const expected = mode === "manual-selection" ? latest : older
+      expect(element(".session-item.is-selected").textContent).toContain(expected.title)
+      expect(element(".hero-actions .secondary").textContent).toBe(
+        mode === "manual-selection" ? "Продолжить последнюю" : "Продолжить выбранную",
+      )
+      await act(async () => element<HTMLButtonElement>(".hero-actions .secondary").click())
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        expected.cwd,
+        expected.filePath,
+        120,
+        36,
+        null,
+        false,
+      )
+    }
+  })
+
+  it.each(["cancel", "failure", "success", "newer-selection"] as const)(
+    "research partial scan deletion selection: %s",
+    async (mode) => {
+      const latest = { ...bootstrap.sessions[0], updatedAt: 2 }
+      const older = {
+        ...latest,
+        id: "delete-older",
+        title: "Older delete target",
+        filePath: "C:/fixture/sessions/delete-older.jsonl",
+        updatedAt: 1,
+      }
+      const complete = { ...bootstrap, sessions: [latest, older] }
+      let snapshot: BootstrapPayload = complete
+      vi.mocked(api.bootstrap).mockImplementation(async () => snapshot)
+      const deletion = deferred<BootstrapPayload>()
+      vi.mocked(api.deleteSession).mockReturnValue(deletion.promise)
+      vi.mocked(confirm).mockResolvedValue(mode !== "cancel")
+      await act(async () => root.render(<App />))
+      const select = (title: string) =>
+        [...container.querySelectorAll<HTMLButtonElement>(".session-select")].find(
+          (row) => row.getAttribute("aria-label") === title,
+        )!
+      await act(async () => select(older.title).click())
+      const row = select(older.title).closest(".session-item")!
+      await act(async () => row.querySelector<HTMLButtonElement>(".session-delete")!.click())
+      if (mode === "cancel") {
+        expect(api.deleteSession).not.toHaveBeenCalled()
+      } else {
+        expect(api.deleteSession).toHaveBeenCalledExactlyOnceWith(older.filePath, false)
+        if (mode === "newer-selection") await act(async () => select(latest.title).click())
+        if (mode === "failure") {
+          await act(async () => deletion.reject(new Error("Synthetic deletion refused")))
+        } else {
+          snapshot = {
+            ...complete,
+            sessions: [latest],
+            sessionWarnings: [
+              {
+                path: "C:/fixture/sessions/unrelated.jsonl",
+                message: "Synthetic unrelated scan warning",
+              },
+            ],
+          }
+          await act(async () => deletion.resolve(snapshot))
+          if (mode === "success")
+            expect(container.querySelector(".session-item.is-selected")).toBeNull()
+          else expect(element(".session-item.is-selected").textContent).toContain(latest.title)
+        }
+      }
+      // A later visible same-path entry must not revive an explicitly deleted selection.
+      snapshot = complete
+      const subscription = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "single-instance")!
+      const receive = subscription[1] as EventCallback<SingleInstanceEvent>
+      await act(async () =>
+        receive({ event: "single-instance", id: 903, payload: { workspace: null, error: null } }),
+      )
+      if (mode === "success")
+        expect(container.querySelector(".session-item.is-selected")).toBeNull()
+      else
+        expect(element(".session-item.is-selected").textContent).toContain(
+          mode === "newer-selection" ? latest.title : older.title,
+        )
+      expect(api.startTerminal).not.toHaveBeenCalled()
+    },
+  )
+
   let root: Root
   let container: HTMLDivElement
   let previousDocumentLanguage: string | null
@@ -383,11 +568,718 @@ describe("App lifecycle serialization", () => {
     return button!
   }
 
+  it.each(["after-ack", "before-ack", "pinned", "unknown-terminal"] as const)(
+    "handles generated discovery titles at the launch boundary (%s)",
+    async (mode) => {
+      const projects = workspacePayload("Alpha")
+      if (mode === "pinned") {
+        projects.sessions[0] = {
+          ...projects.sessions[0],
+          title: "Fixed synthetic title",
+          pinnedTitle: "Fixed synthetic title",
+        }
+      }
+      const beforeAck = mode !== "after-ack"
+      const receivesGeneratedTitle = mode === "after-ack" || mode === "before-ack"
+      const initial = { ...projects, sessions: [] }
+      vi.mocked(api.bootstrap).mockResolvedValue(initial)
+      const launch = deferred<TerminalStarted>()
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".hero-actions .primary").click())
+
+      const receiveSession = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+      const receiveTitle = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-session-title")![1] as EventCallback<{
+        terminalId: string
+        title: string
+      }>
+      const title = "Generated while start is pending"
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      await act(async () =>
+        receiveSession({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      expect(
+        container.querySelector(`.session-select[aria-label="${projects.sessions[0].title}"]`),
+      ).not.toBeNull()
+
+      const sendTitle = () =>
+        act(async () =>
+          receiveTitle({
+            event: "pty-session-title",
+            id: 2,
+            payload: {
+              terminalId: mode === "unknown-terminal" ? "another-terminal" : started.terminalId,
+              title,
+            },
+          }),
+        )
+      if (beforeAck) await sendTitle()
+      await act(async () => launch.resolve({ ...started, cwd: "C:/fixture/Alpha" }))
+      if (!beforeAck) await sendTitle()
+      await act(async () => refresh.resolve(projects))
+
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      const rail = (name: string) =>
+        container.querySelector(`.session-select[aria-label="${name}"]`)
+      expect([
+        element(".terminal-tab-label").textContent,
+        rail(title) !== null,
+        rail(projects.sessions[0].title) !== null,
+      ]).toEqual(
+        receivesGeneratedTitle ? [title, true, false] : [projects.sessions[0].title, false, true],
+      )
+    },
+  )
+
+  it.each([true, false])(
+    "preserves runtime activity received before the launch acknowledgement (flushBefore=%s)",
+    async (flushBefore) => {
+      const launch = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValue(launch.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".new-session-button").click())
+      const frames: FrameRequestCallback[] = []
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        frames.push(callback)
+        return frames.length
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+      await act(async () => {
+        receive({
+          event: "pty-runtime",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            kind: "activity",
+            activity: "thinking",
+            model: "provider/model-live",
+            modelRole: "default",
+            thinkingLevel: "high",
+            configuredThinkingLevel: "high",
+            errorMessage: null,
+            fallbackFrom: null,
+            fallbackTo: null,
+            fallbackRole: null,
+            resolvedModelIsFallback: null,
+          },
+        })
+      })
+      if (flushBefore) await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      await act(async () => launch.resolve(started))
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(
+        element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-activity"),
+      ).toBe("thinking")
+      expect(
+        element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-model"),
+      ).toBe("provider/model-live")
+    },
+  )
+
+  it.each(["success", "reject"] as const)(
+    "isolates early completion from later publication (%s)",
+    async (outcome) => {
+      const launch = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element(".new-session-button").click())
+      const frames: FrameRequestCallback[] = []
+      vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+        frames.push(callback)
+        return frames.length
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+      const send = (activity: "idle" | "thinking", model: string | null = null) =>
+        receive({
+          event: "pty-runtime",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            kind: "activity",
+            activity,
+            model,
+            modelRole: null,
+            thinkingLevel: null,
+            configuredThinkingLevel: null,
+            errorMessage: null,
+            fallbackFrom: null,
+            fallbackTo: null,
+            fallbackRole: null,
+            resolvedModelIsFallback: null,
+          },
+        })
+      await act(async () => {
+        send("idle")
+        send("idle")
+      })
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      await act(async () => send("idle"))
+      if (outcome === "success") await act(async () => launch.resolve(started))
+      else {
+        await act(async () => launch.reject(new Error("Synthetic launch failure")))
+        vi.mocked(api.startTerminal).mockResolvedValueOnce(started)
+        await act(async () => element(".new-session-button").click())
+      }
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+      expect(pane.getAttribute("data-response-version")).toBe(outcome === "success" ? "3" : "0")
+      await act(async () => send("thinking", "provider/newer"))
+      await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+      expect(pane.getAttribute("data-runtime-activity")).toBe("thinking")
+      expect(pane.getAttribute("data-runtime-model")).toBe("provider/newer")
+      expect(pane.getAttribute("data-response-version")).toBe(outcome === "success" ? "3" : "0")
+    },
+  )
+
+  it("does not retain orphan runtime state outside a pending session launch", async () => {
+    await act(async () => root.render(<App />))
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback)
+      return frames.length
+    })
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+    await act(async () =>
+      receive({
+        event: "pty-runtime",
+        id: 1,
+        payload: {
+          terminalId: started.terminalId,
+          kind: "activity",
+          activity: "thinking",
+          model: "provider/orphan",
+          modelRole: null,
+          thinkingLevel: null,
+          configuredThinkingLevel: null,
+          errorMessage: null,
+          fallbackFrom: null,
+          fallbackTo: null,
+          fallbackRole: null,
+          resolvedModelIsFallback: null,
+        },
+      }),
+    )
+    await act(async () => frames.splice(0).forEach((callback) => callback(0)))
+    await act(async () => element(".new-session-button").click())
+    expect(
+      element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-activity"),
+    ).toBe("idle")
+    expect(
+      element(`[data-terminal-id="${started.terminalId}"]`).getAttribute("data-runtime-model"),
+    ).not.toBe("provider/orphan")
+  })
+
+  it("composes early runtime, bounded batches, live title, and workspace navigation", async () => {
+    const projects = workspacePayload("Alpha", "Beta")
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    const launch = deferred<TerminalStarted>()
+    const refresh = deferred<BootstrapPayload>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+    await act(async () => element(".hero-actions .primary").click())
+    const scheduler = runtimeScheduler()
+    const send = runtimeInput()
+    await act(async () => element('.project-item[aria-label^="Beta,"]').click())
+    await act(async () => element('.session-select[aria-label="Beta session"]').click())
+    const search = element<HTMLInputElement>(".project-sessions .search-box input")
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "Beta",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    const receiveSession = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+    const receiveTitle = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session-title")![1] as EventCallback<{
+      terminalId: string
+      title: string
+    }>
+    vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+    await act(async () => {
+      receiveSession({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+      })
+      send({ kind: "modelChange", model: "provider/live", activity: "thinking" })
+      for (let i = 0; i < 130; i++) send({ activity: "idle" })
+      receiveTitle({
+        event: "pty-session-title",
+        id: 2,
+        payload: { terminalId: started.terminalId, title: "Live title before acknowledgement" },
+      })
+    })
+    expect(container.querySelector(".terminal-tab")).toBeNull()
+    expect(search.value).toBe("Beta")
+    await act(async () => launch.resolve({ ...started, cwd: "C:/fixture/Alpha" }))
+    await act(async () => scheduler.flush())
+    await act(async () => refresh.resolve(projects))
+    const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+    expect(pane.getAttribute("data-response-version")).toBe("130")
+    expect(pane.getAttribute("data-runtime-model")).toBe("provider/live")
+    expect(pane.getAttribute("data-runtime-activity")).toBe("idle")
+    expect(element(".terminal-tab-label").textContent).toBe("Live title before acknowledgement")
+    expect(element(".project-item.is-active").textContent).toContain("Beta")
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "Beta session",
+    )
+    expect(search.value).toBe("Beta")
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
+  it("uses the early model for proxy-error suppression before launch acknowledgement", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en", proxyProviders: ["proxy-provider"] },
+    })
+    const launch = deferred<TerminalStarted>()
+    vi.mocked(api.startTerminal).mockReturnValueOnce(launch.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => element(".new-session-button").click())
+    const scheduler = runtimeScheduler()
+    const send = runtimeInput()
+    await act(async () => {
+      send({ kind: "modelChange", model: "proxy-provider/model", activity: null })
+      send({
+        kind: "modelError",
+        model: null,
+        activity: "error",
+        errorMessage: "Synthetic first proxy retry",
+      })
+    })
+    expect(container.textContent).not.toContain("Synthetic first proxy retry")
+    await act(async () => launch.resolve(started))
+    await act(async () => scheduler.flush())
+    const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+    expect(pane.getAttribute("data-runtime-model")).toBe("proxy-provider/model")
+    expect(pane.getAttribute("data-response-version")).toBe("0")
+    await act(async () => {
+      send({
+        kind: "modelError",
+        model: null,
+        activity: "error",
+        errorMessage: "Synthetic repeated proxy failure",
+      })
+      scheduler.flush()
+    })
+    expect(container.textContent).toContain("Synthetic repeated proxy failure")
+    expect(pane.getAttribute("data-runtime-activity")).toBe("error")
+    expect(pane.getAttribute("data-response-version")).toBe("1")
+  })
+
+  it.each([
+    ["proxy-provider", 0],
+    ["ordinary-provider", 0],
+    ["proxy-provider", 63],
+    ["ordinary-provider", 63],
+  ] as const)(
+    "classifies published errors using the latest held-frame model (%s, preceding=%s)",
+    async (nextProvider, preceding) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: ["proxy-provider"] },
+      })
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const previousProvider =
+        nextProvider === "proxy-provider" ? "ordinary-provider" : "proxy-provider"
+      await act(async () => {
+        send({ kind: "modelChange", model: `${previousProvider}/previous`, activity: null })
+        scheduler.flush()
+      })
+      const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${previousProvider}/previous`)
+      await act(async () => {
+        for (let i = 0; i < preceding; i++) send({ activity: "thinking" })
+        send({ kind: "modelChange", model: `${nextProvider}/current`, activity: null })
+        send({
+          kind: "modelError",
+          model: null,
+          activity: "error",
+          errorMessage: "Synthetic held-frame model failure",
+        })
+      })
+      if (nextProvider === "proxy-provider") {
+        expect(container.textContent).not.toContain("Synthetic held-frame model failure")
+      } else {
+        expect(container.textContent).toContain("Synthetic held-frame model failure")
+      }
+      await act(async () => scheduler.flush())
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${nextProvider}/current`)
+      expect(pane.getAttribute("data-response-version")).toBe(
+        nextProvider === "proxy-provider" ? "0" : "1",
+      )
+    },
+  )
+
+  it.each([
+    ["proxy-provider", true],
+    ["ordinary-provider", true],
+    ["proxy-provider", false],
+    ["ordinary-provider", false],
+  ] as const)(
+    "keeps the latest model when a pending pin restart observes exit (%s, flushed=%s)",
+    async (nextProvider, flushBeforeExit) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: ["proxy-provider"] },
+      })
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValueOnce(restart.promise)
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const previousProvider =
+        nextProvider === "proxy-provider" ? "ordinary-provider" : "proxy-provider"
+      await act(async () => {
+        send({ kind: "modelChange", model: `${previousProvider}/previous`, activity: null })
+        scheduler.flush()
+      })
+      await act(async () => element(".primary-provider-pin").click())
+      expect(api.setTerminalPrimaryProviderPin).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        send({
+          kind: "modelChange",
+          model: `${nextProvider}/current`,
+          activity: null,
+          modelRole: "slow",
+        })
+        if (flushBeforeExit) scheduler.flush()
+      })
+      await act(async () =>
+        terminalExits.get(started.terminalId)!({
+          terminalId: started.terminalId,
+          exitCode: 0,
+          success: true,
+          error: null,
+        }),
+      )
+      const replacement = { ...started, terminalId: "restarted-after-model-change", processId: 102 }
+      await act(async () => restart.resolve(replacement))
+      const pane = element(`[data-terminal-id="${replacement.terminalId}"]`)
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${nextProvider}/current`)
+      expect(pane.getAttribute("data-runtime-model-role")).toBe("slow")
+      await act(async () =>
+        send({
+          terminalId: replacement.terminalId,
+          kind: "modelError",
+          model: null,
+          activity: "error",
+          errorMessage: "Synthetic replacement model failure",
+        }),
+      )
+      if (nextProvider === "proxy-provider") {
+        expect(container.textContent).not.toContain("Synthetic replacement model failure")
+      } else {
+        expect(container.textContent).toContain("Synthetic replacement model failure")
+      }
+    },
+  )
+
+  it.each([
+    ["proxy-provider", "runtime"],
+    ["ordinary-provider", "runtime"],
+    ["proxy-provider", "session"],
+    ["ordinary-provider", "session"],
+  ] as const)(
+    "classifies replacement events between restart acknowledgement and publication (%s, %s)",
+    async (nextProvider, source) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: ["proxy-provider"] },
+      })
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValueOnce(restart.promise)
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const previousProvider =
+        nextProvider === "proxy-provider" ? "ordinary-provider" : "proxy-provider"
+      await act(async () => {
+        send({ kind: "modelChange", model: `${previousProvider}/previous`, activity: null })
+        scheduler.flush()
+      })
+      await act(async () => element(".primary-provider-pin").click())
+      const replacement = {
+        ...started,
+        terminalId: "replacement-before-publication",
+        processId: 102,
+      }
+      await act(async () => {
+        restart.resolve(replacement)
+        await restart.promise
+        if (source === "runtime") {
+          send({
+            terminalId: replacement.terminalId,
+            kind: "modelChange",
+            model: `${nextProvider}/current`,
+            activity: null,
+          })
+        } else {
+          const receiveSession = vi
+            .mocked(listen)
+            .mock.calls.find(
+              ([name]) => name === "pty-session",
+            )![1] as EventCallback<PtySessionEvent>
+          receiveSession({
+            event: "pty-session",
+            id: 2,
+            payload: {
+              terminalId: replacement.terminalId,
+              session: { ...bootstrap.sessions[0], model: `${nextProvider}/current` },
+            },
+          })
+        }
+        send({
+          terminalId: replacement.terminalId,
+          kind: "modelError",
+          model: null,
+          activity: "error",
+          errorMessage: "Synthetic replacement publication failure",
+        })
+      })
+      if (nextProvider === "proxy-provider") {
+        expect(container.textContent).not.toContain("Synthetic replacement publication failure")
+      } else {
+        expect(container.textContent).toContain("Synthetic replacement publication failure")
+      }
+      await act(async () => scheduler.flush())
+      const pane = element(`[data-terminal-id="${replacement.terminalId}"]`)
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${nextProvider}/current`)
+      expect(pane.getAttribute("data-response-version")).toBe(
+        nextProvider === "proxy-provider" ? "0" : "1",
+      )
+    },
+  )
+
   async function mountAndResume() {
     await act(async () => root.render(<App />))
     await act(async () => element('[title="Продолжить сессию"]').click())
     expect(api.startTerminal).toHaveBeenCalledTimes(1)
   }
+
+  // Controlled scheduler / mock IPC only: these are committed React-state checks, not native timing.
+  function runtimeScheduler() {
+    let nextId = 8000
+    const callbacks = new Map<number, FrameRequestCallback>()
+    const active = new Set<number>()
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = ++nextId
+      callbacks.set(id, callback)
+      active.add(id)
+      return id
+    })
+    const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+      active.delete(id)
+    })
+    return {
+      callbacks,
+      active,
+      cancel,
+      flush() {
+        for (const id of [...active]) {
+          active.delete(id)
+          callbacks.get(id)!(0)
+        }
+      },
+    }
+  }
+
+  function runtimeInput() {
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-runtime")![1] as EventCallback<PtyRuntimeEvent>
+    return (patch: Partial<PtyRuntimeEvent> = {}) =>
+      receive({
+        event: "pty-runtime",
+        id: 1,
+        payload: {
+          terminalId: "terminal-1",
+          kind: "activity",
+          activity: "idle",
+          model: null,
+          modelRole: null,
+          thinkingLevel: null,
+          configuredThinkingLevel: null,
+          errorMessage: null,
+          fallbackFrom: null,
+          fallbackTo: null,
+          fallbackRole: null,
+          resolvedModelIsFallback: null,
+          ...patch,
+        },
+      })
+  }
+
+  it.each([63, 64, 65, 129])(
+    "runtime FIFO commits threshold batches with %s held-frame events",
+    async (count) => {
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      await act(async () => {
+        for (let i = 0; i < count; i++) send()
+      })
+      const pane = element('[data-terminal-id="terminal-1"]')
+      expect(pane.getAttribute("data-response-version")).toBe(String(Math.floor(count / 64) * 64))
+      expect(scheduler.cancel).toHaveBeenCalledTimes(Math.floor(count / 64))
+      expect(scheduler.active.size).toBe(count % 64 ? 1 : 0)
+      await act(async () => scheduler.flush())
+      expect(pane.getAttribute("data-response-version")).toBe(String(count))
+    },
+  )
+
+  it("runtime FIFO ignores stale cancelled frames without stealing the next frame", async () => {
+    await mountAndResume()
+    const scheduler = runtimeScheduler()
+    const send = runtimeInput()
+    await act(async () => {
+      for (let i = 0; i < 64; i++) send()
+    })
+    const stale = scheduler.callbacks.get(8001)!
+    expect(stale).toBeDefined()
+    await act(async () => send({ activity: "thinking" }))
+    await act(async () => stale(0))
+    expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-runtime-activity")).toBe(
+      "idle",
+    )
+    await act(async () => send())
+    expect([...scheduler.active]).toEqual([8002])
+    await act(async () => scheduler.flush())
+    expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-response-version")).toBe(
+      "65",
+    )
+    await act(async () => stale(1))
+    expect(element('[data-terminal-id="terminal-1"]').getAttribute("data-response-version")).toBe(
+      "65",
+    )
+  })
+
+  it.each(["close", "unmount"] as const)(
+    "runtime FIFO discards a pending error after %s",
+    async (end) => {
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      await act(async () => {
+        for (let i = 0; i < 64; i++) send()
+      })
+      await act(async () =>
+        send({ kind: "modelError", activity: "error", errorMessage: "Obsolete synthetic error" }),
+      )
+      const pending = scheduler.callbacks.get(8002)!
+      if (end === "close") await act(async () => element(".tab-close").click())
+      else await act(async () => root.render(null))
+      await act(async () => pending(0))
+      expect(container.querySelector(".terminal-tab")).toBeNull()
+      expect(container.querySelector(".incident-center-badge")).toBeNull()
+      // Error toast is emitted on IPC receipt, outside the batched tab/incident path.
+      // Closing must suppress stale tab/incidents, not retroactively erase that toast.
+      if (end === "unmount") expect(scheduler.cancel).toHaveBeenCalledWith(8002)
+    },
+  )
+
+  it("runtime FIFO matches ordinary per-frame tabs and incident history across mixed terminals", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(1794930000000)
+    async function scenario(hold: boolean) {
+      await mountAndResume()
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({
+        ...started,
+        terminalId: "terminal-2",
+        processId: 102,
+      })
+      await act(async () => element(".new-tab-button").click())
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const events: Partial<PtyRuntimeEvent>[] = []
+      for (let i = 0; i < 34; i++) {
+        const terminalId = i % 2 ? "terminal-2" : "terminal-1"
+        events.push(
+          { terminalId, activity: "thinking" },
+          {
+            terminalId,
+            kind: "modelError",
+            activity: "error",
+            errorMessage: "Synthetic quota",
+            model: "provider/primary",
+          },
+          {
+            terminalId,
+            kind: "retryFallbackApplied",
+            activity: "thinking",
+            model: "provider/backup",
+            fallbackFrom: "provider/primary",
+            fallbackTo: "provider/backup",
+            fallbackRole: "default",
+          },
+          { terminalId, activity: "idle" },
+        )
+      }
+      if (hold)
+        await act(async () => {
+          for (const event of events) send(event)
+        })
+      else
+        for (const event of events)
+          await act(async () => {
+            send(event)
+            scheduler.flush()
+          })
+      await act(async () => scheduler.flush())
+      const tabs = ["terminal-1", "terminal-2"].map((id) => {
+        const pane = element(`[data-terminal-id="${id}"]`)
+        return [
+          pane.getAttribute("data-response-version"),
+          pane.getAttribute("data-runtime-model"),
+          pane.getAttribute("data-runtime-activity"),
+        ]
+      })
+      expect(tabs).toEqual([
+        ["34", "provider/backup", "idle"],
+        ["34", "provider/backup", "idle"],
+      ])
+      await act(async () => element(".incident-center-trigger").click())
+      await act(async () => element(".incident-filter button:nth-child(2)").click())
+      const incidents = [...document.querySelectorAll(".incident-row")].map((row) => ({
+        classes: row.className,
+        text: row.textContent,
+      }))
+      expect(incidents.length).toBeGreaterThan(0)
+      expect(incidents.some((row) => row.classes.includes("is-modelError"))).toBe(true)
+      expect(incidents.some((row) => row.classes.includes("is-fallback"))).toBe(true)
+      await act(async () => root.render(null))
+      vi.mocked(listen).mockClear()
+      vi.mocked(api.startTerminal).mockClear()
+      vi.mocked(api.startTerminal).mockResolvedValue(started)
+      return { tabs, incidents }
+    }
+    const ordinary = await scenario(false)
+    const held = await scenario(true)
+    expect(held).toEqual(ordinary)
+  })
 
   it.each(["en", "ru"] as const)(
     "names the selected Home resume target after choosing an older session (%s)",
@@ -559,6 +1451,390 @@ describe("App lifecycle serialization", () => {
     expect(element('[data-terminal-id="terminal-2"]').getAttribute("data-active")).toBe("true")
     expect(element(".terminal-tab.is-active").textContent).toContain(discovered.title)
     expect(api.startTerminal).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["other", "round-trip"] as const)(
+    "preserves %s workspace navigation during early launch discovery",
+    async (choice) => {
+      const projects = workspacePayload("Alpha", "Beta")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      const pending = deferred<TerminalStarted>()
+      vi.mocked(api.startTerminal).mockReturnValueOnce(pending.promise)
+      await act(async () => root.render(<App />))
+      await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+      await act(async () => element(".hero-actions .primary").click())
+      expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+        "C:/fixture/Alpha",
+        null,
+        120,
+        36,
+        null,
+        false,
+      )
+      await act(async () => element('.project-item[aria-label^="Beta,"]').click())
+      const target = choice === "round-trip" ? "Alpha" : "Beta"
+      if (choice === "round-trip")
+        await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+      await act(async () => element(`.session-select[aria-label="${target} session"]`).click())
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          target,
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      expect(search.value).toBe(target)
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        `${target} session`,
+      )
+      const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "pty-session")!
+      const receive = subscription[1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: "terminal-Alpha", session: projects.sessions[0] },
+        }),
+      )
+      expect(element(".project-item.is-active").textContent).toContain(target)
+      expect(search.value).toBe(target)
+      expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+        `${target} session`,
+      )
+      await act(async () =>
+        pending.resolve({ ...started, terminalId: "terminal-Alpha", cwd: "C:/fixture/Alpha" }),
+      )
+      expect(search.value).toBe(target)
+      expect(api.startTerminal).toHaveBeenCalledTimes(1)
+      expect(container.querySelectorAll(".terminal-tab")).toHaveLength(1)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+    },
+  )
+
+  it.each(["rail", "external"] as const)(
+    "preserves %s workspace search across discoveries from active and background terminals",
+    async (navigation) => {
+      const projects = workspacePayload("Alpha", "Beta")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.addWorkspace).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal)
+        .mockResolvedValueOnce({ ...started, terminalId: "old-Alpha", cwd: "C:/fixture/Alpha" })
+        .mockResolvedValueOnce({ ...started, terminalId: "active-Alpha", cwd: "C:/fixture/Alpha" })
+      await act(async () => root.render(<App />))
+      await act(async () => element('.project-item[aria-label^="Alpha,"]').click())
+      await act(async () => element(".hero-actions .primary").click())
+      await act(async () => element(".new-tab-button").click())
+      if (navigation === "rail") {
+        await act(async () => element('.project-item[aria-label^="Beta,"]').click())
+      } else {
+        await act(async () => requestWorkspace("Beta"))
+      }
+      await act(async () => element('.session-select[aria-label="Beta session"]').click())
+      const search = element<HTMLInputElement>(".project-sessions .search-box input")
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+          search,
+          "Beta",
+        )
+        search.dispatchEvent(new Event("input", { bubbles: true }))
+      })
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+      for (const terminalId of ["old-Alpha", "active-Alpha"]) {
+        const refresh = deferred<BootstrapPayload>()
+        vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+        await act(async () =>
+          receive({
+            event: "pty-session",
+            id: 1,
+            payload: { terminalId, session: projects.sessions[0] },
+          }),
+        )
+        expect(search.value).toBe("Beta")
+        const labels = container.querySelectorAll(".terminal-tab-label")
+        expect(labels[terminalId === "old-Alpha" ? 0 : 1]?.textContent).toBe("Alpha session")
+        expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+          "Beta session",
+        )
+        await act(async () =>
+          terminalId === "old-Alpha"
+            ? refresh.resolve(projects)
+            : refresh.reject(new Error("Synthetic discovery refresh failure")),
+        )
+        expect(search.value).toBe("Beta")
+        expect(element(".project-item.is-active").textContent).toContain("Beta")
+        expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+          "Beta session",
+        )
+      }
+      expect(element('[data-terminal-id="active-Alpha"]').getAttribute("data-active")).toBe("true")
+      expect(container.textContent).toContain("Synthetic discovery refresh failure")
+      expect(api.startTerminal).toHaveBeenCalledTimes(2)
+      expect(invokeMock.mock.calls.some(([command]) => command === "close_terminal")).toBe(false)
+      await act(async () => element('.session-select[aria-label="Beta session"]').click())
+      expect(search.value).toBe("")
+    },
+  )
+
+  it("keeps normal discovery navigation for equivalent Windows workspace paths", async () => {
+    const projects = workspacePayload("Alpha")
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    await act(async () => root.render(<App />))
+    const search = element<HTMLInputElement>(".project-sessions .search-box input")
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "Alpha",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: {
+          terminalId: "equivalent",
+          session: { ...projects.sessions[0], cwd: "c:/FIXTURE/alpha/" },
+        },
+      }),
+    )
+    expect(search.value).toBe("")
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "Alpha session",
+    )
+  })
+
+  it.each(["stale", "fresh", "two-titles", "no-title"] as const)(
+    "preserves a newer live title when discovery refresh settles with %s snapshot",
+    async (snapshot) => {
+      const projects = workspacePayload("Alpha")
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({
+        ...started,
+        cwd: "C:/fixture/Alpha",
+      })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".hero-actions .primary").click())
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: {
+            terminalId: started.terminalId,
+            session: projects.sessions[0],
+          },
+        }),
+      )
+      const receiveTitle = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session-title")![1] as EventCallback<{
+        terminalId: string
+        title: string
+      }>
+      const titles =
+        snapshot === "no-title"
+          ? []
+          : snapshot === "two-titles"
+            ? ["Earlier live title", "New synthetic title"]
+            : ["New synthetic title"]
+      for (const title of titles) {
+        await act(async () =>
+          receiveTitle({
+            event: "pty-session-title",
+            id: 2,
+            payload: { terminalId: started.terminalId, title },
+          }),
+        )
+      }
+      const expectedTitle = snapshot === "no-title" ? "Alpha session" : "New synthetic title"
+      expect(element(".terminal-tab-label").textContent).toBe(expectedTitle)
+      expect(
+        container.querySelector(`.session-select[aria-label="${expectedTitle}"]`),
+      ).not.toBeNull()
+      await act(async () =>
+        refresh.resolve({
+          ...projects,
+          sessions: [
+            {
+              ...projects.sessions[0],
+              title: snapshot === "fresh" ? "New synthetic title" : "Alpha session",
+            },
+          ],
+        }),
+      )
+      expect(element(".terminal-tab-label").textContent).toBe(expectedTitle)
+      expect(
+        container.querySelector(`.session-select[aria-label="${expectedTitle}"]`),
+      ).not.toBeNull()
+    },
+  )
+
+  it("preserves a manual title saved while discovery refresh is pending", async () => {
+    const projects = workspacePayload("Alpha")
+    vi.mocked(api.bootstrap).mockResolvedValue(projects)
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: "C:/fixture/Alpha" })
+    await act(async () => root.render(<App />))
+    await act(async () => element(".hero-actions .primary").click())
+    const refresh = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+      }),
+    )
+    invokeMock.mockResolvedValue({
+      ...projects,
+      sessions: projects.sessions.map((session) => ({
+        ...session,
+        title: "Manual synthetic title",
+        pinnedTitle: "Manual synthetic title",
+      })),
+    })
+    await act(async () =>
+      element(`[title="${t(projects.settings.language, "editFixedTitle")}"]`).click(),
+    )
+    const input = element<HTMLInputElement>(".session-rename")
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        input,
+        "Manual synthetic title",
+      )
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () =>
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    )
+    expect(element(".terminal-tab-label").textContent).toBe("Manual synthetic title")
+    expect(
+      container.querySelector(`.session-select[aria-label="Manual synthetic title"]`),
+    ).not.toBeNull()
+    await act(async () => refresh.resolve(projects))
+    expect(element(".terminal-tab-label").textContent).toBe("Manual synthetic title")
+    expect(
+      container.querySelector(`.session-select[aria-label="Manual synthetic title"]`),
+    ).not.toBeNull()
+    const receiveTitle = vi
+      .mocked(listen)
+      .mock.calls.find(([event]) => event === "pty-session-title")![1] as EventCallback<{
+      terminalId: string
+      title: string
+    }>
+    await act(async () =>
+      receiveTitle({
+        event: "pty-session-title",
+        id: 2,
+        payload: { terminalId: started.terminalId, title: "Later generated title" },
+      }),
+    )
+    expect(element(".terminal-tab-label").textContent).toBe("Manual synthetic title")
+    expect(
+      container.querySelector(`.session-select[aria-label="Manual synthetic title"]`),
+    ).not.toBeNull()
+  })
+
+  it.each(["unpin", "rejected-pin"] as const)(
+    "preserves %s outcome across a pending discovery refresh",
+    async (mode) => {
+      const projects = workspacePayload("Alpha")
+      if (mode === "unpin")
+        projects.sessions[0] = {
+          ...projects.sessions[0],
+          title: "Pinned title",
+          pinnedTitle: "Pinned title",
+        }
+      vi.mocked(api.bootstrap).mockResolvedValue(projects)
+      vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: "C:/fixture/Alpha" })
+      await act(async () => root.render(<App />))
+      await act(async () => element(".hero-actions .primary").click())
+      const refresh = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockReturnValueOnce(refresh.promise)
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(([event]) => event === "pty-session")![1] as EventCallback<PtySessionEvent>
+      await act(async () =>
+        receive({
+          event: "pty-session",
+          id: 1,
+          payload: { terminalId: started.terminalId, session: projects.sessions[0] },
+        }),
+      )
+      if (mode === "unpin")
+        invokeMock.mockResolvedValue({
+          ...projects,
+          sessions: projects.sessions.map((s) => ({
+            ...s,
+            title: "Underlying title",
+            pinnedTitle: null,
+          })),
+        })
+      else invokeMock.mockRejectedValue(new Error("Synthetic pin rejection"))
+      await act(async () => element(".session-pin").click())
+      const expected = mode === "unpin" ? "Underlying title" : "Alpha session"
+      expect(element(".terminal-tab-label").textContent).toBe(expected)
+      expect(element(".session-pin").getAttribute("aria-pressed")).toBe("false")
+      await act(async () => refresh.resolve(projects))
+      expect(element(".terminal-tab-label").textContent).toBe(expected)
+      expect(element(".session-pin").getAttribute("aria-pressed")).toBe("false")
+    },
+  )
+
+  it("keeps a newly added workspace when an older discovery refresh resolves", async () => {
+    const initial = workspacePayload("Alpha")
+    const added = workspacePayload("Alpha", "Beta")
+    vi.mocked(api.bootstrap).mockResolvedValue(initial)
+    vi.mocked(api.addWorkspace).mockResolvedValue(added)
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: "C:/fixture/Alpha" })
+    await act(async () => root.render(<App />))
+    await act(async () => element(".hero-actions .primary").click())
+    const discovery = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(discovery.promise)
+    const receiveSession = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receiveSession({
+        event: "pty-session",
+        id: 1,
+        payload: {
+          terminalId: started.terminalId,
+          session: initial.sessions[0],
+        },
+      }),
+    )
+    await act(async () => requestWorkspace("Beta"))
+    expect(element(".project-item.is-active").textContent).toContain("Beta")
+    await act(async () => element('.session-select[aria-label="Beta session"]').click())
+    const search = element<HTMLInputElement>(".project-sessions .search-box input")
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "Beta",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => discovery.resolve(initial))
+    expect(element(".project-item.is-active").textContent).toContain("Beta")
+    expect(container.querySelectorAll(".project-item")).toHaveLength(2)
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "Beta session",
+    )
+    expect(search.value).toBe("Beta")
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
   })
 
   function requestWorkspace(name: string) {
@@ -1098,6 +2374,7 @@ describe("App lifecycle serialization", () => {
     vi.clearAllMocks()
     invokeMock.mockReset()
     terminalReady.clear()
+    terminalExits.clear()
     vi.mocked(open).mockReset()
     localStorage.clear()
     vi.mocked(api.bootstrap).mockReset().mockResolvedValue(bootstrap)
@@ -3839,6 +5116,53 @@ describe("App lifecycle serialization", () => {
       }
     },
   )
+
+  it.each([".update-pill", ".update-toast .button.primary"])(
+    "explains the missing project for OMP update from %s",
+    async (selector) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, language: "en", lastWorkspace: null },
+        workspaces: [],
+        sessions: [],
+      })
+      vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+        hasUpdate: true,
+        currentVersion: "18.1.19",
+        latestVersion: "99.0.0",
+        message: "Fixture runtime update",
+      })
+      await act(async () => root.render(<App />))
+      expect(container.querySelector(".empty-workspace")).not.toBeNull()
+      expect(container.textContent).not.toContain(t("en", "requireProjectDir"))
+      await act(async () => element<HTMLButtonElement>(selector).click())
+      expect(api.startTerminal).not.toHaveBeenCalled()
+      expect(container.textContent).toContain(t("en", "requireProjectDir"))
+    },
+  )
+
+  it("starts the explicit OMP update normally with a selected project", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "en" },
+    })
+    vi.mocked(api.checkOmpUpdate).mockResolvedValue({
+      hasUpdate: true,
+      currentVersion: "18.1.19",
+      latestVersion: "99.0.0",
+      message: "Fixture runtime update",
+    })
+    await act(async () => root.render(<App />))
+    await act(async () => element<HTMLButtonElement>(".update-pill").click())
+    expect(api.startTerminal).toHaveBeenCalledExactlyOnceWith(
+      bootstrap.workspaces[0].path,
+      null,
+      120,
+      36,
+      ["update"],
+    )
+    expect(container.textContent).not.toContain(t("en", "requireProjectDir"))
+  })
 
   it.each(["session", "utility"] as const)(
     "guards a successful %s spawn before React publishes its tab",
