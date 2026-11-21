@@ -883,6 +883,52 @@ describe("App lifecycle serialization", () => {
     expect(pane.getAttribute("data-response-version")).toBe("1")
   })
 
+  it.each([
+    ["proxy-provider", 0],
+    ["ordinary-provider", 0],
+    ["proxy-provider", 63],
+    ["ordinary-provider", 63],
+  ] as const)(
+    "classifies published errors using the latest held-frame model (%s, preceding=%s)",
+    async (nextProvider, preceding) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: ["proxy-provider"] },
+      })
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const previousProvider =
+        nextProvider === "proxy-provider" ? "ordinary-provider" : "proxy-provider"
+      await act(async () => {
+        send({ kind: "modelChange", model: `${previousProvider}/previous`, activity: null })
+        scheduler.flush()
+      })
+      const pane = element(`[data-terminal-id="${started.terminalId}"]`)
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${previousProvider}/previous`)
+      await act(async () => {
+        for (let i = 0; i < preceding; i++) send({ activity: "thinking" })
+        send({ kind: "modelChange", model: `${nextProvider}/current`, activity: null })
+        send({
+          kind: "modelError",
+          model: null,
+          activity: "error",
+          errorMessage: "Synthetic held-frame model failure",
+        })
+      })
+      if (nextProvider === "proxy-provider") {
+        expect(container.textContent).not.toContain("Synthetic held-frame model failure")
+      } else {
+        expect(container.textContent).toContain("Synthetic held-frame model failure")
+      }
+      await act(async () => scheduler.flush())
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${nextProvider}/current`)
+      expect(pane.getAttribute("data-response-version")).toBe(
+        nextProvider === "proxy-provider" ? "0" : "1",
+      )
+    },
+  )
+
   async function mountAndResume() {
     await act(async () => root.render(<App />))
     await act(async () => element('[title="Продолжить сессию"]').click())

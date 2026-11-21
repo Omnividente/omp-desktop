@@ -283,9 +283,15 @@ function App() {
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const tabsRef = useRef(tabs)
   tabsRef.current = tabs
+  const runtimeModelsRef = useRef(new Map<string, string>())
   const unpublishedTerminalIdsRef = useRef(new Set<string>())
   useLayoutEffect(() => {
     const unpublished = unpublishedTerminalIdsRef.current
+    // A command response may race tab closure; keep only owned live identities.
+    for (const terminalId of runtimeModelsRef.current.keys()) {
+      if (!tabs.some((tab) => tab.id === terminalId) && !unpublished.has(terminalId))
+        runtimeModelsRef.current.delete(terminalId)
+    }
     if (unpublished.size === 0) return
     // A spawned process remains guarded until its tab reaches the committed tree.
     for (const tab of tabs) unpublished.delete(tab.id)
@@ -1086,6 +1092,7 @@ function App() {
   useEffect(() => {
     let disposed = false
     const earlyRuntime = earlyRuntimeRef.current
+    const runtimeModels = runtimeModelsRef.current
     let runtimeFrame: number | null = null
     let runtimeFrameGeneration = 0
     const runtimeBatchLimit = 64
@@ -1149,6 +1156,13 @@ function App() {
       forgetEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       const { session } = event
       discoveredSessionsRef.current.set(event.terminalId, session)
+      if (
+        session.model &&
+        (tabsRef.current.some((tab) => tab.id === event.terminalId) ||
+          unpublishedTerminalIdsRef.current.has(event.terminalId))
+      ) {
+        runtimeModelsRef.current.set(event.terminalId, session.model)
+      }
       setPayload((current) =>
         current ? mergeSessionIntoPayload(current, session, current.runtime.platform) : current,
       )
@@ -1285,11 +1299,21 @@ function App() {
       if (disposed) return
       if (endedRuntimeTerminalIdsRef.current.includes(event.terminalId)) return
       const terminal = tabsRef.current.find((tab) => tab.id === event.terminalId)
+      // Error records may omit their model. Classification must follow IPC order,
+      // including model changes waiting for a frame or a batched React commit.
+      if (
+        event.model !== null &&
+        (terminal || unpublishedTerminalIdsRef.current.has(event.terminalId))
+      ) {
+        runtimeModelsRef.current.set(event.terminalId, event.model)
+      }
       if (
         suppressTransientProxyError(
           pendingProxyErrorsRef.current,
           event,
-          terminal?.currentModel ?? earlyRuntimeRef.current.get(event.terminalId)?.currentModel,
+          runtimeModelsRef.current.get(event.terminalId) ??
+            terminal?.currentModel ??
+            earlyRuntimeRef.current.get(event.terminalId)?.currentModel,
           proxyProvidersRef.current,
         )
       ) {
@@ -1352,6 +1376,7 @@ function App() {
       runtimeFrame = null
       pendingRuntimeEvents = []
       earlyRuntime.clear()
+      runtimeModels.clear()
       void unlistenSession.then((stop) => stop?.())
       void unlistenSessionTitle.then((stop) => stop?.())
       void unlistenRuntime.then((stop) => stop?.())
@@ -1829,6 +1854,8 @@ function App() {
               ),
             }
           : tab
+        if (publishedTab.currentModel)
+          runtimeModelsRef.current.set(tab.id, publishedTab.currentModel)
         unpublishedTerminalIdsRef.current.add(tab.id)
         setTabs((current) => [...current, publishedTab])
         // Publish the new terminal without taking back a newer explicit tab choice.
@@ -2145,6 +2172,7 @@ function App() {
           tab.currentThinking ?? null,
           tab.currentThinkingConfigured ?? tab.currentThinking ?? null,
         )
+        runtimeModelsRef.current.set(terminalId, runtime.model)
         setTabs((current) =>
           current.map((candidate) =>
             candidate.id === terminalId
@@ -2334,6 +2362,9 @@ function App() {
 
         const discoveredSession = discoveredSessionsRef.current.get(terminalId)
         discoveredSessionsRef.current.delete(terminalId)
+        const runtimeModel = runtimeModelsRef.current.get(terminalId) ?? tab.currentModel
+        runtimeModelsRef.current.delete(terminalId)
+        if (runtimeModel) runtimeModelsRef.current.set(started.terminalId, runtimeModel)
         if (discoveredSession) {
           discoveredSessionsRef.current.set(started.terminalId, {
             ...discoveredSession,
@@ -2415,6 +2446,7 @@ function App() {
       readyTerminalIdsRef.current.delete(terminalId)
       discoveredSessionsRef.current.delete(terminalId)
       pendingProxyErrorsRef.current.delete(terminalId)
+      runtimeModelsRef.current.delete(terminalId)
       completionNotifiedRef.current.delete(terminalId)
       restartingTerminalIdsRef.current.delete(terminalId)
       restartExitEventsRef.current.delete(terminalId)
@@ -2614,6 +2646,7 @@ function App() {
   const handleExit = useCallback(
     (event: PtyExitEvent) => {
       earlyRuntimeRef.current.delete(event.terminalId)
+      runtimeModelsRef.current.delete(event.terminalId)
       rememberEndedRuntimeTerminal(endedRuntimeTerminalIdsRef.current, event.terminalId)
       setRuntimeIncidentState((current) =>
         endRuntimeIncidentTerminal(current, event.terminalId, Date.now()),
