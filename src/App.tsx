@@ -1161,7 +1161,8 @@ function App() {
       if (
         session.model &&
         (tabsRef.current.some((tab) => tab.id === event.terminalId) ||
-          unpublishedTerminalIdsRef.current.has(event.terminalId))
+          unpublishedTerminalIdsRef.current.has(event.terminalId) ||
+          runtimeModelsRef.current.has(event.terminalId))
       ) {
         runtimeModelsRef.current.set(event.terminalId, {
           currentModel: session.model,
@@ -1310,7 +1311,9 @@ function App() {
       // including model changes waiting for a frame or a batched React commit.
       if (
         event.model !== null &&
-        (terminal || unpublishedTerminalIdsRef.current.has(event.terminalId))
+        (terminal ||
+          unpublishedTerminalIdsRef.current.has(event.terminalId) ||
+          runtimeModelsRef.current.has(event.terminalId))
       ) {
         const next = applyRuntimeEventToTab(
           { id: event.terminalId, ...terminal, ...runtimeModelsRef.current.get(event.terminalId) },

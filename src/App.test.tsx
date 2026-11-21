@@ -999,6 +999,82 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it.each([
+    ["proxy-provider", "runtime"],
+    ["ordinary-provider", "runtime"],
+    ["proxy-provider", "session"],
+    ["ordinary-provider", "session"],
+  ] as const)(
+    "classifies replacement events between restart acknowledgement and publication (%s, %s)",
+    async (nextProvider, source) => {
+      vi.mocked(api.bootstrap).mockResolvedValue({
+        ...bootstrap,
+        settings: { ...bootstrap.settings, proxyProviders: ["proxy-provider"] },
+      })
+      const restart = deferred<TerminalStarted>()
+      vi.mocked(api.setTerminalPrimaryProviderPin).mockReturnValueOnce(restart.promise)
+      await mountAndResume()
+      const scheduler = runtimeScheduler()
+      const send = runtimeInput()
+      const previousProvider =
+        nextProvider === "proxy-provider" ? "ordinary-provider" : "proxy-provider"
+      await act(async () => {
+        send({ kind: "modelChange", model: `${previousProvider}/previous`, activity: null })
+        scheduler.flush()
+      })
+      await act(async () => element(".primary-provider-pin").click())
+      const replacement = {
+        ...started,
+        terminalId: "replacement-before-publication",
+        processId: 102,
+      }
+      await act(async () => {
+        restart.resolve(replacement)
+        await restart.promise
+        if (source === "runtime") {
+          send({
+            terminalId: replacement.terminalId,
+            kind: "modelChange",
+            model: `${nextProvider}/current`,
+            activity: null,
+          })
+        } else {
+          const receiveSession = vi
+            .mocked(listen)
+            .mock.calls.find(
+              ([name]) => name === "pty-session",
+            )![1] as EventCallback<PtySessionEvent>
+          receiveSession({
+            event: "pty-session",
+            id: 2,
+            payload: {
+              terminalId: replacement.terminalId,
+              session: { ...bootstrap.sessions[0], model: `${nextProvider}/current` },
+            },
+          })
+        }
+        send({
+          terminalId: replacement.terminalId,
+          kind: "modelError",
+          model: null,
+          activity: "error",
+          errorMessage: "Synthetic replacement publication failure",
+        })
+      })
+      if (nextProvider === "proxy-provider") {
+        expect(container.textContent).not.toContain("Synthetic replacement publication failure")
+      } else {
+        expect(container.textContent).toContain("Synthetic replacement publication failure")
+      }
+      await act(async () => scheduler.flush())
+      const pane = element(`[data-terminal-id="${replacement.terminalId}"]`)
+      expect(pane.getAttribute("data-runtime-model")).toBe(`${nextProvider}/current`)
+      expect(pane.getAttribute("data-response-version")).toBe(
+        nextProvider === "proxy-provider" ? "0" : "1",
+      )
+    },
+  )
+
   async function mountAndResume() {
     await act(async () => root.render(<App />))
     await act(async () => element('[title="Продолжить сессию"]').click())
