@@ -581,9 +581,21 @@ def main(q):
             keys(["ctrl+a"], handle)
             type_text(path_text, handle)
 
+            # GTK can leave Select disabled until the typed location is committed.
+            # Check the exact requested path before native Return; the caller
+            # independently verifies the resulting project's persisted path.
+            require(location() == entry and read_text(entry) == path_text, "native-folder-location-mismatch")
+
+            def closed():
+                return not any(int(line.split()[0], 16) == int(handle, 0)
+                               for line in run("wmctrl", "-l").splitlines() if line.split())
+
+            keys(["Return"], handle)
+            # Some native GTK pickers accept the directory on Return.
+            if wait_for(closed, seconds=2):
+                return
+
             def accept_ready():
-                if location() != entry or read_text(entry) != path_text:
-                    return None
                 buttons = [n for n in nodes(picker) if visible(n) and n.getRoleName() == "push button"
                            and name(n) in {"Select", "Open"}]
                 require(len(buttons) <= 1, "native-folder-accept-count")
@@ -594,14 +606,8 @@ def main(q):
             action = button.queryAction()
             options = [i for i in range(action.nActions) if action.getName(i).lower() in {"click", "press", "activate"}]
             require(len(options) == 1 and enabled(button) and visible(button), "native-folder-accept-disabled")
-            require(location() == entry and read_text(entry) == path_text, "native-folder-location-mismatch")
             guard(handle)
             require(action.doAction(options[0]), "native-folder-accept-failed")
-
-            def closed():
-                return not any(int(line.split()[0], 16) == int(handle, 0)
-                               for line in run("wmctrl", "-l").splitlines() if line.split())
-
             require(wait_for(closed), "native-folder-dialog-not-closed")
 
         def capture(path):
