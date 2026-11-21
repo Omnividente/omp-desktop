@@ -715,6 +715,48 @@ def main(q):
         identity["runtimeSessionNoticeDismissed"] = bool(buttons)
         terminal_focus()
         terminal_type(text)
+    elif operation == "dismiss-runtime-update-notice":
+        require(windows and q.get("pid") == pid, "native-runtime-notice-owner")
+        title = "A new OMP version is available"
+
+        def titles():
+            return [n for n in nodes() if visible(n) and name(n) == title]
+
+        guard()
+        notices = titles()
+        require(len(notices) <= 1, "native-runtime-notice-count")
+        identity["runtimeNoticeDismissed"] = False
+        if notices:
+            def buttons(container):
+                return [n for n in container.descendants(control_type="Button") if visible(n)]
+
+            update = [n for n in buttons(window) if name(n) == "Update OMP"]
+            require(len(update) == 1, "native-runtime-notice-action")
+            container = update[0].parent()
+            for _ in range(4):
+                require(container.element_info.control_type not in {"Document", "Window"},
+                        "native-runtime-notice-group")
+                if name(container) == title or any(name(n) == title and visible(n)
+                                                    for n in container.descendants()):
+                    break
+                container = container.parent()
+            else:
+                raise NativeContractError("native-runtime-notice-group")
+            actions = buttons(container)
+            label = "Do not remind me in this session"
+            dismissal = [n for n in actions if name(n) == label]
+            if not dismissal:
+                # Only in the fresh test profile and inside the identified OMP notice.
+                label = "Remind me in 5 hours"
+                primary = update[0].rectangle()
+                dismissal = [n for n in actions if name(n) == label
+                             and n.rectangle().left >= primary.right
+                             and primary.top <= n.rectangle().top < primary.bottom]
+            require(len(dismissal) == 1, "native-runtime-notice-dismissal")
+            require(len(titles()) == 1, "native-runtime-notice-changed")
+            click(dismissal[0])
+            require(wait_for(lambda: not titles()), "native-runtime-notice-not-closed")
+            identity.update(runtimeNoticeDismissed=True, runtimeNoticeDismissal=label)
     elif operation == "terminal-keys":
         # Space skips the splash; it never confirms provider setup.
         require(q["keys"] == "space", "native-unsupported-terminal-key")
@@ -762,7 +804,9 @@ def main(q):
                 try:
                     proc = Path(f"/proc/{child}")
                     if (proc / "exe").resolve() == runtime and (proc / "cwd").resolve() == project:
-                        require(os.readlink(proc / "fd/0").startswith("/dev/pts/"))
+                        # The runtime also launches same-executable workers without a PTY.
+                        if not os.readlink(proc / "fd/0").startswith("/dev/pts/"):
+                            continue
                         fd = os.open(proc / "fd/0", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
                         try:
                             input_flags = termios.tcgetattr(fd)[3]
@@ -772,7 +816,7 @@ def main(q):
                         matches.append(child)
                 except OSError:
                     continue
-            require(len(matches) == 1)
+            require(len(matches) == 1, "native-pty-match-count")
             child_pid, pty = matches[0], "Linux /dev/pts stdin, noncanonical input and owned Desktop ancestry"
         identity["runtime"] = {"pid": child_pid, "path": str(runtime),
                                "sha256": file_hash(runtime), "cwd": str(project), "pty": pty}
