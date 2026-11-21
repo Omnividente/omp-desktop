@@ -510,7 +510,8 @@ export function TerminalView({
       lastWebglFit = { width, height, fontFamily, fontSize, devicePixelRatio }
       if (webglAddon) return
       try {
-        const addon = new WebglAddon()
+        // WebKitGTK can present a stale frame if the drawing buffer is discarded.
+        const addon = new WebglAddon(true)
         webglAddon = addon
         contextLossSubscription = addon.onContextLoss(() => {
           if (disposed || webglAddon !== addon) return

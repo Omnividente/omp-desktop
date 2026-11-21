@@ -883,13 +883,14 @@ async function completedAnswerJourney(fixture) {
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
     true,
   )
+  const draft = "\\bnative\\s*focus\\s*draft"
   // This fresh input remains unsubmitted. Reset keys can interrupt an active PTY.
   await native({ operation: "terminal-text", pid: activePid, text: "nativefocusdraft" })
-  await terminalObservation("answer-default-collapsed-live-console", ["native\\s*focus\\s*draft"])
+  await terminalObservation("answer-default-collapsed-live-console", [`${draft}\\b`])
   await click("Show answer")
   await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic", { copyText: false })
   await terminalObservation("answer-expanded-preserves-live-console-draft", [
-    "native\\s*focus\\s*draft",
+    `${draft}\\b`,
   ])
   await click("Collapse answer")
   await native(
@@ -897,11 +898,13 @@ async function completedAnswerJourney(fixture) {
     true,
   )
   await terminalObservation("answer-recollapsed-preserves-live-console-draft", [
-    "native\\s*focus\\s*draft",
+    `${draft}\\b`,
   ])
-  // Demand newly visible input, not a second match of the original OCR token.
+  // Require the original draft plus all new characters in the same visible input.
   await native({ operation: "terminal-text", pid: activePid, text: "nativeaftertoggle" })
-  await terminalObservation("answer-explicit-focus-after-toggle", ["native\\s*after\\s*toggle"])
+  await terminalObservation("answer-explicit-focus-after-toggle", [
+    `${draft}\\s*native\\s*after\\s*toggle\\b`,
+  ])
   const after = await native(request)
   assert.equal(after.runtime.pid, before.runtime.pid, "Answer controls replaced the actual runtime")
   assert.equal(after.runtime.sha256, before.runtime.sha256)

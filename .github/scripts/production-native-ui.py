@@ -82,6 +82,25 @@ HEADER_BRAND = re.compile(r"\bOMP\s*Desktop(?=\b|v[0-9])")
 HEADER_VERSION = re.compile(r"\bOMP\s*Desktop\s*v?(" + VERSION + r")(?![\w.+-])")
 
 
+def match_terminal_pixels(image_path, patterns, tesseract, *, full_height=False):
+    from PIL import Image, ImageOps
+
+    with Image.open(image_path) as image:
+        width, height = image.size
+        # In the small Windows VM work area the prompt can extend below 94%.
+        bottom = height if full_height else int(height * .94)
+        crop = image.convert("RGB").crop((int(width * .25), int(height * .12), width, bottom))
+    for contrast in (False, True):
+        # Contrast changes how OCR segments glyphs next to the caret. The same
+        # capture and complete pattern are required in either pass.
+        pixels = (ImageOps.autocontrast(ImageOps.invert(ImageOps.grayscale(crop))) if contrast else crop)
+        pixels.resize((crop.width * 2, crop.height * 2), Image.LANCZOS).save(image_path)
+        text = run(tesseract, str(image_path), "stdout", "--psm", "11")
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns):
+            return "inverted grayscale contrast" if contrast else "original colors"
+    raise NativeContractError("native-terminal-text-missing")
+
+
 def main(q):
     require(os.environ.get("GITHUB_ACTIONS") == "true")
     require(os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted")
@@ -510,7 +529,10 @@ def main(q):
             click(control(terminal_help, "button", prefix=True), x_offset=-24)
 
         def terminal_type(text):
-            type_text(text)
+            # X11/WebKit may drop synthetic keys at zero inter-key delay.
+            # Keep exact native terminal input, with pacing to deliver it.
+            guard()
+            run("xdotool", "type", "--clearmodifiers", "--delay", "30", "--", literal(text))
 
         def rendered_text(labels):
             require(wait_for(lambda: foreground(xid)), "native-foreground-owner")
@@ -581,27 +603,21 @@ def main(q):
             keys(["ctrl+a"], handle)
             type_text(path_text, handle)
 
-            def accept_ready():
-                if location() != entry or read_text(entry) != path_text:
-                    return None
-                buttons = [n for n in nodes(picker) if visible(n) and n.getRoleName() == "push button"
-                           and name(n) in {"Select", "Open"}]
-                require(len(buttons) <= 1, "native-folder-accept-count")
-                return buttons[0] if buttons and enabled(buttons[0]) else None
+            # GTK publishes the edited value asynchronously. Verify it while the
+            # owned location entry still has focus, before Return can accept it.
+            def location_matches():
+                current = location()
+                # GTK autocompletes an existing directory with a trailing slash.
+                return current == entry and read_text(current) in (path_text, f"{path_text}/")
 
-            button = wait_for(accept_ready)
-            require(button, "native-folder-accept-unavailable")
-            action = button.queryAction()
-            options = [i for i in range(action.nActions) if action.getName(i).lower() in {"click", "press", "activate"}]
-            require(len(options) == 1 and enabled(button) and visible(button), "native-folder-accept-disabled")
-            require(location() == entry and read_text(entry) == path_text, "native-folder-location-mismatch")
-            guard(handle)
-            require(action.doAction(options[0]), "native-folder-accept-failed")
+            require(wait_for(location_matches), "native-folder-location-mismatch")
 
             def closed():
                 return not any(int(line.split()[0], 16) == int(handle, 0)
                                for line in run("wmctrl", "-l").splitlines() if line.split())
 
+            keys(["Return"], handle)
+            # If Return does not close the picker, do not accept another selection.
             require(wait_for(closed), "native-folder-dialog-not-closed")
 
         def capture(path):
@@ -684,6 +700,19 @@ def main(q):
         text = q["text"]
         require(isinstance(text, str) and 0 < len(text) <= 128 and re.fullmatch(r"[a-z0-9]+", text),
                 "native-invalid-terminal-text")
+        # Only close the session-scoped OMP toast, if it is covering this fixture.
+        # Do not dismiss the Desktop updater or change notification settings.
+        def runtime_notice_buttons():
+            return [n for n in nodes() if visible(n) and name(n) == "Do not remind me in this session"
+                    and (n.element_info.control_type == "Button" if windows else n.getRoleName() == "push button")]
+
+        guard()
+        buttons = runtime_notice_buttons()
+        require(len(buttons) <= 1, "native-runtime-notice-count")
+        if buttons:
+            click(buttons[0])
+            require(wait_for(lambda: not runtime_notice_buttons()), "native-runtime-notice-not-closed")
+        identity["runtimeSessionNoticeDismissed"] = bool(buttons)
         terminal_focus()
         terminal_type(text)
     elif operation == "terminal-keys":
@@ -696,15 +725,11 @@ def main(q):
         with tempfile.TemporaryDirectory(prefix="native-ocr-", dir=root) as temp:
             image_path = Path(temp) / "surface.png"
             capture(image_path)
-            from PIL import Image
-            with Image.open(image_path) as image:
-                width, height = image.size
-                crop = image.crop((int(width * .25), int(height * .12), width, int(height * .94)))
-                crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS).save(image_path)
-            text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
-            require(any(re.search(pattern, text, re.IGNORECASE) for pattern in q["patterns"]))
+            pass_name = match_terminal_pixels(
+                image_path, q["patterns"], q["tesseract"], full_height=windows,
+            )
             identity["terminalObservation"] = q["label"]
-            identity["method"] = "native-window crop, fixed 2x LANCZOS screenshot OCR; raw text not retained"
+        identity["method"] = f"native-window crop, 2x LANCZOS screenshot OCR ({pass_name}); raw text not retained"
     elif operation == "runtime-process":
         runtime = Path(q["runtime"]).resolve(strict=True)
         project = Path(q["project"]).resolve(strict=True)
