@@ -510,7 +510,10 @@ def main(q):
             click(control(terminal_help, "button", prefix=True), x_offset=-24)
 
         def terminal_type(text):
-            type_text(text)
+            # X11/WebKit may drop synthetic keys at zero inter-key delay.
+            # Keep exact native terminal input, with pacing to deliver it.
+            guard()
+            run("xdotool", "type", "--clearmodifiers", "--delay", "30", "--", literal(text))
 
         def rendered_text(labels):
             require(wait_for(lambda: foreground(xid)), "native-foreground-owner")
