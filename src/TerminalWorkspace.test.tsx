@@ -470,6 +470,38 @@ describe("TerminalWorkspace selected-header reveal", () => {
       y: 20,
     }) as DOMRect
 
+  function observeResize() {
+    const observers = new Set<() => void>()
+    vi.stubGlobal(
+      "ResizeObserver",
+      class implements ResizeObserver {
+        private targets = new Set<Element>()
+        private notify: () => void
+        constructor(callback: ResizeObserverCallback) {
+          this.notify = () =>
+            callback(
+              Array.from(this.targets, (target) => ({ target }) as ResizeObserverEntry),
+              this,
+            )
+          observers.add(this.notify)
+        }
+        observe(target: Element) {
+          this.targets.add(target)
+        }
+        unobserve(target: Element) {
+          this.targets.delete(target)
+        }
+        disconnect() {
+          observers.delete(this.notify)
+          this.targets.clear()
+        }
+      },
+    )
+    return () => {
+      for (const notify of [...observers]) notify()
+    }
+  }
+
   beforeEach(() => {
     viewportWidth = 300
     contentWidth = 1200
@@ -503,6 +535,7 @@ describe("TerminalWorkspace selected-header reveal", () => {
   afterEach(() => {
     act(() => root.unmount())
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     container.remove()
     outside.remove()
   })
@@ -562,6 +595,89 @@ describe("TerminalWorkspace selected-header reveal", () => {
       ),
     )
     expect(strip().scrollLeft).toBe(240)
+  })
+
+  it.each(["observer", "window"] as const)(
+    "re-reveals the current active header when its viewport changes through %s",
+    (source) => {
+      const notifyResize = observeResize()
+      viewportWidth = 640
+      act(() => root.render(<Harness />))
+      act(() => root.render(<Harness activeTabId="terminal-3" />))
+      expect(strip().scrollLeft).toBe(180)
+      const terminals = [...container.querySelectorAll("[data-terminal-view]")]
+      const ancestor = container.querySelector<HTMLElement>(".main-stage")!
+      ancestor.scrollTop = 42
+      ancestor.scrollLeft = 19
+      strip().scrollTop = 7
+      outside.focus()
+      const focus = vi.spyOn(HTMLElement.prototype, "focus")
+
+      // A wider window can move controls onto the tab row and narrow its viewport.
+      viewportWidth = 260
+      stripLeft = 400
+      act(() =>
+        source === "observer" ? notifyResize() : window.dispatchEvent(new Event("resize")),
+      )
+      expect(strip().scrollLeft).toBe(560)
+      expect(document.activeElement).toBe(outside)
+      expect(focus).not.toHaveBeenCalled()
+      expect(strip().scrollTop).toBe(7)
+      expect(ancestor.scrollTop).toBe(42)
+      expect(ancestor.scrollLeft).toBe(19)
+      expect([...container.querySelectorAll("[data-terminal-view]")]).toEqual(terminals)
+      expect(
+        container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+      ).toBe("Third")
+    },
+  )
+
+  it("keeps the focused header visible on viewport resize without selecting or focusing a tab", () => {
+    const notifyResize = observeResize()
+    viewportWidth = 640
+    act(() => root.render(<Harness />))
+    const close = container.querySelector<HTMLButtonElement>(
+      ".terminal-tab:nth-child(3) .tab-close",
+    )!
+    act(() => close.focus())
+    expect(strip().scrollLeft).toBe(180)
+    const focus = vi.spyOn(HTMLElement.prototype, "focus")
+    viewportWidth = 260
+    act(notifyResize)
+    expect(strip().scrollLeft).toBe(560)
+    expect(document.activeElement).toBe(close)
+    expect(focus).not.toHaveBeenCalled()
+    expect(
+      container.querySelector(".terminal-tab.is-active .terminal-tab-label")?.textContent,
+    ).toBe("First")
+  })
+
+  it("ignores content-only resize notifications but retains viewport changes across title updates", () => {
+    const notifyResize = observeResize()
+    viewportWidth = 640
+    act(() => root.render(<Harness activeTabId="terminal-3" />))
+    strip().scrollLeft = 17
+    headerWidth = 160
+    contentWidth = 1400
+    act(notifyResize)
+    expect(strip().scrollLeft).toBe(17)
+
+    viewportWidth = 220
+    act(() =>
+      root.render(
+        <Harness
+          activeTabId="terminal-3"
+          visibleTabs={initialTabs.map((item) => ({ ...item, label: item.label + " updated" }))}
+        />,
+      ),
+    )
+    expect(strip().scrollLeft).toBe(17)
+    act(notifyResize)
+    expect(strip().scrollLeft).toBe(660)
+    strip().scrollLeft = 23
+    act(notifyResize)
+    act(() => window.dispatchEvent(new Event("resize")))
+    expect(strip().scrollLeft).toBe(23)
   })
 
   it("attaches the wheel listener when opening the first tab and after returning home", () => {

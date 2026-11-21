@@ -158,6 +158,7 @@ export function TerminalWorkspace({
   const backgroundCloseFocusRef = useRef<{ origin: HTMLButtonElement; index: number } | null>(null)
   const previousTabCountRef = useRef(tabs.length)
   const tabStripRef = useRef<HTMLDivElement>(null)
+  const tabViewportWidthRef = useRef<number | null>(null)
   const [tabScroll, setTabScroll] = useState({ left: false, right: false })
   const updateTabScroll = () => {
     const strip = tabStripRef.current
@@ -186,15 +187,33 @@ export function TerminalWorkspace({
   useLayoutEffect(updateTabScroll)
   useEffect(() => {
     const strip = tabStripRef.current
-    if (!strip) return
-    const observer =
-      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateTabScroll)
+    if (!strip) {
+      tabViewportWidthRef.current = null
+      return
+    }
+    if (tabViewportWidthRef.current === null) tabViewportWidthRef.current = strip.clientWidth
+    const handleResize = () => {
+      if (tabStripRef.current !== strip) return
+      const width = strip.clientWidth
+      // Content/title notifications must not undo manual scrolling. A changed
+      // viewport can hide the current header when controls move onto its row.
+      if (width !== tabViewportWidthRef.current) {
+        tabViewportWidthRef.current = width
+        const focused = document.activeElement?.closest<HTMLElement>(
+          ".terminal-tab, .new-tab-button",
+        )
+        const header = focused && strip.contains(focused) ? focused : activeHeaderRef.current
+        if (header) revealTabHeader(strip, header)
+      }
+      updateTabScroll()
+    }
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize)
     observer?.observe(strip)
     for (const child of strip.children) observer?.observe(child)
-    window.addEventListener("resize", updateTabScroll)
+    window.addEventListener("resize", handleResize)
     return () => {
       observer?.disconnect()
-      window.removeEventListener("resize", updateTabScroll)
+      window.removeEventListener("resize", handleResize)
     }
   }, [tabs])
   const hasTabs = tabs.length > 0
