@@ -1222,9 +1222,10 @@ function App() {
         ),
       )
       const workspaceSelectionRequest = workspaceSelectionRequestRef.current
+      const payloadRevision = payloadRevisionRef.current
       void loadBootstrap()
         .then((next) => {
-          if (disposed) return
+          if (disposed || payloadRevision !== payloadRevisionRef.current) return
           const latest = discoveredSessionsRef.current.get(event.terminalId)
           if (latest && latest.id !== session.id) return
           applyPayload(mergeSessionIntoPayload(next, latest ?? session, next.runtime.platform))

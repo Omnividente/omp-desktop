@@ -1793,6 +1793,50 @@ describe("App lifecycle serialization", () => {
     },
   )
 
+  it("keeps a newly added workspace when an older discovery refresh resolves", async () => {
+    const initial = workspacePayload("Alpha")
+    const added = workspacePayload("Alpha", "Beta")
+    vi.mocked(api.bootstrap).mockResolvedValue(initial)
+    vi.mocked(api.addWorkspace).mockResolvedValue(added)
+    vi.mocked(api.startTerminal).mockResolvedValueOnce({ ...started, cwd: "C:/fixture/Alpha" })
+    await act(async () => root.render(<App />))
+    await act(async () => element(".hero-actions .primary").click())
+    const discovery = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap).mockReturnValueOnce(discovery.promise)
+    const receiveSession = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receiveSession({
+        event: "pty-session",
+        id: 1,
+        payload: {
+          terminalId: started.terminalId,
+          session: initial.sessions[0],
+        },
+      }),
+    )
+    await act(async () => requestWorkspace("Beta"))
+    expect(element(".project-item.is-active").textContent).toContain("Beta")
+    await act(async () => element('.session-select[aria-label="Beta session"]').click())
+    const search = element<HTMLInputElement>(".project-sessions .search-box input")
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(
+        search,
+        "Beta",
+      )
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await act(async () => discovery.resolve(initial))
+    expect(element(".project-item.is-active").textContent).toContain("Beta")
+    expect(container.querySelectorAll(".project-item")).toHaveLength(2)
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "Beta session",
+    )
+    expect(search.value).toBe("Beta")
+    expect(api.startTerminal).toHaveBeenCalledTimes(1)
+  })
+
   function requestWorkspace(name: string) {
     const subscription = vi.mocked(listen).mock.calls.find(([event]) => event === "single-instance")
     expect(subscription).toBeDefined()
