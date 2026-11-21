@@ -82,6 +82,25 @@ HEADER_BRAND = re.compile(r"\bOMP\s*Desktop(?=\b|v[0-9])")
 HEADER_VERSION = re.compile(r"\bOMP\s*Desktop\s*v?(" + VERSION + r")(?![\w.+-])")
 
 
+def match_terminal_pixels(image_path, patterns, tesseract, *, full_height=False):
+    from PIL import Image, ImageOps
+
+    with Image.open(image_path) as image:
+        width, height = image.size
+        # In the small Windows VM work area the prompt can extend below 94%.
+        bottom = height if full_height else int(height * .94)
+        crop = image.convert("RGB").crop((int(width * .25), int(height * .12), width, bottom))
+    for contrast in (False, True):
+        # Contrast changes how OCR segments glyphs next to the caret. The same
+        # capture and complete pattern are required in either pass.
+        pixels = (ImageOps.autocontrast(ImageOps.invert(ImageOps.grayscale(crop))) if contrast else crop)
+        pixels.resize((crop.width * 2, crop.height * 2), Image.LANCZOS).save(image_path)
+        text = run(tesseract, str(image_path), "stdout", "--psm", "11")
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns):
+            return "inverted grayscale contrast" if contrast else "original colors"
+    raise NativeContractError("native-terminal-text-missing")
+
+
 def main(q):
     require(os.environ.get("GITHUB_ACTIONS") == "true")
     require(os.environ.get("RUNNER_ENVIRONMENT") == "github-hosted")
@@ -692,6 +711,19 @@ def main(q):
         text = q["text"]
         require(isinstance(text, str) and 0 < len(text) <= 128 and re.fullmatch(r"[a-z0-9]+", text),
                 "native-invalid-terminal-text")
+        # Only close the session-scoped OMP toast, if it is covering this fixture.
+        # Do not dismiss the Desktop updater or change notification settings.
+        def runtime_notice_buttons():
+            return [n for n in nodes() if visible(n) and name(n) == "Do not remind me in this session"
+                    and (n.element_info.control_type == "Button" if windows else n.getRoleName() == "push button")]
+
+        guard()
+        buttons = runtime_notice_buttons()
+        require(len(buttons) <= 1, "native-runtime-notice-count")
+        if buttons:
+            click(buttons[0])
+            require(wait_for(lambda: not runtime_notice_buttons()), "native-runtime-notice-not-closed")
+        identity["runtimeSessionNoticeDismissed"] = bool(buttons)
         terminal_focus()
         terminal_type(text)
     elif operation == "terminal-keys":
@@ -704,15 +736,11 @@ def main(q):
         with tempfile.TemporaryDirectory(prefix="native-ocr-", dir=root) as temp:
             image_path = Path(temp) / "surface.png"
             capture(image_path)
-            from PIL import Image
-            with Image.open(image_path) as image:
-                width, height = image.size
-                crop = image.crop((int(width * .25), int(height * .12), width, int(height * .94)))
-                crop.resize((crop.width * 2, crop.height * 2), Image.LANCZOS).save(image_path)
-            text = run(q["tesseract"], str(image_path), "stdout", "--psm", "11")
-            require(any(re.search(pattern, text, re.IGNORECASE) for pattern in q["patterns"]))
+            pass_name = match_terminal_pixels(
+                image_path, q["patterns"], q["tesseract"], full_height=windows,
+            )
             identity["terminalObservation"] = q["label"]
-            identity["method"] = "native-window crop, fixed 2x LANCZOS screenshot OCR; raw text not retained"
+        identity["method"] = f"native-window crop, 2x LANCZOS screenshot OCR ({pass_name}); raw text not retained"
     elif operation == "runtime-process":
         runtime = Path(q["runtime"]).resolve(strict=True)
         project = Path(q["project"]).resolve(strict=True)
