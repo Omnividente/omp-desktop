@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 
 // This harness admits only the exact maintenance candidate above the pinned base.
-export const TARGET_VERSION = "0.9.14"
+export const TARGET_VERSION = "0.9.15"
 export const TARGET_TAG = `v${TARGET_VERSION}`
 
 // Treat a response as data until both its byte budget and pinned digest pass.
