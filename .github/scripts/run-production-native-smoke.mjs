@@ -4,7 +4,7 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { constants, createReadStream } from "node:fs"
 import {
   chmod,
   copyFile,
@@ -19,6 +19,7 @@ import {
 } from "node:fs/promises"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { readPinnedInstaller, TARGET_TAG, TARGET_VERSION } from "./production-smoke-guards.mjs"
 
 const windows = process.platform === "win32"
 const harness = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
@@ -40,7 +41,7 @@ const result = {
   limits: [
     "Fresh hosted VM synthetic data only; real runtime setup/help but no provider inference or credentials.",
     "Shipped stable12 NSIS/AppImage replacement and same-source diagnostic PROBE12 SDK upgrade are distinct proofs.",
-    "Stable-only discovery must stay12; candidate13 requires an explicit durable prerelease opt-in.",
+    "Stable-only discovery must stay on the baseline; the candidate requires explicit durable prerelease opt-in.",
     "Native accessibility/window unavailability fails closed; no target testfeature/CDP/marker fallback.",
   ],
 }
@@ -103,8 +104,8 @@ function command(file, args, options = {}) {
     })
     child.once("close", (code) => {
       clearTimeout(timer)
-      code === 0 && !tooLarge
-        ? done({ text, pid: child.pid })
+      !tooLarge && (code === 0 || (code === 1 && options.nativeResponse))
+        ? done({ text, pid: child.pid, exitCode: code })
         : reject(new Error("Owned native command failed"))
     })
   })
@@ -170,6 +171,9 @@ function cleanEnvironment() {
   if (!windows) {
     out.NO_AT_BRIDGE = "0"
     out.GTK_MODULES = "atk-bridge"
+    // Only this hosted Xvfb session; do not change production rendering policy.
+    out.LIBGL_ALWAYS_SOFTWARE = "1"
+    out.WEBKIT_DISABLE_DMABUF_RENDERER = "1"
   }
   return out
 }
@@ -249,8 +253,8 @@ async function observeSdkInstaller(expectedSha256) {
     "actual SDK NSIS installer process and signed bytes",
     async () => {
       const rows = await ps(
-        `$rows=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:SDK_TEMP,[StringComparison]::OrdinalIgnoreCase) -and $_.ExecutablePath -match '-0\\.9\\.13-updater-' } | ForEach-Object { [pscustomobject]@{pid=$_.ProcessId;parentPid=$_.ParentProcessId;path=$_.ExecutablePath} }); ConvertTo-Json -InputObject $rows -Compress`,
-        { SDK_TEMP: env.TEMP },
+        `$rows=@(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:SDK_TEMP,[StringComparison]::OrdinalIgnoreCase) -and $_.ExecutablePath.IndexOf($env:SDK_TARGET_FRAGMENT,[StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { [pscustomobject]@{pid=$_.ProcessId;parentPid=$_.ParentProcessId;path=$_.ExecutablePath} }); ConvertTo-Json -InputObject $rows -Compress`,
+        { SDK_TEMP: env.TEMP, SDK_TARGET_FRAGMENT: `-${TARGET_VERSION}-updater-` },
       )
       for (const row of rows) {
         if (!inside(resolve(env.TEMP), resolve(row.path))) continue
@@ -267,6 +271,10 @@ async function observeSdkInstaller(expectedSha256) {
   ).catch(() => null)
 }
 async function native(request, retry = false) {
+  assert(
+    !retry || ["observe", "value", "runtime-process", "terminal-ocr"].includes(request.operation),
+    "Do not replay a native mutation",
+  )
   const q = { root: work, evidence, executable, ...request }
   result.lastNativeOperation = {
     operation: q.operation,
@@ -278,10 +286,16 @@ async function native(request, retry = false) {
       const response = await command(
         required("PRODUCTION_NATIVE_PYTHON"),
         [join(harness, ".github/scripts/production-native-ui.py")],
-        { input: JSON.stringify(q), deadline: 30_000 },
+        { input: JSON.stringify(q), deadline: 30_000, nativeResponse: true },
       )
       const value = JSON.parse(response.text)
-      assert(!value.error)
+      if (response.exitCode !== 0 || value.error) {
+        result.lastNativeOperation.failure = /^[a-z][a-z0-9-]{0,79}$/.test(value.code ?? "")
+          ? value.code
+          : "native-api"
+        return null
+      }
+      delete result.lastNativeOperation.failure
       return value
     } catch {
       return null
@@ -292,22 +306,37 @@ async function native(request, retry = false) {
   return value
 }
 const click = (name, kind = "button") => native({ operation: "click", pid: activePid, name, kind })
-async function observe(texts, label, excludePids = [], theme) {
-  const data = await native(
-    { operation: "observe", pid: activePid ?? undefined, texts, excludePids },
-    true,
-  )
-  activePid = data.pid
-  // Capture only after successful assertions; screenshot failure is not a retry of a mutation.
-  const surface = await native({
+async function observe(
+  texts,
+  label,
+  { excludePids = [], theme, expectedVersion, copyText = true } = {},
+) {
+  const request = {
     operation: "observe",
-    pid: activePid,
+    pid: activePid ?? undefined,
     texts,
+    excludePids,
+    expectedVersion,
+    copyText,
+    versionLabels: [
+      "Проверить обновления OMP Desktop",
+      "Check for OMP Desktop updates",
+      "检查 OMP Desktop 更新",
+    ],
+  }
+  const data = await native(request, true)
+  activePid = data.pid
+  if (!label) return data
+  // Reassert the same owned surface when capturing the screenshot; don't replay a failed write.
+  const surface = await native({
+    ...request,
+    pid: activePid,
     screenshot: join(evidence, `${label}.png`),
     theme,
   })
+  if (expectedVersion) assert.equal(surface.observedVersion, expectedVersion)
   if (theme) await proof(`${label}-theme.json`, surface)
-  return data
+  return surface
 }
 async function start(label, version, excludePids = []) {
   assert.equal((await processes()).length, 0, "Surviving production process before start")
@@ -319,7 +348,7 @@ async function start(label, version, excludePids = []) {
   })
   child.on("error", () => {})
   child.unref()
-  const data = await observe([version], label, excludePids)
+  const data = await observe([], label, { excludePids, expectedVersion: version })
   result.launches.push({
     label,
     ...data,
@@ -376,15 +405,12 @@ function preferencesView(settings) {
 }
 async function preferences(fixture, mutate) {
   await click("Settings")
-  await native(
-    { operation: "observe", pid: activePid, texts: ["Interface text scale", "General"] },
-    true,
-  )
+  await observe(["Interface text scale", "General"])
   if (mutate) {
     await native({ operation: "select", pid: activePid, name: "Interface text scale", index: 6 }) // 22px => 138%
     await click("Behavior", "tab")
-    await native({ operation: "observe", pid: activePid, texts: ["Terminal font size"] }, true)
-    await native({ operation: "select", pid: activePid, name: "Terminal font size", index: 8 }) // stable12 and target13 use the same 8..32 options: 16px.
+    await observe(["Terminal font size"])
+    await native({ operation: "select", pid: activePid, name: "Terminal font size", index: 8 }) // Baseline and candidate use the same 8..32 options: 16px.
     await click("Save") // Exactly once. Unknown save outcome is failure, never repeated.
     await wait("durable native UI Save", async () => {
       const settings = JSON.parse(await readFile(fixture.settingsFile, "utf8"))
@@ -401,6 +427,7 @@ async function preferences(fixture, mutate) {
       operation: "value",
       pid: activePid,
       name: "OMP executable",
+      controlId: "omp-executable",
       kind: "edit",
       expected: fixture.noCli,
     },
@@ -411,6 +438,7 @@ async function preferences(fixture, mutate) {
       operation: "value",
       pid: activePid,
       name: "Sessions folder",
+      controlId: "session-root",
       kind: "edit",
       expected: fixture.sessions,
       screenshot: join(evidence, `preferences-${result.launches.length}-general.png`),
@@ -431,7 +459,9 @@ async function preferences(fixture, mutate) {
   await click("Cancel")
 }
 async function state(fixture, version, label) {
-  await observe([version, basename(fixture.project), fixture.title], `${label}-workspace`)
+  await observe([basename(fixture.project), fixture.title], `${label}-workspace`, {
+    expectedVersion: version,
+  })
   await click("Open transcript")
   await observe([fixture.title, ...fixture.messages.map(({ text }) => text)], `${label}-transcript`)
   await native({ operation: "escape", pid: activePid })
@@ -447,7 +477,7 @@ async function state(fixture, version, label) {
   assert.equal(await hash(fixture.projectFile), fixture.projectHash)
   assert.equal(
     settings.desktopUpdatePrereleases ?? false,
-    version === "0.9.13" && process.env.PRODUCTION_NATIVE_MODE === "updater",
+    version === TARGET_VERSION && process.env.PRODUCTION_NATIVE_MODE === "updater",
   )
   await proof(`${label}-state.json`, {
     pid: activePid,
@@ -475,8 +505,8 @@ async function receipt() {
   assert.equal(value.base.commit, "dba7f41a77c4b957b45527a591cdfdb0be5f252f")
   assert.equal(value.base.tagObjectSha, "c6a574bfccad037bd66cf52b8c8294cdf598e477")
   assert.equal(value.base.releaseId, 438773398)
-  assert.equal(value.target.version, "0.9.13")
-  assert.equal(value.target.tag, "v0.9.13")
+  assert.equal(value.target.version, TARGET_VERSION)
+  assert.equal(value.target.tag, TARGET_TAG)
   assert.equal(value.target.commit, required("PRODUCTION_TARGET_SHA"))
   assert.equal(String(value.target.releaseId), required("PRODUCTION_TARGET_RELEASE_ID"))
   assert.equal(String(value.target.releaseRunId), required("PRODUCTION_TARGET_RUN_ID"))
@@ -585,8 +615,11 @@ async function fixture() {
 async function replaceImage(source, expectedHash) {
   assert.equal((await processes()).length, 0)
   assert.equal(await hash(source), expectedHash)
-  await copyFile(source, executable)
-  await chmod(executable, 0o755)
+  const staged = `${executable}.replacement`
+  await copyFile(source, staged, constants.COPYFILE_EXCL)
+  await chmod(staged, 0o755)
+  assert.equal(await hash(staged), expectedHash)
+  await rename(staged, executable)
   assert.equal(await hash(executable), expectedHash)
 }
 const runtimeSource = "751e753860585ada032b8a62cc65f5ba0fd124ff"
@@ -629,15 +662,10 @@ async function installRuntime() {
   const scriptName = windows ? "install.ps1" : "install.sh"
   const url = `https://raw.githubusercontent.com/can1357/oh-my-pi/${runtimeSource}/scripts/${scriptName}`
   const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(60_000) })
-  assert.equal(response.status, 200)
-  const bytes = Buffer.from(await response.arrayBuffer())
-  const digest = createHash("sha256").update(bytes).digest("hex")
-  assert.equal(
-    digest,
-    windows
-      ? "6436e20b1de503455a6248471dea173a21969ab116d9ce4bc40a3263a52594f8"
-      : "9d8aea7105ab30b46f048c3ba9216ae9f92375491b883e510059069dbf968a5f",
-  )
+  const digest = windows
+    ? "6436e20b1de503455a6248471dea173a21969ab116d9ce4bc40a3263a52594f8"
+    : "9d8aea7105ab30b46f048c3ba9216ae9f92375491b883e510059069dbf968a5f"
+  const bytes = await readPinnedInstaller(response, { maxBytes: 256 * 1024, digest })
   const script = join(work, `upstream-${scriptName}`)
   await writeFile(script, bytes, { flag: "wx" })
   // Only the same credential-free allowlisted environment as the production app.
@@ -678,6 +706,12 @@ async function installRuntime() {
     inferenceRequested: false,
   })
 }
+async function revealRuntimeField() {
+  // The native tree only exposes the lower settings fields after keyboard navigation.
+  await native({ operation: "focus", pid: activePid, name: "Cancel", kind: "button" })
+  await native({ operation: "shortcut", pid: activePid, name: "previous-control" })
+}
+
 async function firstUserJourney() {
   stage = "new-user-fresh-native-profile"
   const home = windows ? required("USERPROFILE") : required("HOME")
@@ -697,40 +731,47 @@ async function firstUserJourney() {
     flag: "wx",
   })
   const projectHash = await hash(projectFile)
-  const firstPid = await start("new-user-FIRST-candidate-launch", "0.9.13")
+  const firstPid = await start("new-user-FIRST-candidate-launch", TARGET_VERSION)
   await observe(["Откройте папку проекта", "OMP недоступен"], "new-user-first-screen-ru")
   await click("Настройки")
   await native({ operation: "select", pid: activePid, name: "Язык интерфейса", index: 1 })
   await click("Save")
   await durableSettings((s) => s.language === "en", "new-user English Save")
   await observe(
-    ["OMP unavailable", "OMP probe failures", "Set the executable path below"],
+    ["OMP unavailable", "Set the executable path below"],
     "new-user-actionable-discovery-error",
   )
-  await native({
-    operation: "value",
-    pid: activePid,
-    name: "OMP executable",
-    kind: "edit",
-    expected: "",
-  })
+  // The list label is accessibility metadata, not part of the rendered text.
+  await native({ operation: "observe", pid: activePid, texts: ["OMP probe failures"] }, true)
+  await revealRuntimeField()
+  await native(
+    {
+      operation: "value",
+      pid: activePid,
+      name: "OMP executable",
+      controlId: "omp-executable",
+      kind: "edit",
+      expected: "",
+    },
+    true,
+  )
   await observe(["Leave empty to auto-detect"], "new-user-discovery-recovery-guidance")
   await click("Cancel")
   const hint = "OMP Desktop will launch the agent in the selected folder"
-  await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", [], "dark")
+  await observe(["Open project folder", hint], "new-user-dark-first-screen-hint", { theme: "dark" })
   await click("Settings")
   await native({ operation: "select", pid: activePid, name: "Interface theme", index: 1 })
   await click("Save")
   await durableSettings((s) => s.desktopTheme === "light", "new-user light theme Save")
   await click("Cancel")
-  await observe(["Open project folder", hint], "new-user-light-first-screen-hint", [], "light")
+  await observe(["Open project folder", hint], "new-user-light-first-screen-hint", { theme: "light" })
   await click("Settings")
   await native({ operation: "select", pid: activePid, name: "Interface language", index: 2 })
   await click("保存")
   await durableSettings((s) => s.language === "zh", "Chinese native Save")
   await click("取消")
   await close()
-  await start("new-user-Chinese-native-restart", "0.9.13", [firstPid])
+  await start("new-user-Chinese-native-restart", TARGET_VERSION, [firstPid])
   await observe(
     ["打开项目文件夹", "OMP Desktop 将在所选文件夹中启动智能体"],
     "new-user-Chinese-persisted",
@@ -747,28 +788,35 @@ async function firstUserJourney() {
   await close()
   await installRuntime() // After the installed candidate's genuine FIRST launch.
   stage = "new-user-native-runtime-discovery"
-  await start("new-user-runtime-discovered", "0.9.13")
+  await start("new-user-runtime-discovered", TARGET_VERSION)
   await click("Settings")
   await observe(["OMP connected", runtimeVersion], "new-user-real-runtime-discovery")
-  await native({
-    operation: "value",
-    pid: activePid,
-    name: "OMP executable",
-    kind: "edit",
-    expected: "",
-  })
+  await revealRuntimeField()
+  await native(
+    {
+      operation: "value",
+      pid: activePid,
+      name: "OMP executable",
+      controlId: "omp-executable",
+      kind: "edit",
+      expected: "",
+    },
+    true,
+  )
   await click("Cancel")
-  await click("Open folder")
+  await native({ operation: "shortcut", pid: activePid, name: "open-folder" })
   await native({ operation: "folder", pid: activePid, path: project })
   await observe([basename(project), "New session"], "new-user-selected-project")
   await durableSettings((s) => same(s.lastWorkspace, project), "native project selection persisted")
   stage = "new-user-first-real-pty"
-  await click("New session")
+  await native({ operation: "shortcut", pid: activePid, name: "new-session" })
   const runtime = await native(
     { operation: "runtime-process", pid: activePid, runtime: runtimePath, project },
     true,
   )
   await proof("new-user-real-pty.json", runtime)
+  // Dismiss the runtime splash without confirming provider setup.
+  await native({ operation: "terminal-keys", pid: activePid, keys: "space" })
   // A fresh v18.20.0 profile enters its six-step setup wizard, not the prompt editor.
   // Observe the real first-session boundary without logging in or submitting text.
   await terminalObservation("new-user-real-runtime-first-setup", [
@@ -778,7 +826,7 @@ async function firstUserJourney() {
   await close()
   await proof("new-user-journey.json", {
     status: "PASS",
-    candidate: "0.9.13",
+    candidate: TARGET_VERSION,
     runtime: runtimeVersion,
     firstInstalledCandidatePid: firstPid,
     projectSha256: projectHash,
@@ -797,15 +845,25 @@ async function firstUserJourney() {
     [data, "desktop-data"],
     [join(home, ".omp"), "runtime-profile"],
   ]) {
-    if (!(await absent(path))) await rename(path, join(work, `new-user-private-${name}`))
+    // Keep the private archive on the source volume (Windows KnownFolders may be on C:).
+    const archive = join(dirname(path), `new-user-private-${name}`)
+    assert(await absent(archive), "Existing private profile archive; refusing replacement")
+    if (!(await absent(path))) await rename(path, archive)
   }
 }
 
 async function completedAnswerJourney(fixture) {
   stage = "synthetic-answer-real-runtime-pty"
-  await start("target-synthetic-answer-real-pty", "0.9.13")
+  await start("target-synthetic-answer-real-pty", TARGET_VERSION)
   await click("Settings")
-  await native({ operation: "edit", pid: activePid, name: "OMP executable", text: runtimePath })
+  await revealRuntimeField()
+  await native({
+    operation: "edit",
+    pid: activePid,
+    name: "OMP executable",
+    controlId: "omp-executable",
+    text: runtimePath,
+  })
   await click("Save")
   await durableSettings(
     (s) => same(s.ompExecutable, runtimePath),
@@ -825,12 +883,11 @@ async function completedAnswerJourney(fixture) {
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
     true,
   )
-  await native({ operation: "terminal-keys", pid: activePid, keys: "escape" })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "clear", focus: false })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
+  // This fresh input remains unsubmitted. Reset keys can interrupt an active PTY.
+  await native({ operation: "terminal-text", pid: activePid, text: "nativefocusdraft" })
   await terminalObservation("answer-default-collapsed-live-console", ["native\\s*focus\\s*draft"])
   await click("Show answer")
-  await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic")
+  await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic", { copyText: false })
   await terminalObservation("answer-expanded-preserves-live-console-draft", [
     "native\\s*focus\\s*draft",
   ])
@@ -842,12 +899,9 @@ async function completedAnswerJourney(fixture) {
   await terminalObservation("answer-recollapsed-preserves-live-console-draft", [
     "native\\s*focus\\s*draft",
   ])
-  // Explicit console focus; do not demand rejected expand/collapse auto-focus or Escape hooks.
-  await native({ operation: "terminal-keys", pid: activePid, keys: "escape" })
-  await native({ operation: "terminal-keys", pid: activePid, keys: "draft", focus: false })
-  await terminalObservation("answer-native-escape-keeps-console-input", [
-    "native\\s*focus\\s*draft",
-  ])
+  // Demand newly visible input, not a second match of the original OCR token.
+  await native({ operation: "terminal-text", pid: activePid, text: "nativeaftertoggle" })
+  await terminalObservation("answer-explicit-focus-after-toggle", ["native\\s*after\\s*toggle"])
   const after = await native(request)
   assert.equal(after.runtime.pid, before.runtime.pid, "Answer controls replaced the actual runtime")
   assert.equal(after.runtime.sha256, before.runtime.sha256)
@@ -859,6 +913,7 @@ async function completedAnswerJourney(fixture) {
     syntheticAnswer: true,
     modelResponseClaimed: false,
     consoleAndDraftVisibleAcrossToggle: true,
+    explicitFocusAcceptsNewInput: true,
     rejectedEscapeOrAutoFocusHooksRequired: false,
     boundary:
       "Separate fixture after strict production replacement/state checks; runtime resume may append session metadata",
@@ -951,7 +1006,7 @@ async function main() {
       beforeSha256: assets.base.linuxAppImage.sha256,
       afterSha256: assets.target.linuxAppImage.sha256,
     }
-    await start("target-replaced", "0.9.13", [baselinePid])
+    await start("target-replaced", TARGET_VERSION, [baselinePid])
   } else {
     stage = "production-probe-admission"
     const sourceProof = JSON.parse(
@@ -960,6 +1015,9 @@ async function main() {
     assert.equal(sourceProof.targetSource, required("PRODUCTION_TARGET_SHA"))
     assert.equal(sourceProof.probeSource, required("PRODUCTION_HARNESS_SHA"))
     assert.equal(sourceProof.trust, "unchanged-production")
+    assert.equal(sourceProof.targetVersion, TARGET_VERSION)
+    assert.equal(sourceProof.probeVersion, "0.9.12")
+    assert.equal(sourceProof.releaseId, required("PRODUCTION_TARGET_RELEASE_ID"))
     const probe = resolve(required("PRODUCTION_PROBE_PATH"))
     assert(!same(probe, executable))
     assert(
@@ -967,8 +1025,8 @@ async function main() {
       "Diagnostic bytes must come from the pinned build output",
     )
     const probeHash = await hash(probe)
-    await copyFile(probe, executable)
-    if (!windows) await chmod(executable, 0o755)
+    if (windows) await copyFile(probe, executable)
+    else await replaceImage(probe, probeHash)
     assert.equal(await hash(executable), probeHash)
     if (windows) await pe(executable, "0.9.12")
     const marker = join(work, "production-probe-events.jsonl")
@@ -976,7 +1034,7 @@ async function main() {
       targetSha: required("PRODUCTION_TARGET_SHA"),
       harnessSha: required("PRODUCTION_HARNESS_SHA"),
       releaseId: required("PRODUCTION_TARGET_RELEASE_ID"),
-      targetVersion: "0.9.13",
+      targetVersion: TARGET_VERSION,
       probeVersion: "0.9.12",
       settingsFile: f.settingsFile,
     }
@@ -1046,21 +1104,20 @@ async function main() {
       started.detail.metadataSource,
       "https://api.github.com/repos/Omnividente/omp-desktop/releases",
     )
-    assert.equal(candidate.detail.version, "0.9.13")
+    assert.equal(candidate.detail.version, TARGET_VERSION)
     assert.equal(candidate.detail.releaseId, guard.releaseId)
     assert.equal(
       candidate.detail.releaseUrl,
-      "https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.13",
+      `https://github.com/Omnividente/omp-desktop/releases/tag/${TARGET_TAG}`,
     )
     assert.equal(candidate.detail.prerelease, true)
     result.probe.pid = started.pid
     result.probe.launcherPid = child.pid
     stage = "first-sdk-target-native-ui"
-    const first = await observe(
-      ["0.9.13", basename(f.project), f.title],
-      "sdk-first-target-native",
-      [baselinePid, started.pid],
-    )
+    const first = await observe([basename(f.project), f.title], "sdk-first-target-native", {
+      excludePids: [baselinePid, started.pid],
+      expectedVersion: TARGET_VERSION,
+    })
     assert(
       !(await processes()).some((row) => row.pid === started.pid),
       "Probe process survived target relaunch",
@@ -1071,10 +1128,10 @@ async function main() {
       "SDK installed bytes differ from verified production target",
     )
     if (windows) {
-      result.targetPe = await pe(executable, "0.9.13")
+      result.targetPe = await pe(executable, TARGET_VERSION)
       const registrationsAfter = await registrations()
       assert.equal(registrationsAfter.length, 1)
-      assert.equal(registrationsAfter[0].version, "0.9.13")
+      assert.equal(registrationsAfter[0].version, TARGET_VERSION)
       result.targetRegistrations = registrationsAfter
     }
     if (windows) {
@@ -1085,7 +1142,7 @@ async function main() {
     result.launches.push({
       label: "FIRST-SDK-RELAUNCH",
       ...first,
-      version: "0.9.13",
+      version: TARGET_VERSION,
       imageSha256: await hash(executable),
       controllerLaunch: false,
     })
@@ -1105,12 +1162,12 @@ async function main() {
   }
   stage = "target-native-state"
   const firstPid = activePid
-  assert.deepEqual(await state(f, "0.9.13", "target-first"), expected)
+  assert.deepEqual(await state(f, TARGET_VERSION, "target-first"), expected)
   await preferences(f, false)
   await close()
   stage = "target-normal-restart"
-  await start("target-restarted", "0.9.13", [baselinePid, firstPid])
-  assert.deepEqual(await state(f, "0.9.13", "target-restarted"), expected)
+  await start("target-restarted", TARGET_VERSION, [baselinePid, firstPid])
+  assert.deepEqual(await state(f, TARGET_VERSION, "target-restarted"), expected)
   await preferences(f, false)
   await close()
   assert.equal(await hash(executable), windows ? targetExeHash : assets.target.linuxAppImage.sha256)

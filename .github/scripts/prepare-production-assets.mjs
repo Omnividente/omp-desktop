@@ -7,6 +7,7 @@ import { Readable, Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
+import { TARGET_TAG, TARGET_VERSION } from "./production-smoke-guards.mjs"
 import { classifyReleaseAsset, verifyReleaseAssets } from "./verify-release-assets.mjs"
 
 const execFileAsync = promisify(execFile)
@@ -100,10 +101,8 @@ async function git(cwd, ...args) {
 
 async function api(path) {
   const headers = { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }
-  // contents:read intentionally grants no actions:read. Public production run/job
-  // metadata is readable anonymously; do not send a narrower token to that API.
-  if (process.env.GH_TOKEN && !path.startsWith("/actions/"))
-    headers.Authorization = `Bearer ${process.env.GH_TOKEN}`
+  // Fixed repository API only; do not forward credentials to redirects or downloads.
+  if (process.env.GH_TOKEN) headers.Authorization = `Bearer ${process.env.GH_TOKEN}`
   let response
   try {
     response = await fetch(`${apiRoot}${path}`, {
@@ -422,9 +421,9 @@ async function productionKey() {
   const packageManifest = JSON.parse(await readFile(join(targetRoot, "package.json"), "utf8"))
   const cargo = await readFile(join(targetRoot, "src-tauri/Cargo.toml"), "utf8")
   requireCondition(
-    config.version === "0.9.13" &&
-      packageManifest.version === "0.9.13" &&
-      cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === "0.9.13",
+    config.version === TARGET_VERSION &&
+      packageManifest.version === TARGET_VERSION &&
+      cargo.match(/^version\s*=\s*"([^"]+)"/m)?.[1] === TARGET_VERSION,
     "Target source version mismatch",
   )
   const source = await api(`/contents/src-tauri/tauri.conf.json?ref=${baseIdentity.commit}`)
@@ -600,8 +599,8 @@ async function main() {
   )
   mode = process.argv[2] === "--recheck" ? "recheck" : "prepare"
   const target = {
-    tag: "v0.9.13",
-    version: "0.9.13",
+    tag: TARGET_TAG,
+    version: TARGET_VERSION,
     commit: process.env.PRODUCTION_TARGET_SHA ?? "",
     releaseId: inputId("PRODUCTION_TARGET_RELEASE_ID"),
     releaseRunId: inputId("PRODUCTION_TARGET_RUN_ID"),

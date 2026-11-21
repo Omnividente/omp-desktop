@@ -1,6 +1,6 @@
 {
   "name": "omp-desktop",
-  "version": "0.9.13",
+  "version": "0.9.14",
   "description": "Cross-platform desktop GUI for Oh My Pi projects, sessions, and native PTY terminals",
   "repository": {
     "type": "git",
@@ -25,7 +25,7 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:xterm-utf8": "node --test scripts/xtermUtf8.test.mjs",
-    "test:release-assets": "node --test .github/scripts/verify-release-assets.test.mjs .github/scripts/run-updater-e2e.test.mjs .github/scripts/check-release-tag-health.test.mjs",
+    "test:release-assets": "node --test .github/scripts/verify-release-assets.test.mjs .github/scripts/run-updater-e2e.test.mjs .github/scripts/check-release-tag-health.test.mjs .github/scripts/production-smoke-guards.test.mjs",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write src",
     "format:check": "prettier --check src"
