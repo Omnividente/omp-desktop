@@ -93,6 +93,10 @@ function revealTabHeader(strip: HTMLDivElement, header: HTMLElement) {
   }
 }
 
+function setTabStripScroll(strip: HTMLDivElement, left: number) {
+  strip.scrollLeft = left
+}
+
 export function TerminalWorkspace({
   activeTabId,
   focusRequest,
@@ -151,8 +155,87 @@ export function TerminalWorkspace({
   const stageRef = useRef<HTMLElement>(null)
   const homePrimaryActionRef = useRef<HTMLButtonElement>(null)
   const focusOriginRef = useRef<HTMLElement | null>(null)
+  const backgroundCloseFocusRef = useRef<{ origin: HTMLButtonElement; index: number } | null>(null)
   const previousTabCountRef = useRef(tabs.length)
   const tabStripRef = useRef<HTMLDivElement>(null)
+  const tabViewportWidthRef = useRef<number | null>(null)
+  const [tabScroll, setTabScroll] = useState({ left: false, right: false })
+  const updateTabScroll = () => {
+    const strip = tabStripRef.current
+    if (!strip) return
+    const left = strip.scrollLeft > 1
+    const right = strip.scrollWidth - strip.clientWidth - strip.scrollLeft > 1
+    setTabScroll((current) =>
+      current.left === left && current.right === right ? current : { left, right },
+    )
+  }
+  const scrollTabs = (direction: number) => {
+    const strip = tabStripRef.current
+    if (!strip) return
+    setTabStripScroll(
+      strip,
+      Math.max(
+        0,
+        Math.min(
+          strip.scrollWidth - strip.clientWidth,
+          strip.scrollLeft + direction * Math.max(1, strip.clientWidth * 0.8),
+        ),
+      ),
+    )
+    updateTabScroll()
+  }
+  useLayoutEffect(updateTabScroll)
+  useEffect(() => {
+    const strip = tabStripRef.current
+    if (!strip) {
+      tabViewportWidthRef.current = null
+      return
+    }
+    if (tabViewportWidthRef.current === null) tabViewportWidthRef.current = strip.clientWidth
+    const handleResize = () => {
+      if (tabStripRef.current !== strip) return
+      const width = strip.clientWidth
+      // Content/title notifications must not undo manual scrolling. A changed
+      // viewport can hide the current header when controls move onto its row.
+      if (width !== tabViewportWidthRef.current) {
+        tabViewportWidthRef.current = width
+        const focused = document.activeElement?.closest<HTMLElement>(
+          ".terminal-tab, .new-tab-button",
+        )
+        const header = focused && strip.contains(focused) ? focused : activeHeaderRef.current
+        if (header) revealTabHeader(strip, header)
+      }
+      updateTabScroll()
+    }
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(handleResize)
+    observer?.observe(strip)
+    for (const child of strip.children) observer?.observe(child)
+    window.addEventListener("resize", handleResize)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener("resize", handleResize)
+    }
+  }, [tabs])
+  const hasTabs = tabs.length > 0
+  useEffect(() => {
+    const strip = tabStripRef.current
+    if (!strip) return
+    const onWheel = (event: WheelEvent) => {
+      // Keep horizontal trackpad gestures and browser zoom native.
+      if (event.ctrlKey || event.metaKey || event.deltaX !== 0 || event.deltaY === 0) return
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? strip.clientWidth : 1
+      const next = Math.max(
+        0,
+        Math.min(strip.scrollWidth - strip.clientWidth, strip.scrollLeft + event.deltaY * unit),
+      )
+      if (next === strip.scrollLeft || !Number.isFinite(next)) return
+      event.preventDefault()
+      strip.scrollLeft = next
+      updateTabScroll()
+    }
+    strip.addEventListener("wheel", onWheel, { passive: false })
+    return () => strip.removeEventListener("wheel", onWheel)
+  }, [hasTabs])
   const activeHeaderRef = useRef<HTMLDivElement>(null)
   const previousActiveTabRef = useRef<string | null>(null)
   const lastRevealSequenceRef = useRef<number | null>(null)
@@ -195,6 +278,15 @@ export function TerminalWorkspace({
 
   useEffect(() => {
     const cancelFocusRestoration = (event: Event) => {
+      const pendingClose = backgroundCloseFocusRef.current
+      if (
+        pendingClose &&
+        event.type === "pointerdown" &&
+        event.target instanceof Node &&
+        !pendingClose.origin.contains(event.target)
+      ) {
+        backgroundCloseFocusRef.current = null
+      }
       if (
         !focusOriginRef.current ||
         !(event.target instanceof Node) ||
@@ -213,6 +305,27 @@ export function TerminalWorkspace({
       document.removeEventListener("pointerdown", cancelFocusRestoration)
     }
   }, [])
+
+  useLayoutEffect(() => {
+    const pending = backgroundCloseFocusRef.current
+    if (!pending || pending.origin.isConnected) return
+    backgroundCloseFocusRef.current = null
+    if (
+      tabs.length === 0 ||
+      focusOriginRef.current !== pending.origin ||
+      (document.activeElement !== document.body && document.activeElement !== pending.origin)
+    )
+      return
+    // Closing an inactive tab must not activate another terminal or strand keyboard focus.
+    const headers = tabStripRef.current?.querySelectorAll<HTMLButtonElement>(
+      ".terminal-tab > button:first-child",
+    )
+    const target = headers?.[Math.min(pending.index, headers.length - 1)]
+    target?.focus({ preventScroll: true })
+    if (target?.parentElement && tabStripRef.current) {
+      revealTabHeader(tabStripRef.current, target.parentElement)
+    }
+  }, [tabs])
 
   useLayoutEffect(() => {
     const hadTabs = previousTabCountRef.current > 0
@@ -300,138 +413,181 @@ export function TerminalWorkspace({
           >
             <Icon name="folder" size={15} />
           </button>
-          <div className="terminal-tabs-scroll" ref={tabStripRef}>
-            {tabs.map((tab, index) => {
-              const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
-              const visualStatus =
-                runtimeStatus !== "normal"
-                  ? runtimeStatus
-                  : tab.activity === "thinking"
-                    ? "thinking"
-                    : "normal"
-              const accessibleStatus =
-                runtimeStatus === "error"
-                  ? t(language, "sessionErrorTitle")
-                  : runtimeStatus === "fallback"
-                    ? t(language, "sessionFallbackTitle")
+          <div className="terminal-tabs-navigation">
+            <button
+              type="button"
+              className="terminal-tabs-arrow is-left"
+              aria-label={t(language, "scrollTabsLeft")}
+              title={t(language, "scrollTabsLeft")}
+              disabled={!tabScroll.left}
+              onClick={() => scrollTabs(-1)}
+            >
+              <Icon name="chevron" size={14} />
+            </button>
+            <div
+              className="terminal-tabs-scroll"
+              ref={tabStripRef}
+              onScroll={updateTabScroll}
+              onFocusCapture={(event) => {
+                const strip = tabStripRef.current
+                const header = event.target.closest<HTMLElement>(".terminal-tab, .new-tab-button")
+                if (strip && header) revealTabHeader(strip, header)
+                updateTabScroll()
+              }}
+            >
+              {tabs.map((tab, index) => {
+                const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
+                const visualStatus =
+                  runtimeStatus !== "normal"
+                    ? runtimeStatus
                     : tab.activity === "thinking"
-                      ? t(language, "sessionThinkingTitle")
-                      : tab.status === "running"
-                        ? t(language, "sessionOpenTitle")
-                        : t(language, "close")
+                      ? "thinking"
+                      : "normal"
+                const accessibleStatus =
+                  runtimeStatus === "error"
+                    ? t(language, "sessionErrorTitle")
+                    : runtimeStatus === "fallback"
+                      ? t(language, "sessionFallbackTitle")
+                      : tab.activity === "thinking"
+                        ? t(language, "sessionThinkingTitle")
+                        : tab.status === "running"
+                          ? t(language, "sessionOpenTitle")
+                          : t(language, "close")
 
-              return (
-                <div
-                  className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity} is-runtime-${runtimeStatus}`}
-                  draggable
-                  key={tab.id}
-                  ref={tab.id === activeTabId ? activeHeaderRef : null}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDragStart={(event) => {
-                    event.dataTransfer.setData("text/plain", tab.id)
-                  }}
-                  onDrop={(event) => {
-                    event.preventDefault()
-                    const draggedId = event.dataTransfer.getData("text/plain")
-                    if (draggedId && draggedId !== tab.id) {
-                      onReorderTabs?.(draggedId, tab.id)
-                    }
-                  }}
-                >
-                  <button
-                    aria-label={`${tab.label} — ${accessibleStatus}`}
-                    aria-keyshortcuts={
-                      onReorderTabs ? "Alt+Shift+ArrowLeft Alt+Shift+ArrowRight" : undefined
-                    }
-                    onClick={() => onFocusTab(tab.id)}
-                    onKeyDown={(event) => {
-                      if (
-                        !onReorderTabs ||
-                        event.defaultPrevented ||
-                        event.nativeEvent.isComposing ||
-                        event.nativeEvent.keyCode === 229 ||
-                        !event.altKey ||
-                        !event.shiftKey ||
-                        event.ctrlKey ||
-                        event.metaKey ||
-                        (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
-                      )
-                        return
-                      event.preventDefault()
-                      event.stopPropagation()
-                      const nextIndex = index + (event.key === "ArrowLeft" ? -1 : 1)
-                      const target = tabs[nextIndex]
-                      if (!target) return
-                      keyboardReorderFocusRef.current = event.currentTarget
-                      onReorderTabs(tab.id, target.id)
-                      setReorderAnnouncement(
-                        t(language, "tabReordered")
-                          .replace("{position}", String(nextIndex + 1))
-                          .replace("{count}", String(tabs.length))
-                          .replace("{title}", () => tab.label),
-                      )
+                return (
+                  <div
+                    className={`terminal-tab${tab.id === activeTabId ? " is-active" : ""} is-${tab.activity} is-runtime-${runtimeStatus}`}
+                    draggable
+                    key={tab.id}
+                    ref={tab.id === activeTabId ? activeHeaderRef : null}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", tab.id)
                     }}
-                    title={
-                      onReorderTabs
-                        ? accessibleStatus + ". " + t(language, "tabReorderHint")
-                        : accessibleStatus
-                    }
-                    type="button"
+                    onDrop={(event) => {
+                      event.preventDefault()
+                      const draggedId = event.dataTransfer.getData("text/plain")
+                      if (draggedId && draggedId !== tab.id) {
+                        onReorderTabs?.(draggedId, tab.id)
+                      }
+                    }}
                   >
-                    <span className={`status-dot is-${tab.status} is-${visualStatus}`} />
-                    <Icon name="terminal" size={14} />
-                    <span className="terminal-tab-label">{tab.label}</span>
-                    {runtimeStatus === "normal" && tab.activity === "thinking" && (
-                      <span aria-live="polite" className="terminal-tab-thinking">
-                        <span className="thinking-pulse" />
-                        {t(language, "thinkingShort")}
-                      </span>
-                    )}
-                    {runtimeStatus === "error" && (
-                      <span aria-live="assertive" className="terminal-tab-error">
-                        {t(language, "sessionErrorShort")}
-                      </span>
-                    )}
-                    {runtimeStatus === "fallback" && (
-                      <span aria-live="polite" className="terminal-tab-fallback">
-                        {t(language, "fallbackActive")}
-                      </span>
-                    )}
-                  </button>
-                  {tab.sessionPath && (
                     <button
-                      aria-pressed={tab.pinnedTitle !== null}
-                      className={`tab-pin${tab.pinnedTitle ? " is-pinned" : ""}`}
-                      disabled={tab.switching || tab.primaryProviderPinPending}
-                      onClick={() => onToggleTitlePin(tab)}
-                      title={t(language, tab.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle")}
+                      aria-label={`${tab.label} — ${accessibleStatus}`}
+                      aria-keyshortcuts={
+                        onReorderTabs ? "Alt+Shift+ArrowLeft Alt+Shift+ArrowRight" : undefined
+                      }
+                      onClick={() => onFocusTab(tab.id)}
+                      onKeyDown={(event) => {
+                        if (
+                          !onReorderTabs ||
+                          event.defaultPrevented ||
+                          event.nativeEvent.isComposing ||
+                          event.nativeEvent.keyCode === 229 ||
+                          !event.altKey ||
+                          !event.shiftKey ||
+                          event.ctrlKey ||
+                          event.metaKey ||
+                          (event.key !== "ArrowLeft" && event.key !== "ArrowRight")
+                        )
+                          return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        const nextIndex = index + (event.key === "ArrowLeft" ? -1 : 1)
+                        const target = tabs[nextIndex]
+                        if (!target) return
+                        keyboardReorderFocusRef.current = event.currentTarget
+                        onReorderTabs(tab.id, target.id)
+                        setReorderAnnouncement(
+                          t(language, "tabReordered")
+                            .replace("{position}", String(nextIndex + 1))
+                            .replace("{count}", String(tabs.length))
+                            .replace("{title}", () => tab.label),
+                        )
+                      }}
+                      title={
+                        onReorderTabs
+                          ? accessibleStatus + ". " + t(language, "tabReorderHint")
+                          : accessibleStatus
+                      }
                       type="button"
                     >
-                      <Icon name="pin" size={12} />
+                      <span className={`status-dot is-${tab.status} is-${visualStatus}`} />
+                      <Icon name="terminal" size={14} />
+                      <span className="terminal-tab-label">{tab.label}</span>
+                      {runtimeStatus === "normal" && tab.activity === "thinking" && (
+                        <span aria-live="polite" className="terminal-tab-thinking">
+                          <span className="thinking-pulse" />
+                          {t(language, "thinkingShort")}
+                        </span>
+                      )}
+                      {runtimeStatus === "error" && (
+                        <span aria-live="assertive" className="terminal-tab-error">
+                          {t(language, "sessionErrorShort")}
+                        </span>
+                      )}
+                      {runtimeStatus === "fallback" && (
+                        <span aria-live="polite" className="terminal-tab-fallback">
+                          {t(language, "fallbackActive")}
+                        </span>
+                      )}
                     </button>
-                  )}
-                  <button
-                    className="tab-close"
-                    disabled={tab.switching || tab.primaryProviderPinPending}
-                    onClick={() => onCloseTab(tab.id)}
-                    title={
-                      tab.status === "running" ? t(language, "stopAndClose") : t(language, "close")
-                    }
-                    type="button"
-                  >
-                    <Icon name="close" size={13} />
-                  </button>
-                </div>
-              )
-            })}
+                    {tab.sessionPath && (
+                      <button
+                        aria-pressed={tab.pinnedTitle !== null}
+                        className={`tab-pin${tab.pinnedTitle ? " is-pinned" : ""}`}
+                        disabled={tab.switching || tab.primaryProviderPinPending}
+                        onClick={() => onToggleTitlePin(tab)}
+                        title={t(
+                          language,
+                          tab.pinnedTitle ? "unpinSessionTitle" : "pinSessionTitle",
+                        )}
+                        type="button"
+                      >
+                        <Icon name="pin" size={12} />
+                      </button>
+                    )}
+                    <button
+                      className="tab-close"
+                      disabled={tab.switching || tab.primaryProviderPinPending}
+                      onClick={(event) => {
+                        backgroundCloseFocusRef.current =
+                          tab.id !== activeTabId && document.activeElement === event.currentTarget
+                            ? { origin: event.currentTarget, index }
+                            : null
+                        onCloseTab(tab.id)
+                      }}
+                      title={
+                        tab.status === "running"
+                          ? t(language, "stopAndClose")
+                          : t(language, "close")
+                      }
+                      type="button"
+                    >
+                      <Icon name="close" size={13} />
+                    </button>
+                  </div>
+                )
+              })}
+              <button
+                className="new-tab-button"
+                disabled={!selectedWorkspace || launching !== null}
+                onClick={() => onLaunch()}
+                title={t(language, "btnNewSession")}
+                type="button"
+              >
+                <Icon name="plus" size={15} />
+              </button>
+            </div>
             <button
-              className="new-tab-button"
-              disabled={!selectedWorkspace || launching !== null}
-              onClick={() => onLaunch()}
-              title={t(language, "btnNewSession")}
               type="button"
+              className="terminal-tabs-arrow"
+              aria-label={t(language, "scrollTabsRight")}
+              title={t(language, "scrollTabsRight")}
+              disabled={!tabScroll.right}
+              onClick={() => scrollTabs(1)}
             >
-              <Icon name="plus" size={15} />
+              <Icon name="chevron" size={14} />
             </button>
           </div>
           <button
@@ -565,6 +721,7 @@ export function TerminalWorkspace({
             setTabPickerOpen(false)
             onFocusTerminal(terminalId)
           }}
+          runtimeStatusByTerminal={runtimeStatusByTerminal}
           tabs={tabs}
         />
       )}

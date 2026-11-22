@@ -16,7 +16,7 @@ import { formatShortcut, localeTag } from "./uiUtils"
 interface ProjectRailProps {
   autoHidePaused: boolean
   autoOpen: boolean
-  dropActive: boolean
+  dropActive?: boolean
   mode: RailMode
   modeSaving: boolean
   workspaces: WorkspaceSummary[]
@@ -52,7 +52,7 @@ const MODE_OPTIONS: Array<{
 export function ProjectRail({
   autoHidePaused,
   autoOpen,
-  dropActive,
+  dropActive = false,
   mode,
   modeSaving,
   workspaces,
@@ -113,12 +113,15 @@ export function ProjectRail({
     }
   }, [autoHidePaused])
 
-  useEffect(
+  // A newer explicit reveal/collapse or mode change supersedes pending hover intent.
+  useLayoutEffect(
     () => () => {
       if (openTimerRef.current !== null) window.clearTimeout(openTimerRef.current)
       if (closeTimerRef.current !== null) window.clearTimeout(closeTimerRef.current)
+      openTimerRef.current = null
+      closeTimerRef.current = null
     },
-    [],
+    [autoOpen, mode],
   )
 
   useEffect(() => {
@@ -246,7 +249,7 @@ export function ProjectRail({
       onMouseLeave={scheduleAutoClose}
       ref={railRef}
     >
-      {dropActive && (
+      {dropActive && !compact && (
         <div className="project-drop-hint" role="status">
           {t(lang, "dropProjectHint")}
         </div>
@@ -299,7 +302,11 @@ export function ProjectRail({
               disabled={renamingWorkspaceKey !== null}
               onChange={(event) => setProjectSearch(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+                if (
+                  event.key === "Escape" &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229
+                ) {
                   event.preventDefault()
                   event.stopPropagation()
                   setProjectSearch("")
@@ -323,6 +330,7 @@ export function ProjectRail({
           const active = selectedWorkspace?.key === workspace.key
           const renaming = renamingWorkspaceKey === workspace.key
           const busy = workspaceBusyKey === workspace.key
+          const recentStatus = workspace.pinned ? t(lang, "projectInRecentList") : null
           return (
             <div className={`project-item-row${active ? " is-active" : ""}`} key={workspace.key}>
               {renaming ? (
@@ -370,7 +378,7 @@ export function ProjectRail({
                     setProjectSearch("")
                     onSelectWorkspace(workspace.key)
                   }}
-                  title={`${workspace.name}\n${workspace.path}`}
+                  title={`${workspace.name}\n${workspace.path}${recentStatus ? `\n${recentStatus}` : ""}`}
                   type="button"
                 >
                   <span className="project-glyph">
@@ -385,7 +393,9 @@ export function ProjectRail({
                   <span aria-hidden="true" className="project-expand-marker">
                     <Icon name="chevron" size={13} />
                   </span>
-                  {workspace.pinned && <span className="pin-dot" title="pinned" />}
+                  {recentStatus && (
+                    <span aria-hidden="true" className="pin-dot" title={recentStatus} />
+                  )}
                 </button>
               )}
               {!renaming && (

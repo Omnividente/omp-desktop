@@ -28,6 +28,7 @@ interface SessionRowProps {
   depth: number
   hasChildren: boolean
   childrenExpanded: boolean
+  groupToggleDisabled?: boolean
   onSelect: () => void
   onDoubleLaunch: () => void
   onKeySelect: (e: ReactKeyboardEvent<HTMLDivElement>) => void
@@ -59,6 +60,7 @@ export function SessionRow({
   depth,
   hasChildren,
   childrenExpanded,
+  groupToggleDisabled = false,
   onSelect,
   onDoubleLaunch,
   onKeySelect,
@@ -83,6 +85,22 @@ export function SessionRow({
     width: 240,
     above: false,
   })
+
+  const handleTitleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (
+      titleTooltipOpen &&
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      setTitleTooltipOpen(false)
+      return
+    }
+    onKeySelect(event)
+  }
 
   useLayoutEffect(() => {
     renameFinishedByKeyboardRef.current = false
@@ -123,11 +141,19 @@ export function SessionRow({
               aria-expanded={childrenExpanded}
               aria-label={`${t(lang, childrenExpanded ? "collapseSessionGroup" : "expandSessionGroup")}: ${session.title}`}
               className="session-group-toggle"
+              disabled={groupToggleDisabled}
               onClick={(event) => {
                 event.stopPropagation()
                 onToggleChildren()
               }}
-              title={t(lang, childrenExpanded ? "collapseSessionGroup" : "expandSessionGroup")}
+              title={t(
+                lang,
+                groupToggleDisabled
+                  ? "sessionGroupsSearchHint"
+                  : childrenExpanded
+                    ? "collapseSessionGroup"
+                    : "expandSessionGroup",
+              )}
               type="button"
             >
               <Icon name="chevron" size={13} />
@@ -144,7 +170,7 @@ export function SessionRow({
           onBlur={() => setTitleTooltipOpen(false)}
           onClick={renaming ? undefined : onSelect}
           onDoubleClick={renaming ? undefined : onDoubleLaunch}
-          onKeyDown={renaming ? undefined : onKeySelect}
+          onKeyDown={renaming ? undefined : handleTitleKeyDown}
           onFocus={() => {
             if (!renaming) setTitleTooltipOpen(true)
           }}

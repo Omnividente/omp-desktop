@@ -404,6 +404,7 @@ function enforceIncidentBound(incidents: RuntimeIncident[]): RuntimeIncident[] {
   if (candidates.length === 0) {
     const activePerTerminal = new Map<string, number>()
     const errorsPerTerminal = new Map<string, number>()
+    const fallbacksPerRole = new Map<string, number>()
     for (const incident of incidents) {
       activePerTerminal.set(
         incident.terminalId,
@@ -414,6 +415,9 @@ function enforceIncidentBound(incidents: RuntimeIncident[]): RuntimeIncident[] {
           incident.terminalId,
           (errorsPerTerminal.get(incident.terminalId) ?? 0) + 1,
         )
+      } else {
+        const roleKey = JSON.stringify([incident.terminalId, incident.role])
+        fallbacksPerRole.set(roleKey, (fallbacksPerRole.get(roleKey) ?? 0) + 1)
       }
     }
     // Retire duplicate errors before losing the only fallback for a terminal.
@@ -421,6 +425,15 @@ function enforceIncidentBound(incidents: RuntimeIncident[]): RuntimeIncident[] {
       (incident) =>
         incident.kind !== "fallback" && (errorsPerTerminal.get(incident.terminalId) ?? 0) > 1,
     )
+    if (candidates.length === 0) {
+      // Roles recover independently. Retire a repeated role before losing the
+      // only fallback for another role on the same terminal.
+      candidates = incidents.filter(
+        (incident) =>
+          incident.kind === "fallback" &&
+          (fallbacksPerRole.get(JSON.stringify([incident.terminalId, incident.role])) ?? 0) > 1,
+      )
+    }
     if (candidates.length === 0) {
       candidates = incidents.filter(
         (incident) => (activePerTerminal.get(incident.terminalId) ?? 0) > 1,

@@ -21,6 +21,7 @@ interface AnswersState {
   transcript: SessionTranscript
   selectedId: string | undefined
   collapsed: boolean
+  contentRequested: boolean
 }
 
 export function CompletedAnswers({
@@ -58,7 +59,8 @@ export function CompletedAnswers({
               !newAnswer && transcript.entries.some((entry) => entry.id === current?.selectedId)
                 ? current?.selectedId
                 : latestId,
-            collapsed: newAnswer ? false : (current?.collapsed ?? false),
+            collapsed: newAnswer ? true : (current?.collapsed ?? true),
+            contentRequested: newAnswer ? false : (current?.contentRequested ?? false),
           }
         })
       },
@@ -75,8 +77,11 @@ export function CompletedAnswers({
   const index = entries.findIndex((entry) => entry.id === answers?.selectedId)
   const entry = entries[index]
   const source = entry?.dialogueText ?? entry?.text ?? ""
-  const content = useMemo(() => markdownContent(source), [source])
-  const collapsed = answers?.collapsed ?? false
+  const content = useMemo(
+    () => (answers?.contentRequested ? markdownContent(source) : null),
+    [source, answers?.contentRequested],
+  )
+  const collapsed = answers?.collapsed ?? true
 
   useEffect(() => setMenu(null), [active, busy, entry?.id, collapsed])
 
@@ -103,13 +108,17 @@ export function CompletedAnswers({
       const entries = current.transcript.entries
       const index = entries.findIndex((entry) => entry.id === current.selectedId)
       const next = entries[index + offset]
-      return next ? { ...current, selectedId: next.id, collapsed: false } : current
+      return next
+        ? { ...current, selectedId: next.id, collapsed: false, contentRequested: true }
+        : current
     })
   }
   const selectLatest = () => {
     setAnswers((current) => {
       const latest = current?.transcript.entries.at(-1)
-      return current && latest ? { ...current, selectedId: latest.id, collapsed: false } : current
+      return current && latest
+        ? { ...current, selectedId: latest.id, collapsed: false, contentRequested: true }
+        : current
     })
   }
 
@@ -150,15 +159,17 @@ export function CompletedAnswers({
                 </button>
               )}
             </nav>
-            {!collapsed && (
+            {!collapsed && content && (
               <>
                 <CopyButton
+                  scope={entry}
                   text={content.text}
                   label={t(lang, "copyMessage")}
                   lang={lang}
                   onError={onError}
                 />
                 <CopyButton
+                  scope={entry}
                   text={source}
                   label={t(lang, "copyMarkdown")}
                   lang={lang}
@@ -172,7 +183,14 @@ export function CompletedAnswers({
               aria-expanded={!collapsed}
               aria-controls={bodyId}
               onClick={() =>
-                setAnswers((current) => current && { ...current, collapsed: !current.collapsed })
+                setAnswers(
+                  (current) =>
+                    current && {
+                      ...current,
+                      collapsed: !current.collapsed,
+                      contentRequested: true,
+                    },
+                )
               }
             >
               {t(lang, collapsed ? "completedAnswerShow" : "completedAnswerHide")}
@@ -209,7 +227,7 @@ export function CompletedAnswers({
         {answers?.transcript.incompleteLastRecord && (
           <p className="completed-answer-warning">{t(lang, "transcriptIncompleteLastRecord")}</p>
         )}
-        {entry && (
+        {entry && content && (
           <MarkdownContent
             content={content}
             lang={lang}

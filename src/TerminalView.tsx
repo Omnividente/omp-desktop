@@ -71,9 +71,9 @@ function decodeBase64(data: string): Uint8Array {
 }
 
 function canFocusTerminal(explicitlyRequested = false): boolean {
-  // Delayed recovery/attachment must not send typing from the picker to the PTY.
+  // Delayed recovery/attachment must not send typing from a modal to the PTY.
   return (
-    !document.querySelector(".terminal-tab-picker") &&
+    !document.querySelector('.terminal-tab-picker, [aria-modal="true"]') &&
     (explicitlyRequested || !document.activeElement?.closest(".terminal-meta"))
   )
 }
@@ -257,8 +257,10 @@ export function TerminalView({
       selectAllArmedRef.current = false
       setInputSelectionArmed(false)
     }
+    let connectionFailed = false
     const sendInput = (data: string) => {
-      if (inputBlockedRef.current) return
+      if (connectionFailed || exitHandled || deferredExit !== null || inputBlockedRef.current)
+        return
       void writeTerminal(tab.id, data).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -273,7 +275,7 @@ export function TerminalView({
     }
 
     terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type !== "keydown" || event.isComposing) return true
+      if (event.type !== "keydown" || event.isComposing || event.keyCode === 229) return true
       const modifier = (event.ctrlKey || event.metaKey) && !event.altKey
       const consume = () => {
         event.preventDefault()
@@ -434,6 +436,9 @@ export function TerminalView({
     const syncScrollPosition = () => {
       const bottom = atBottom()
       setScrolledUp(!bottom)
+      // Alternate screens have no scrollback. Their bottom is not evidence that
+      // the user resumed following output in the preserved normal buffer.
+      if (terminal.buffer.active.type === "alternate") return
       if (bottom) {
         if (!userScrolledDuringWrite) followingOutput = true
         restoringBottom = false
@@ -505,7 +510,8 @@ export function TerminalView({
       lastWebglFit = { width, height, fontFamily, fontSize, devicePixelRatio }
       if (webglAddon) return
       try {
-        const addon = new WebglAddon()
+        // WebKitGTK can present a stale frame if the drawing buffer is discarded.
+        const addon = new WebglAddon(true)
         webglAddon = addon
         contextLossSubscription = addon.onContextLoss(() => {
           if (disposed || webglAddon !== addon) return
@@ -520,6 +526,9 @@ export function TerminalView({
       }
     }
     const unlisteners: UnlistenFn[] = []
+    const stopListening = () => {
+      for (const unlisten of unlisteners.splice(0)) unlisten()
+    }
     const attachmentId =
       globalThis.crypto?.randomUUID?.() ??
       `${tab.id}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
@@ -680,7 +689,8 @@ export function TerminalView({
 
     const dataSubscription = terminal.onData(sendInput)
     const binarySubscription = terminal.onBinary((data) => {
-      if (inputBlockedRef.current) return
+      if (connectionFailed || exitHandled || deferredExit !== null || inputBlockedRef.current)
+        return
       void writeTerminalBinary(tab.id, btoa(data)).catch((error) => {
         onErrorRef.current(errorMessage(error, languageRef.current))
       })
@@ -688,7 +698,7 @@ export function TerminalView({
 
     const connect = async () => {
       const stopOutput = await listen<PtyOutputEvent>(`pty-output:${tab.id}`, ({ payload }) => {
-        if (!disposed) queueOutput(payload)
+        if (!disposed && !(connectionFailed && !outputReady)) queueOutput(payload)
       })
       if (disposed) {
         stopOutput()
@@ -697,7 +707,7 @@ export function TerminalView({
       unlisteners.push(stopOutput)
 
       const stopExit = await listen<PtyExitEvent>("pty-exit", ({ payload }) => {
-        if (!disposed && payload.terminalId === tab.id) {
+        if (!disposed && !(connectionFailed && !outputReady) && payload.terminalId === tab.id) {
           if (outputReady) {
             handleExit(payload)
           } else {
@@ -749,13 +759,14 @@ export function TerminalView({
         onReadyRef.current(tab.id)
       }
       if (fitFrame !== null) window.cancelAnimationFrame(fitFrame)
-      // Closing the picker before this frame must not revive its suppressed focus.
-      const focusBlockedByPicker = document.querySelector(".terminal-tab-picker") !== null
+      // Closing a modal before this frame must not revive its suppressed focus.
+      const focusBlockedByModal =
+        document.querySelector('.terminal-tab-picker, [aria-modal="true"]') !== null
       fitFrame = window.requestAnimationFrame(() => {
         fitFrame = null
         fit()
         if (
-          !focusBlockedByPicker &&
+          !focusBlockedByModal &&
           activeRef.current &&
           !tab.preserveFocusOnAttach &&
           canFocusTerminal()
@@ -765,6 +776,12 @@ export function TerminalView({
     }
 
     void connect().catch((error) => {
+      connectionFailed = true
+      if (!outputReady) {
+        deferredOutput = []
+        deferredExit = null
+        stopListening()
+      }
       if (!disposed) {
         onErrorRef.current(errorMessage(error, languageRef.current))
       }
@@ -794,9 +811,7 @@ export function TerminalView({
       binarySubscription.dispose()
       selectionSubscription.dispose()
       scrollSubscription.dispose()
-      for (const unlisten of unlisteners) {
-        unlisten()
-      }
+      stopListening()
       terminalRef.current = null
       disposeMotion()
       terminal.dispose()
@@ -821,12 +836,13 @@ export function TerminalView({
     }
     const explicitlyRequested = focusRequestSequence !== lastFocusRequestRef.current
     lastFocusRequestRef.current = focusRequestSequence
-    // Consume requests received in the picker, even if it closes before the frame.
-    const focusBlockedByPicker = document.querySelector(".terminal-tab-picker") !== null
+    // Consume requests received in a modal, even if it closes before the frame.
+    const focusBlockedByModal =
+      document.querySelector('.terminal-tab-picker, [aria-modal="true"]') !== null
     const frame = window.requestAnimationFrame(() => {
       fitRef.current?.()
       if (
-        !focusBlockedByPicker &&
+        !focusBlockedByModal &&
         (explicitlyRequested || !initialAttachment || !tab.preserveFocusOnAttach) &&
         canFocusTerminal(explicitlyRequested)
       ) {

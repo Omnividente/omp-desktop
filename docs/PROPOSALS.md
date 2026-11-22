@@ -1,18 +1,30 @@
 # Текущий реестр предложений OMP Desktop
 
-Срез исходников: 7 ноября 2026 года, candidate 0.9.11 (`main` после #230 + #229). Это индекс **этой ревизии кода**, а не перечень возможностей установленного выпуска. Факт доставки в `main`, exact checked head и решение владельца сохраняются в [#177](https://github.com/Omnividente/omp-desktop/issues/177); включение #229 в candidate-дерево само по себе не утверждает его доставку в `main`. Отдельная публикация Draft, успешный CI, merge, выпуск и установка не равнозначны.
+## Срез 21 ноября 2026: подготовка 0.9.15
+
+Исходная база ревизии — `main` `ae7a41578157ccb7028425ff97c49b5286088d8b`, опубликованный immutable prerelease [v0.9.14](https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.14) после [#375](https://github.com/Omnividente/omp-desktop/pull/375). Проверены все 39 открытых PR, три issues и Code scanning. Полная таблица frozen heads, решений и evidence находится в [AUDIT-0.9.15.md](AUDIT-0.9.15.md).
+
+В [интеграционный PR #376](https://github.com/Omnividente/omp-desktop/pull/376) включены узкие изменения **33 PR**; **три** PR оставлены для дальнейшей работы: #239 Remote, #250 native folder drop, #325 discovery research. Исправление #300 отдельно слито в ветку Remote (`fca5fda423df99edbbb625dcd8fdfd4805e92ee4`) после Linux/Windows IPC checks; Remote в кандидат не включён. **Два** устаревших PR закрыты без merge: #330 сохраняет известную регрессию поиска, #338 заменён адаптированным harness из #375. Аудит содержит source SHA и фактические результаты общих проверок, включая найденные и исправленные ошибки состояния, topbar и resize вкладок. Окончательный head/CI/merge доступны в #376; exact delivery и закрытие источников фиксируются в [#177](https://github.com/Omnividente/omp-desktop/issues/177).
+
+[#133](https://github.com/Omnividente/omp-desktop/issues/133) остаётся исследованием, [#146](https://github.com/Omnividente/omp-desktop/issues/146) — контрольной grant/mission записью с эффектом отзыва при закрытии, [#177](https://github.com/Omnividente/omp-desktop/issues/177) — реестром exact delivery. Три main CodeQL warnings разобраны и dismissed как false positives с конкретными guards; Remote alert не смешивается с default branch. Аудит не объявляет release 0.9.15 готовым или опубликованным до итоговых gates и согласия владельца.
+
+## Исторический срез 14 ноября 2026
+
+Ниже сохранены прежний индекс, все DOT-ID, авторство, исследовательские границы и история. Формулировки «текущий» и «в коде этой ревизии» в следующих разделах относятся к прежнему срезу, а не автоматически к поставленному 0.9.15. Новые DOT-ID этой ревизией не назначены.
+
+Срез исходников: 14 ноября 2026 года, подготовка prerelease 0.9.13. Основа — stable [v0.9.12](../.github/release-notes/v0.9.12.md), `dba7f41a77c4b957b45527a591cdfdb0be5f252f`; композиция 94 исходных PR уже опубликована через [#333](https://github.com/Omnividente/omp-desktop/pull/333) в `main` `6276be9b207a6773d59175266c879a14c4a5c19f`. Последующие дополнения перечислены отдельно ниже. Это индекс **этой ревизии кода**, а не перечень возможностей установленного выпуска. Source CI, merge, release, точная native-приёмка пакетов и установка — разные этапы; фактическая доставка фиксируется отдельно в интеграционном PR и [#177](https://github.com/Omnividente/omp-desktop/issues/177).
 
 Вместо повторения старых статусов «Draft / не принято» используется один текущий индекс. Оригинальные карточки, результаты неудачных проверок и авторство остаются в исходных PR и истории #177. Проектная интеграция Jules выведена из разработки; историческое авторство Jules не переатрибутируется Dot. Статус «в коде» относится только к принятому узкому контракту.
 
 ## Текущий индекс
 
-79 номерных позиций: 67 реализованных в этой ревизии контрактов (DOT-009 только guard), 11 исследований без PR реализации, один резерв DOT-066. Дополнения к DOT-016 и DOT-057 не создают новых ID. Прирост относительно индекса #230 — только DOT-079; это подсчёт кода candidate, не подтверждение нового стабильного выпуска или установки.
+92 номерные позиции: 80 реализованных в этой ревизии узких контрактов (DOT-009 только guard), 11 исследований без принятой полной реализации, один резерв DOT-066. DOT-081/#237 уже включён в базу v0.9.12 через принятую композицию #244/#252; это не новый ID и не новый merge исходного PR. После базы добавлены 12 ID DOT-080 и DOT-082–DOT-092. Дополнения к существующим DOT не создают новых ID. Подсчёт кода не подтверждает новый стабильный выпуск или установку.
 
 | DOT | Предложение | Текущий статус | Источник |
 |---|---|---|---|
 | DOT-001 | Контроль очереди терминального вывода | Исследование, не принято как готовое исправление | — |
 | DOT-002 | Расход ресурсов по деревьям процессов | Исследование, не принято как готовое исправление | — |
-| DOT-003 | Паспорт модели и сравнение вариантов | В коде | [#180](https://github.com/Omnividente/omp-desktop/pull/180) |
+| DOT-003 | Паспорт модели и сравнение вариантов | В коде; сравнение метаданных дополнено в этой ревизии | [#180](https://github.com/Omnividente/omp-desktop/pull/180), [#270](https://github.com/Omnividente/omp-desktop/pull/270) |
 | DOT-004 | Паспорт определения агента | В коде | [#182](https://github.com/Omnividente/omp-desktop/pull/182) |
 | DOT-005 | Подтверждаемое завершение терминала | Исследование, не принято как готовое исправление | — |
 | DOT-006 | Явный итог сохранения настроек | В коде | [#178](https://github.com/Omnividente/omp-desktop/pull/178) |
@@ -88,7 +100,29 @@
 | DOT-076 | IME при переименовании проекта | В коде | [#226](https://github.com/Omnividente/omp-desktop/pull/226) |
 | DOT-077 | Недоступное возобновление на Home | В коде | [#227](https://github.com/Omnividente/omp-desktop/pull/227) |
 | DOT-078 | Markdown после fence с табуляцией | В коде | [#228](https://github.com/Omnividente/omp-desktop/pull/228) |
-| DOT-079 | Каноническая идентичность выбранной модели сессии | В коде candidate; доставка Main фиксируется отдельно | [#229](https://github.com/Omnividente/omp-desktop/pull/229) |
+| DOT-079 | Каноническая идентичность выбранной модели сессии | В коде базы v0.9.12 | [#229](https://github.com/Omnividente/omp-desktop/pull/229) |
+| DOT-080 | Фокус после закрытия фоновой вкладки | В коде этой ревизии | [#234](https://github.com/Omnividente/omp-desktop/pull/234) |
+| DOT-081 | Метаданные владельца при прерванном reclaim | В коде базы v0.9.12 | [#237](https://github.com/Omnividente/omp-desktop/pull/237), [#244](https://github.com/Omnividente/omp-desktop/pull/244) |
+| DOT-082 | Отмена устаревших hover-таймеров панели | В коде этой ревизии | [#240](https://github.com/Omnividente/omp-desktop/pull/240) |
+| DOT-083 | Клавиши меню во время IME-композиции | В коде этой ревизии | [#241](https://github.com/Omnividente/omp-desktop/pull/241) |
+| DOT-084 | Фильтр инцидентов по типу | В коде этой ревизии | [#272](https://github.com/Omnividente/omp-desktop/pull/272) |
+| DOT-085 | Поиск определений агентов | В коде этой ревизии | [#273](https://github.com/Omnividente/omp-desktop/pull/273) |
+| DOT-086 | Поиск сохранённого диагностического текста | В коде этой ревизии | [#285](https://github.com/Omnividente/omp-desktop/pull/285) |
+| DOT-087 | Поиск обнаруженных сессий Codex | В коде этой ревизии | [#286](https://github.com/Omnividente/omp-desktop/pull/286) |
+| DOT-088 | Escape закрывает раскрытый заголовок сессии | В коде этой ревизии | [#287](https://github.com/Omnividente/omp-desktop/pull/287) |
+| DOT-089 | CODEX_HOME при обнаружении сессий | В коде этой ревизии | [#296](https://github.com/Omnividente/omp-desktop/pull/296) |
+| DOT-090 | Исходный текст после сбоя Markdown | В коде этой ревизии | [#297](https://github.com/Omnividente/omp-desktop/pull/297) |
+| DOT-091 | Справка по сочетаниям и областям действия | В коде этой ревизии | [#299](https://github.com/Omnividente/omp-desktop/pull/299) |
+| DOT-092 | Целевой проект перед подтверждением импорта | В коде этой ревизии | [#304](https://github.com/Omnividente/omp-desktop/pull/304) |
+
+## Дополнения к кандидату 0.9.13
+
+Без новых DOT-номеров и без повторного объявления уже доставленной композиции:
+
+- [#335](https://github.com/Omnividente/omp-desktop/pull/335), Dot/Yuri Kotov, original `5f55eb4fa8064194fc3e73399fa51d43283b2d53`: одна декларация `.shortcut-hint`, существующий secondary-text token вместо низкоконтрастного тёмного fallback. Светлая тема, геометрия и шрифт не меняются. Исходная fragment-проверка не переименовывается в native или общую accessibility-сертификацию.
+- [#251](https://github.com/Omnividente/omp-desktop/pull/251), `mfkeeq199458`, original `d8d453bb2ba90768636eb581405e7a2134789984`: адаптирован только default collapse новых и восстановленных completed answers. Живая консоль остаётся видимой, существующее скрытие панели при busy сохраняется. Не приняты fullscreen/display:none, пустой busy-toolbar, новые Escape/focus hooks или скрытие PTY.
+
+Native GUI/PTY и проверки точных release assets относятся только к реально выполненным сценариям, перечисленным в интеграционном отчёте. Готовность исходников сама по себе их не подтверждает.
 
 ## Исследования: следующий проверяемый результат
 
@@ -159,4 +193,22 @@ DOT-080/[#234](https://github.com/Omnividente/omp-desktop/pull/234) и обно�
 
 В candidate 0.9.11 отдельно принята native identity-граница DOT-079: actual WebView2 invoke → Rust switch → PTY/JSONL acknowledgement сохраняет qualified selector при коллизии raw ID и литеральные `:high`/`:off`/`:auto`; атомарный `model_change` не разбирается как конфигурационный suffix. Fresh launch, неоднозначный bare ID и refresh проверены без provider inference. Production NSIS clean/upgrade/state и AppImage replacement/state остаются отдельными gates точных release assets; тестовый updater E2E не подменяет их. Поставленная 0.9.10 не обнаруживает отдельный non-latest prerelease через latest-only updater; этот путь не закрывается promotion или подменой trust/network.
 
-Историческая доставка 32 предложений: [#217](https://github.com/Omnividente/omp-desktop/pull/217), `main` `7a1e2a0023bac5444454f8dc982cc329882117e9`; следующий набор доставлен через [#230](https://github.com/Omnividente/omp-desktop/pull/230), `main` `0b781416382b4584c16a7324635ce3fdd48934d6`. Текущий стабильный выпуск [v0.9.10](https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.10) этим индексом не заменяется. [Notes candidate 0.9.11](../.github/release-notes/v0.9.11.md) описывают состав исходников, не подтверждают готовые bundles, stable/latest или установленную версию. Проверки исходников не доказывают подписи и поведение production-бинарников; evidence точных candidate assets и изолированного обновления Windows/Linux учитывается отдельно от source gate.
+Историческая доставка 32 предложений: [#217](https://github.com/Omnividente/omp-desktop/pull/217), `main` `7a1e2a0023bac5444454f8dc982cc329882117e9`; следующий набор доставлен через [#230](https://github.com/Omnividente/omp-desktop/pull/230), `main` `0b781416382b4584c16a7324635ce3fdd48934d6`. Текущий стабильный выпуск — [v0.9.12](https://github.com/Omnividente/omp-desktop/releases/tag/v0.9.12). Проверки локальных исходников после него не доказывают подписи, production-бинарники или обновление установленного приложения.
+
+## Композиция после v0.9.12
+
+Из 94 исходных PR 53 приняты, 30 использованы после доработки или в явно ограниченном контракте, 8 отложены, 3 не приняты как готовое исправление. Это решения по предложениям, не 83 отдельных remote merge. Exact original heads, авторы, provenance-коммиты, сценарии и ограничения сохраняются в истории и интеграционном отчёте; фактическая доставка в `main` и закрытие исходных PR требуют отдельной проверки GitHub. Неизвестные результаты прежних записей не повторяются.
+
+- Навигация согласует ранний discovery, фоновые breadcrumb и явный выбор вкладки; импортированные сессии различаются по пути, а не только по `id`.
+- Удаление истории, артефактов и привязок настроек переработано в восстанавливаемую транзакцию. Реальный OS denial и прерывания процесса проверены отдельно от тестов с fake killer. Исследования #324/#325 не объявлены готовыми исправлениями; #328 заменён настоящими native boundary fixtures. Найденная Win32 BOOL-ошибка исправлена в vendored зависимости приложения, обход `OS error 0 == success` удалён; исходники OMP runtime не менялись.
+- #326 принят после шести release AB/BA-пар для 100, 1 000 и 10 000 сессий на Windows/Linux с проверкой полных результатов и неизменности файлов вне тайминга. Это ускорение empty-pin helper на прогретой FS, не измерение всего запуска или bootstrap.
+- #330 отложен: выигрыш короткого ASCII-запроса сопровождался регрессией валидного 256-символьного miss-запроса примерно в 6,4 раза. Готовый fast-path удалён; единый Unicode RegExp-контракт и защита #275 сохранены, новые эвристические пороги не вводились.
+- В композиции #333 native folder drop #250, #251 и Remote #300 не переносились. В кандидате 0.9.13 отдельно адаптирован только default collapse #251, как описано выше. #250 остаётся отдельной native OS-drop/DPI/path-identity приёмкой; #239/#300 — отдельным Remote milestone. Зелёный индивидуальный CI и частичный scaffold не считаются end-to-end доказательством.
+- #329 (`985d2f39dc15a612ea155ff411b3fbfec6ee0bb7`, автор `favoritewky`) адаптирован сквозным образом: упрощённый китайский, ошибки Rust/bridge, locale-форматирование, preview, Save и cold restart. Авторство сохранено, а не переатрибутировано интегратору.
+- #232 включён после свежей проверки exact head: два full-SHA pin для CodeQL обновлены с 4.39.1 до 4.39.3. Матрица Rust/JS-TS, `security-extended`, permissions и enforcement не меняются; исполнение новой action подтверждается только штатным GitHub CI интеграционного PR, не локальным билдом.
+- #324 остаётся отдельной test-only характеристикой ошибки после публикации defaults. Его consumer `start_with_defaults_at_with` отличается от post-commit cleanup настроек в #323; замещение этим изменением не доказано. Инъекция ошибки после успешного writer/sync не воспроизводит отказ ОС и не проверяет native reset/committed cache.
+- #325 не считается прозрачной оптимизацией: actual scanner и helpers дали контрпример при удалении файла между двумя lookup. Общий ключ требует явного решения о snapshot identity; #326 решает только empty-pin путь и не замещает это исследование.
+
+Native UI проверялся в собственной Tauri/WebView2 identity с synthetic JSONL и CLI/PTY-программой без inference. Rust-команды, события, persistence и PTY настоящие; это не доказательство provider inference или работы production OMP в этом сценарии. Для DOT-080 дополнительно выполнены native first/middle/last background close при трёх вкладках и Cancel: активная сессия сохранена, фокус возвращён соседнему заголовку, surviving xterm backend DOM nodes не изменились. Native OK/Cancel отправлялись адресно реальному TaskDialog, не подменой результата API. Для 20 000 файлов Codex проверены discovery Rust, 200 результатов поиска, ограниченный DOM, NFC и сохранность скрытого выбора. Физический OS IME/AT, clipboard, production updater и Linux WebKit GUI этой проверкой не подразумеваются.
+
+Версия manifests этой ревизии — 0.9.13 для предварительного канала. Stable/latest остаётся v0.9.12 до отдельного решения владельца; выпуск prerelease не разрешает автоматическую promotion или установку поверх рабочей среды пользователя. Source CI не подменяет подписи, checksums, native installer/state и updater-проверки новых production-байтов.

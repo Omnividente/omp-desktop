@@ -74,3 +74,17 @@ export class TranscriptSearch {
     return matches
   }
 }
+
+/** A literal query may exceed the engine's regex compiler limits, including at exec time. */
+export function tryCreateTranscriptSearch(
+  contents: readonly { text: string }[],
+  query: string,
+  matchCase = false,
+): TranscriptSearch | null {
+  try {
+    return new TranscriptSearch(contents, query, matchCase)
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+    return null
+  }
+}

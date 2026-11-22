@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from "react"
+import { act, StrictMode } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { SessionList, type SessionListProps } from "./SessionList"
@@ -196,6 +196,101 @@ it("preserves selection and still reveals a newly selected archived session", as
   ).toBe("beta 0")
 })
 
+it("keeps the selected group collapsed after equivalent fresh snapshots", async () => {
+  await render({ selectedSessionId: "alpha-0" })
+  const collapse = await click("Collapse all")
+  for (let refresh = 0; refresh < 2; refresh++) {
+    const next = current.allSessions.map((session) => ({ ...session }))
+    await render({ allSessions: next, visibleSessions: next })
+    expect(titles()).toEqual(["alpha 2", "beta 1", "single 0"])
+    expect(document.activeElement).toBe(collapse)
+  }
+  expect(current.onSelectSession).not.toHaveBeenCalled()
+  expect(current.onLaunchSession).not.toHaveBeenCalled()
+})
+
+it("preserves a single collapsed group across title and model metadata updates", async () => {
+  await render({ selectedSessionId: "alpha-0" })
+  const collapse = await click("Collapse child sessions: alpha 1")
+  const next = current.allSessions.map((session) =>
+    session.id === "alpha-0"
+      ? { ...session, title: "Renamed archive", model: "new-model" }
+      : session,
+  )
+  await render({ allSessions: next, visibleSessions: next })
+  expect(titles()).toEqual(["alpha 2", "alpha 1", "beta 1", "single 0"])
+  expect(document.activeElement).toBe(collapse)
+  await click("Expand child sessions: alpha 1")
+  expect(titles()).toContain("Renamed archive")
+})
+
+it("keeps the selected path collapsed when unrelated sessions arrive", async () => {
+  await render({ selectedSessionId: "alpha-0" })
+  await click("Collapse all")
+  const next = [...current.allSessions, ...sessions(2, "incoming")]
+  await render({ allSessions: next, visibleSessions: next })
+  expect(titles()).toContain("incoming 1")
+  expect(titles()).not.toContain("alpha 1")
+  expect(titles()).not.toContain("alpha 0")
+})
+
+it("reveals the selected archive when its continuation path changes", async () => {
+  await render({ selectedSessionId: "alpha-0" })
+  await click("Collapse all")
+  const next = sessions(4, "alpha")
+  await render({ allSessions: next, visibleSessions: next })
+  expect(titles()).toEqual(["alpha 3", "alpha 2", "alpha 1", "alpha 0"])
+})
+
+it("reveals a selected session after it disappears and returns", async () => {
+  await render({ selectedSessionId: "alpha-0" })
+  await click("Collapse all")
+  const next = current.allSessions.filter((session) => session.id !== "alpha-0")
+  await render({ allSessions: next, visibleSessions: next })
+  const restored = sessions(3, "alpha")
+  await render({ allSessions: restored, visibleSessions: restored })
+  expect(titles()).toEqual(["alpha 2", "alpha 1", "alpha 0"])
+})
+
+it("reveals a selected root when its archived ancestry becomes available", async () => {
+  const initial = sessions(1, "alpha")
+  await render({ allSessions: initial, visibleSessions: initial, selectedSessionId: "alpha-0" })
+  const next = sessions(3, "alpha")
+  await render({ allSessions: next, visibleSessions: next })
+  expect(titles()).toEqual(["alpha 2", "alpha 1", "alpha 0"])
+})
+
+it("reveals the same selected ID after deselection or a workspace change", async () => {
+  await render({ selectedSessionId: "alpha-0" })
+  await click("Collapse all")
+  await render({ selectedSessionId: null })
+  await render({ selectedSessionId: "alpha-0" })
+  expect(titles()).toContain("alpha 0")
+  await click("Collapse all")
+  await render({ selectedWorkspacePath: "/synthetic-other" })
+  expect(titles()).toContain("alpha 0")
+})
+
+it("preserves initial selection reveal through StrictMode effect replay", async () => {
+  current = { ...current, selectedSessionId: "alpha-0" }
+  const renderStrict = async () => {
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <SessionList {...current} />
+        </StrictMode>,
+      ),
+    )
+  }
+  await renderStrict()
+  expect(titles()).toContain("alpha 0")
+  await click("Collapse all")
+  const next = current.allSessions.map((session) => ({ ...session }))
+  current = { ...current, allSessions: next, visibleSessions: next }
+  await renderStrict()
+  expect(titles()).not.toContain("alpha 0")
+})
+
 it("hides controls in empty and ungrouped projects and translates them", async () => {
   const ungrouped = sessions(3).map((session) => ({ ...session, parentSessionPath: null }))
   await render({ allSessions: ungrouped, visibleSessions: ungrouped })
@@ -248,4 +343,75 @@ it("does not change saved group expansion while a recorded-model filter expands 
   })
   expect(titles()).toEqual(expandedTitles)
   expect(button("Collapse all").disabled).toBe(false)
+})
+
+it.each(
+  ["text", "model", "combined"].flatMap((filter) =>
+    ["collapsed", "partial", "expanded"].map((expansion) => ({ filter, expansion })),
+  ),
+)("preserves $expansion groups with $filter filters", async ({ filter, expansion }) => {
+  const allSessions = current.allSessions.map((session) => ({
+    ...session,
+    model: session.id === "alpha-0" ? "selected/model" : null,
+  }))
+  await render({ allSessions, visibleSessions: allSessions })
+  if (expansion === "partial") await click("Expand child sessions: alpha 2")
+  if (expansion === "expanded") await click("Expand all")
+  const previousTitles = titles()
+  if (filter !== "model") {
+    await render({ search: "alpha 0", visibleSessions: [allSessions[0]] })
+  }
+  const model = container.querySelector<HTMLSelectElement>(".session-model-filter select")!
+  if (filter !== "text") {
+    await act(async () => {
+      model.value = JSON.stringify("selected/model")
+      model.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+  }
+  expect(titles()).toEqual(["alpha 2", "alpha 1", "alpha 0"])
+  for (const title of ["alpha 2", "alpha 1"]) {
+    const toggle = button(`Collapse child sessions: ${title}`)
+    expect(toggle.disabled).toBe(true)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    expect(toggle.title).toBe("Groups are expanded automatically while searching or filtering")
+    await act(async () => {
+      toggle.click()
+      toggle.click()
+      toggle.click()
+    })
+  }
+  expect(titles()).toEqual(["alpha 2", "alpha 1", "alpha 0"])
+  if (filter !== "model") await render({ search: "", visibleSessions: allSessions })
+  if (filter === "combined") {
+    expect(button("Collapse child sessions: alpha 2").disabled).toBe(true)
+  }
+  if (filter !== "text") {
+    await act(async () => {
+      model.value = "all"
+      model.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+  }
+  expect(titles()).toEqual(previousTitles)
+  const rootLabel = `${expansion === "collapsed" ? "Expand" : "Collapse"} child sessions: alpha 2`
+  expect(button(rootLabel).disabled).toBe(false)
+  await click(rootLabel)
+  expect(titles()).not.toEqual(previousTitles)
+  expect(current.onSelectSession).not.toHaveBeenCalled()
+  expect(current.onLaunchSession).not.toHaveBeenCalled()
+})
+
+it("translates the row hint and leaves whitespace-only search enabled", async () => {
+  await render({ lang: "ru", search: "   " })
+  const rootToggle = container.querySelector<HTMLButtonElement>(".session-group-toggle")!
+  expect(rootToggle.disabled).toBe(false)
+  await act(async () => rootToggle.click())
+  const previousTitles = titles()
+  await render({ search: "alpha 0", visibleSessions: [current.allSessions[0]] })
+  for (const toggle of container.querySelectorAll<HTMLButtonElement>(".session-group-toggle")) {
+    expect(toggle.disabled).toBe(true)
+    expect(toggle.title).toBe("При поиске или фильтре группы раскрыты автоматически")
+  }
+  await render({ search: "   ", visibleSessions: current.allSessions })
+  expect(titles()).toEqual(previousTitles)
+  expect(container.querySelector<HTMLButtonElement>(".session-group-toggle")!.disabled).toBe(false)
 })

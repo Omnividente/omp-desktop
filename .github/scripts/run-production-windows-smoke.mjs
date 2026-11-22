@@ -12,9 +12,10 @@ import { createReadStream } from "node:fs"
 import { lstat, mkdir, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { callWebviewFunction, TARGET_VERSION, webviewValue } from "./production-smoke-guards.mjs"
 
-const BASE_COMMIT = "73e661504b3d3d0a4b382e3289b02355b7400699"
-const BASE_TAG_OBJECT = "b901b14eaf5f13c23e33d9ba84dd31b62d02a540"
+const BASE_COMMIT = "dba7f41a77c4b957b45527a591cdfdb0be5f252f"
+const BASE_TAG_OBJECT = "c6a574bfccad037bd66cf52b8c8294cdf598e477"
 const WEBVIEW2_DOC =
   "https://learn.microsoft.com/en-us/microsoft-edge/webview2/how-to/debug-visual-studio-code#using-an-environment-variable"
 // Microsoft documents WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port
@@ -401,15 +402,22 @@ class Cdp {
       awaitPromise: true,
       returnByValue: true,
     })
-    requireThat(
-      !response.exceptionDetails && response.result?.subtype !== "error",
-      "Native WebView evaluation failed",
-    )
-    return response.result?.value
+    return webviewValue(response)
+  }
+  async call(fn, ...values) {
+    if (!this.globalObject) {
+      const response = await this.send("Runtime.evaluate", { expression: "globalThis" })
+      webviewValue(response)
+      requireThat(response.result?.objectId, "Missing native WebView context")
+      this.globalObject = response.result.objectId
+    }
+    return callWebviewFunction(this.send.bind(this), this.globalObject, fn, values)
   }
   invoke(name, args = {}) {
-    return this.evaluate(
-      `window.__TAURI_INTERNALS__.invoke(${JSON.stringify(name)},${JSON.stringify(args)})`,
+    return this.call(
+      (command, values) => window.__TAURI_INTERNALS__.invoke(command, values),
+      name,
+      args,
     )
   }
   close() {
@@ -487,6 +495,10 @@ async function start(binary, label) {
     "Native app metadata mismatch",
   )
   const window = await nativeIdentity(app)
+  requireThat(
+    !result.launches.some((launch) => launch.pid === window.pid),
+    "Native restart reused a previous PID",
+  )
   const identity = {
     label,
     ...window,
@@ -504,13 +516,19 @@ async function start(binary, label) {
 }
 async function click(app, selector) {
   await waitUntil(`UI control ${selector}`, () =>
-    app.cdp.evaluate(
-      `(() => { const e=document.querySelector(${JSON.stringify(selector)}); return !!e && !e.disabled && e.getClientRects().length > 0 })()`,
-    ),
+    app.cdp.call((query) => {
+      const element = document.querySelector(query)
+      return !!element && !element.disabled && element.getClientRects().length > 0
+    }, selector),
   )
-  const point = await app.cdp.evaluate(
-    `(() => { const e=document.querySelector(${JSON.stringify(selector)}); e.scrollIntoView({block:'center'}); const r=e.getBoundingClientRect(); const p={x:r.x+r.width/2,y:r.y+r.height/2}; return e.contains(document.elementFromPoint(p.x,p.y)) ? p : null })()`,
-  )
+  const point = await app.cdp.call((query) => {
+    const element = document.querySelector(query)
+    if (!element) return null
+    element.scrollIntoView({ block: "center" })
+    const rect = element.getBoundingClientRect()
+    const point = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
+    return element.contains(document.elementFromPoint(point.x, point.y)) ? point : null
+  }, selector)
   requireThat(point, "UI control is obscured or outside the native viewport")
   await app.cdp.send("Input.dispatchMouseEvent", {
     type: "mousePressed",
@@ -527,15 +545,25 @@ async function click(app, selector) {
 }
 async function select(app, selector, value) {
   // Native select's actual change event goes through React's existing onChange.
-  const changed = await app.cdp.evaluate(
-    `(() => { const e=document.querySelector(${JSON.stringify(selector)}); if(!(e instanceof HTMLSelectElement) || ![...e.options].some(o=>o.value===${JSON.stringify(value)})) return false; Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(value)}); e.dispatchEvent(new Event('change',{bubbles:true})); return true })()`,
-  )
+  const changed = await app.cdp.call((query, option) => {
+    const element = document.querySelector(query)
+    if (!(element instanceof HTMLSelectElement) || ![...element.options].some((o) => o.value === option)) {
+      return false
+    }
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set.call(element, option)
+    element.dispatchEvent(new Event("change", { bubbles: true }))
+    return true
+  }, selector, value)
   requireThat(changed, "Missing native preferences select option")
 }
 async function screenshot(app, name, native = false) {
   requireThat(
-    await app.cdp.evaluate(
-      `location.origin === 'http://tauri.localhost' && document.title === 'OMP Desktop' && document.querySelector('.app-version')?.textContent.includes(${JSON.stringify(app.binary.release.version)})`,
+    await app.cdp.call(
+      (version) =>
+        location.origin === "http://tauri.localhost" &&
+        document.title === "OMP Desktop" &&
+        document.querySelector(".app-version")?.textContent.includes(version),
+      app.binary.release.version,
     ),
     "Screenshot surface identity/readiness mismatch",
   )
@@ -565,7 +593,7 @@ function settingsView(settings) {
     "Native settings recovery/warning is not success",
   )
   // Compare durable user choices, not incidental additions to the IPC schema.
-  // Legacy 0.9.10 has no theme preference and renders the dark interface.
+  // Compare the shipped baseline and candidate without discarding new schema fields.
   return {
     ompExecutable: settings.ompExecutable,
     sessionRoot: settings.sessionRoot,
@@ -706,14 +734,13 @@ async function preferences(app, fixture, initial = false) {
       samePath(general.executable, fixture.noCli),
     "Rendered general preferences differ",
   )
-  if (app.binary.release.version === "0.9.11") {
-    requireThat(general.theme === fixture.theme, "Target theme UI missing")
-    await waitUntil("applied Desktop theme", () =>
-      app.cdp.evaluate(
-        `document.documentElement.getAttribute('data-desktop-theme') === ${JSON.stringify(fixture.theme)}`,
-      ),
-    )
-  }
+  requireThat(general.theme === fixture.theme, "Production theme UI missing")
+  await waitUntil("applied Desktop theme", () =>
+    app.cdp.call(
+      (theme) => document.documentElement.getAttribute("data-desktop-theme") === theme,
+      fixture.theme,
+    ),
+  )
   await screenshot(app, `${app.label}-preferences`)
   await click(app, "#settings-tab-behavior")
   await waitUntil("rendered terminal preferences", () =>
@@ -739,15 +766,34 @@ async function preferences(app, fixture, initial = false) {
 }
 async function proveUi(app, fixture) {
   await waitUntil("rendered workspace and session", () =>
-    app.cdp.evaluate(
-      `(() => { const project=[...document.querySelectorAll('.project-copy strong')].some(e=>e.textContent===${JSON.stringify(basename(fixture.project))}); const session=[...document.querySelectorAll('.session-select')].some(e=>e.getAttribute('aria-label')===${JSON.stringify(fixture.title)}); return project && session })()`,
+    app.cdp.call(
+      (projectName, title) => {
+        const project = [...document.querySelectorAll(".project-copy strong")].some(
+          (element) => element.textContent === projectName,
+        )
+        const session = [...document.querySelectorAll(".session-select")].some(
+          (element) => element.getAttribute("aria-label") === title,
+        )
+        return project && session
+      },
+      basename(fixture.project),
+      fixture.title,
     ),
   )
   await screenshot(app, `${app.label}-workspace`, true)
   await click(app, ".session-transcript")
   await waitUntil("visible native transcript content", () =>
-    app.cdp.evaluate(
-      `(() => { const e=document.querySelector('.transcript-panel'); return !!e && document.querySelector('#transcript-title')?.textContent===${JSON.stringify(fixture.title)} && ${JSON.stringify(fixture.messages.map((message) => message.text))}.every(t=>e.innerText.includes(t)) })()`,
+    app.cdp.call(
+      (title, messages) => {
+        const panel = document.querySelector(".transcript-panel")
+        return (
+          !!panel &&
+          document.querySelector("#transcript-title")?.textContent === title &&
+          messages.every((text) => panel.innerText.includes(text))
+        )
+      },
+      fixture.title,
+      fixture.messages.map((message) => message.text),
     ),
   )
   await screenshot(app, `${app.label}-transcript`, true)
@@ -901,12 +947,12 @@ async function main() {
   )
   const receipt = JSON.parse(await readFile(receiptPath, "utf8"))
   requireThat(receipt.repository === "Omnividente/omp-desktop", "Receipt repository mismatch")
-  await validateRelease(receipt.base, "0.9.10")
-  await validateRelease(receipt.target, "0.9.11")
+  await validateRelease(receipt.base, "0.9.12")
+  await validateRelease(receipt.target, TARGET_VERSION)
   requireThat(
     receipt.base.commit === BASE_COMMIT &&
       receipt.base.tagObjectSha === BASE_TAG_OBJECT &&
-      String(receipt.base.releaseId) === "413772482",
+      String(receipt.base.releaseId) === "438773398",
     "Fixed base identity mismatch",
   )
   requireThat(

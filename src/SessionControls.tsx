@@ -96,11 +96,12 @@ export function SessionControls({
     ompConfig.defaultThinkingLevel,
   )
 
-  const normalizedQuery = modelQuery.trim().toLocaleLowerCase()
+  const normalizedQuery = modelQuery.trim().normalize("NFC").toLocaleLowerCase()
   const matchingModels = normalizedQuery
     ? chatModels.filter((model) =>
         [model.name, model.provider, model.id, model.selector]
           .join(" ")
+          .normalize("NFC")
           .toLocaleLowerCase()
           .includes(normalizedQuery),
       )

@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from "react"
 import { Icon } from "./Icon"
 import { t, type Lang } from "./i18n"
+import type { RuntimeHealthStatus } from "./runtimeIncidents"
 import type { TerminalTab } from "./types"
 import { useModalFocus } from "./useModalFocus"
 
@@ -8,6 +9,7 @@ interface TerminalTabPickerProps {
   tabs: TerminalTab[]
   activeTabId: string | null
   language: Lang
+  runtimeStatusByTerminal: Record<string, RuntimeHealthStatus>
   onClose: () => void
   onSelect: (terminalId: string) => void
 }
@@ -16,6 +18,7 @@ export function TerminalTabPicker({
   tabs,
   activeTabId,
   language,
+  runtimeStatusByTerminal,
   onClose,
   onSelect,
 }: TerminalTabPickerProps) {
@@ -112,29 +115,43 @@ export function TerminalTabPicker({
         </p>
         <div className="terminal-tab-picker-results" id={resultsId}>
           {results.length === 0 && <p>{t(language, "terminalTabPickerEmpty")}</p>}
-          {results.map((tab) => (
-            <button
-              aria-current={tab.id === activeTabId ? "true" : undefined}
-              className="terminal-tab-picker-result"
-              key={tab.id}
-              onClick={() => onSelect(tab.id)}
-              type="button"
-            >
-              <Icon name={tab.id === activeTabId ? "check" : "terminal"} size={16} />
-              <span>
-                <strong>{tab.label}</strong>
-                <small>{tab.cwd}</small>
-                <small>
-                  {t(
-                    language,
-                    tab.status === "running"
-                      ? "terminalTabPickerStateRunning"
-                      : "terminalTabPickerStateExited",
-                  )}
-                </small>
-              </span>
-            </button>
-          ))}
+          {results.map((tab) => {
+            const runtimeStatus = runtimeStatusByTerminal[tab.id] ?? "normal"
+            const sessionStatus =
+              tab.status !== "running"
+                ? null
+                : runtimeStatus === "error"
+                  ? t(language, "sessionErrorTitle")
+                  : runtimeStatus === "fallback"
+                    ? t(language, "sessionFallbackTitle")
+                    : tab.activity === "thinking"
+                      ? t(language, "sessionThinkingTitle")
+                      : null
+            return (
+              <button
+                aria-current={tab.id === activeTabId ? "true" : undefined}
+                className="terminal-tab-picker-result"
+                key={tab.id}
+                onClick={() => onSelect(tab.id)}
+                type="button"
+              >
+                <Icon name={tab.id === activeTabId ? "check" : "terminal"} size={16} />
+                <span>
+                  <strong>{tab.label}</strong>
+                  <small>{tab.cwd}</small>
+                  <small>
+                    {t(
+                      language,
+                      tab.status === "running"
+                        ? "terminalTabPickerStateRunning"
+                        : "terminalTabPickerStateExited",
+                    )}
+                  </small>
+                  {sessionStatus && <small>{sessionStatus}</small>}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </section>
     </div>

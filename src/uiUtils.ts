@@ -7,10 +7,10 @@ import type {
   TerminalTab,
 } from "./types"
 
-type SessionIdentity = Pick<SessionSummary, "id" | "filePath">
+type SessionIdentity = Pick<SessionSummary, "id" | "filePath" | "cwd">
 
 export function localeTag(lang: Lang): string {
-  return lang === "en" ? "en" : "ru"
+  return lang === "en" ? "en" : lang === "zh" ? "zh-CN" : "ru"
 }
 
 export function formatShortcut(shortcut: string, platform: string): string {
@@ -59,6 +59,22 @@ const relativeFormatters = {
       timeZone: "UTC",
     }),
   },
+  zh: {
+    relative: new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" }),
+    date: new Intl.DateTimeFormat("zh-CN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    }),
+    dateWithEra: new Intl.DateTimeFormat("zh-CN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      era: "short",
+      timeZone: "UTC",
+    }),
+  },
 } satisfies Record<
   Lang,
   {
@@ -70,7 +86,7 @@ const relativeFormatters = {
 
 export function formatRelative(timestamp: number, lang: Lang): string {
   if (!timestamp) {
-    return lang === "en" ? "no runs" : "нет запусков"
+    return lang === "en" ? "no runs" : lang === "zh" ? "无运行记录" : "нет запусков"
   }
   const { relative: relativeTime, date, dateWithEra } = relativeFormatters[lang]
   const seconds = Math.round((timestamp - Date.now()) / 1000)
@@ -102,8 +118,10 @@ export function tabMatchesSession(
   session: SessionIdentity,
   platform: string,
 ): boolean {
+  // Imported IDs are source-derived and can repeat in different projects.
   return (
-    tab.sessionId === session.id ||
+    (tab.sessionId === session.id &&
+      normalizedPath(tab.cwd, platform) === normalizedPath(session.cwd, platform)) ||
     Boolean(
       tab.sessionPath &&
       normalizedPath(tab.sessionPath, platform) === normalizedPath(session.filePath, platform),
@@ -142,11 +160,13 @@ export function mergeSessionIntoPayload(
   platform: string,
 ): BootstrapPayload {
   const sessionPath = normalizedPath(session.filePath, platform)
+  const sessionCwd = normalizedPath(session.cwd, platform)
   const sessions = [
     session,
     ...payload.sessions.filter(
       (candidate) =>
-        candidate.id !== session.id && normalizedPath(candidate.filePath, platform) !== sessionPath,
+        (candidate.id !== session.id || normalizedPath(candidate.cwd, platform) !== sessionCwd) &&
+        normalizedPath(candidate.filePath, platform) !== sessionPath,
     ),
   ].sort((left, right) => right.updatedAt - left.updatedAt)
 

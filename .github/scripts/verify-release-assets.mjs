@@ -836,6 +836,10 @@ export async function verifyReleaseAssets({
       installerSet.has(assetName),
       `Updater target is not a supported installer for ${platform}: ${assetName}`,
     )
+    requireCondition(
+      platform.toLowerCase().split("-")[0] === classifyReleaseAsset(assetName).platform,
+      `Updater target platform does not match installer for ${platform}: ${assetName}`,
+    )
     updaterAssets.add(assetName)
     requireCondition(
       files.has(assetName),

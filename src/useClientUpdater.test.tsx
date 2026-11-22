@@ -10,6 +10,7 @@ import { useClientUpdater, type ClientUpdaterState } from "./useClientUpdater"
 import { desktopUpdateCheck, desktopUpdateStatus } from "./api"
 import { listen, type EventCallback } from "@tauri-apps/api/event"
 import type { DesktopUpdateStatus } from "./types"
+import { t, type Lang } from "./i18n"
 
 const ready: DesktopUpdateStatus = {
   policyState: "ready",
@@ -51,14 +52,16 @@ describe("useClientUpdater Desktop reminder", () => {
   let updater: ClientUpdaterState
   function Harness({
     running = 0,
+    language = "en",
     safety = () => ({ runningTerminalCount: running, launching: false }),
   }: {
     running?: number
+    language?: Lang
     safety?: Parameters<typeof useClientUpdater>[3]
   } = {}) {
     const [error, setError] = useState("")
     const [notice, setNotice] = useState("")
-    updater = useClientUpdater("en", setError, setNotice, safety)
+    updater = useClientUpdater(language, setError, setNotice, safety)
     return (
       <>
         <span>{updater.update?.version ?? "hidden"}</span>
@@ -137,6 +140,108 @@ describe("useClientUpdater Desktop reminder", () => {
     expect(container.querySelector("span")?.textContent).toBe("hidden")
     expect(container.querySelectorAll<HTMLButtonElement>("button")[1].disabled).toBe(false)
   })
+
+  it.each(["en", "ru"] as const)(
+    "reports uncertain installation after a manual recheck without retrying (%s)",
+    async (language) => {
+      const uncertain: DesktopUpdateStatus = {
+        ...ready,
+        revision: "2",
+        installState: "uncertain",
+        update: null,
+      }
+      vi.mocked(desktopUpdateStatus).mockResolvedValue(uncertain)
+      vi.mocked(desktopUpdateCheck).mockResolvedValue(uncertain)
+      await act(async () => root.render(<Harness language={language} />))
+      // Background discovery of the retained state stays quiet.
+      expect(container.querySelector("output")?.textContent).toBe("")
+      expect(container.querySelectorAll<HTMLButtonElement>("button")[1].disabled).toBe(false)
+      await act(async () => container.querySelectorAll<HTMLButtonElement>("button")[1].click())
+      expect(container.querySelector("output")?.textContent).toBe(
+        t(language, "desktopUpdateInstallUncertain"),
+      )
+      expect(container.querySelector("span")?.textContent).toBe("hidden")
+      await act(async () => updater.install())
+      expect(installClientUpdate).not.toHaveBeenCalled()
+      expect(confirm).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["en", "ru"] as const)(
+    "still reports a completed empty check as current (%s)",
+    async (language) => {
+      const empty: DesktopUpdateStatus = { ...ready, update: null }
+      vi.mocked(desktopUpdateStatus).mockResolvedValue(empty)
+      vi.mocked(desktopUpdateCheck).mockResolvedValue(empty)
+      await act(async () => root.render(<Harness language={language} />))
+      expect(container.querySelector("output")?.textContent).toBe("")
+      await act(async () => updater.checkNow())
+      expect(container.querySelector("output")?.textContent).toBe(
+        t(language, "desktopUpdateCurrent"),
+      )
+      expect(installClientUpdate).not.toHaveBeenCalled()
+    },
+  )
+
+  it("preserves the unknown outcome after an installation rejection and manual check", async () => {
+    await act(async () => root.render(<Harness />))
+    const uncertain: DesktopUpdateStatus = {
+      ...ready,
+      revision: "2",
+      installState: "uncertain",
+      update: null,
+    }
+    vi.mocked(installClientUpdate).mockImplementationOnce(async () => {
+      vi.mocked(desktopUpdateStatus).mockResolvedValue(uncertain)
+      throw new Error("synthetic installation failure")
+    })
+    await act(async () => updater.install())
+    expect(container.querySelector("output")?.textContent).toContain("synthetic installation")
+    expect(updater.isInstalling()).toBe(false)
+    vi.mocked(desktopUpdateCheck).mockResolvedValue(uncertain)
+    await act(async () => container.querySelectorAll<HTMLButtonElement>("button")[1].click())
+    expect(container.querySelector("output")?.textContent).toBe(
+      t("en", "desktopUpdateInstallUncertain"),
+    )
+    await act(async () => updater.install())
+    expect(installClientUpdate).toHaveBeenCalledTimes(1)
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it.each(["checking", "downloading", "installing", "uncertain"] as const)(
+    "does not announce current after reconciliation observes %s",
+    async (state) => {
+      await act(async () => root.render(<Harness />))
+      const receive = vi
+        .mocked(listen)
+        .mock.calls.find(
+          ([event]) => event === "desktop-update-state",
+        )![1] as EventCallback<DesktopUpdateStatus>
+      let finish!: (value: DesktopUpdateStatus) => void
+      vi.mocked(desktopUpdateCheck).mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+      )
+      act(() => updater.checkNow())
+      const actual: DesktopUpdateStatus = {
+        ...ready,
+        revision: "3",
+        checking: state === "checking",
+        installState: state === "checking" ? "idle" : state,
+        update: null,
+      }
+      vi.mocked(desktopUpdateStatus).mockResolvedValue(actual)
+      act(() => receive({ event: "desktop-update-state", id: 1, payload: actual }))
+      await act(async () => finish({ ...ready, revision: "2", update: null }))
+      expect(desktopUpdateStatus).toHaveBeenCalledTimes(2)
+      expect(container.querySelector("output")?.textContent).toBe(
+        state === "uncertain" ? t("en", "desktopUpdateInstallUncertain") : "",
+      )
+      expect(container.querySelector("span")?.textContent).toBe("hidden")
+      expect(installClientUpdate).not.toHaveBeenCalled()
+    },
+  )
 
   it("holds the synchronous guard during confirmation and releases it on cancellation", async () => {
     let decide!: (accepted: boolean) => void

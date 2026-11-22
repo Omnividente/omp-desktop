@@ -1,8 +1,10 @@
 import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import type { TerminalTab } from "./types"
 
 export function useWindowActivity(tabs: TerminalTab[], activeTabId: string | null): void {
+  const lastProgressRequest = useRef<{ thinking: boolean } | null>(null)
+
   useEffect(() => {
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
     const thinkingCount = tabs.filter((tab) => tab.activity === "thinking").length
@@ -16,13 +18,24 @@ export function useWindowActivity(tabs: TerminalTab[], activeTabId: string | nul
       document.title = "OMP Desktop"
     }
 
+    const thinking = thinkingCount > 0
+    if (lastProgressRequest.current?.thinking === thinking) return
+    const request = { thinking }
+    lastProgressRequest.current = request
+    // Retry after failure on the next existing update, without a retry timer.
+    // An older failure must not invalidate a newer status request.
+    const retryAfterFailure = () => {
+      if (lastProgressRequest.current === request) lastProgressRequest.current = null
+    }
+
     try {
       void getCurrentWindow()
         .setProgressBar({
-          status: thinkingCount > 0 ? ProgressBarStatus.Indeterminate : ProgressBarStatus.None,
+          status: thinking ? ProgressBarStatus.Indeterminate : ProgressBarStatus.None,
         })
-        .catch(() => undefined)
+        .catch(retryAfterFailure)
     } catch {
+      retryAfterFailure()
       // The browser preview has no native taskbar window.
     }
   }, [activeTabId, tabs])

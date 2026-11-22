@@ -51,17 +51,25 @@ function Harness({
   installingDesktopUpdate = false,
   language = "en",
   workspace = true,
+  initialTabs = tabs,
+  onCloseRequested,
 }: {
   launching?: string | null
   installingDesktopUpdate?: boolean
   language?: "ru" | "en"
   workspace?: boolean
+  initialTabs?: TerminalTab[]
+  onCloseRequested?: (id: string, complete: () => void) => void
 } = {}) {
   const [activeTabId, setActiveTabId] = useState<string | null>("one")
-  const [visibleTabs, setVisibleTabs] = useState(tabs)
+  const [visibleTabs, setVisibleTabs] = useState(initialTabs)
   const callbacks = {
     onDiscardSwitchRecovery: vi.fn(),
-    onCloseTab: (id: string) => setVisibleTabs((current) => current.filter((tab) => tab.id !== id)),
+    onCloseTab: (id: string) => {
+      const complete = () => setVisibleTabs((current) => current.filter((tab) => tab.id !== id))
+      if (onCloseRequested) onCloseRequested(id, complete)
+      else complete()
+    },
     onError: vi.fn(),
     onExit: vi.fn(),
     onLaunch: vi.fn(),
@@ -184,6 +192,98 @@ describe("TerminalWorkspace project overview", () => {
     expect(container.querySelector(".workspace-home")).not.toBeNull()
     outside.remove()
   })
+  it.each([0, 1, 2])(
+    "keeps keyboard focus on a surviving header after closing overview tab %s",
+    (index) => {
+      const third = { ...tabs[1], id: "three", label: "three", sessionId: "three" }
+      act(() => root.render(<Harness initialTabs={[...tabs, third]} />))
+      act(() => overview().click())
+      const close = container.querySelectorAll<HTMLButtonElement>(".tab-close")[index]
+      close.focus()
+      act(() => close.click())
+      const headers = container.querySelectorAll<HTMLButtonElement>(
+        ".terminal-tab > button:first-child",
+      )
+      expect(document.activeElement).toBe(headers[Math.min(index, headers.length - 1)])
+      expect(container.querySelector(".workspace-home")).not.toBeNull()
+      expect(container.querySelector(".terminal-pane.is-active")).toBeNull()
+      expect(lifecycle.mounts).toEqual(["one", "two", "three"])
+      expect(lifecycle.disposals).toEqual([["one", "two", "three"][index]])
+    },
+  )
+
+  it("does not take newer in-workspace focus after a delayed close", () => {
+    let complete: () => void = () => undefined
+    act(() =>
+      root.render(
+        <Harness
+          onCloseRequested={(_id, finish) => {
+            complete = finish
+          }}
+        />,
+      ),
+    )
+    act(() => overview().click())
+    const close = container.querySelector<HTMLButtonElement>(".tab-close")!
+    close.focus()
+    act(() => close.click())
+    overview().focus()
+    act(() => complete())
+    expect(document.activeElement).toBe(overview())
+  })
+
+  it("restores only after a delayed background close removes its focused control", () => {
+    let complete: () => void = () => undefined
+    const onCloseRequested = (_id: string, finish: () => void) => {
+      complete = finish
+    }
+    act(() => root.render(<Harness onCloseRequested={onCloseRequested} />))
+    act(() => overview().click())
+    const close = container.querySelector<HTMLButtonElement>(".tab-close")!
+    close.focus()
+    act(() => close.click())
+    act(() => root.render(<Harness language="ru" onCloseRequested={onCloseRequested} />))
+    expect(document.activeElement).toBe(close)
+    expect(lifecycle.disposals).toEqual([])
+    act(() => complete())
+    expect(document.activeElement).toBe(
+      container.querySelector(".terminal-tab > button:first-child"),
+    )
+    expect(container.querySelector(".terminal-pane.is-active")).toBeNull()
+  })
+
+  it.each(["pointer", "focus"])("preserves newer outside %s during a delayed close", (mode) => {
+    let complete: () => void = () => undefined
+    act(() =>
+      root.render(
+        <Harness
+          onCloseRequested={(_id, finish) => {
+            complete = finish
+          }}
+        />,
+      ),
+    )
+    act(() => overview().click())
+    const close = container.querySelector<HTMLButtonElement>(".tab-close")!
+    close.focus()
+    act(() => close.click())
+    const outside = document.createElement("button")
+    document.body.append(outside)
+    if (mode === "pointer") outside.dispatchEvent(new Event("pointerdown", { bubbles: true }))
+    else outside.focus()
+    act(() => complete())
+    expect(document.activeElement).toBe(mode === "pointer" ? document.body : outside)
+    outside.remove()
+  })
+
+  it("does not move focus for a pointer close that did not own keyboard focus", () => {
+    act(() => root.render(<Harness />))
+    act(() => overview().click())
+    overview().focus()
+    act(() => container.querySelector<HTMLButtonElement>(".tab-close")!.click())
+    expect(document.activeElement).toBe(overview())
+  })
+
   it("closes background tabs from overview without activating another", () => {
     act(() => root.render(<Harness />))
     act(() => overview().click())

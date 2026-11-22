@@ -96,8 +96,16 @@ export function useClientUpdater(
         if (manual && current()) {
           persistClientUpdateReminderSnooze(0)
           setSnoozedUntil(0)
-          const { language, showNotice } = callbacks.current
-          if (statusRef.current?.policyState === "ready" && !offered(statusRef.current)) {
+          const { language, showError, showNotice } = callbacks.current
+          const actual = statusRef.current
+          if (actual?.installState === "uncertain") {
+            showError(t(language, "desktopUpdateInstallUncertain"))
+          } else if (
+            actual?.policyState === "ready" &&
+            actual.installState === "idle" &&
+            !actual.checking &&
+            actual.update === null
+          ) {
             showNotice(t(language, "desktopUpdateCurrent"))
           }
         }

@@ -655,6 +655,77 @@ describe("runtime incident bounds and cleanup", () => {
     ).toBeDefined()
   })
 
+  it.each(["default", "smol"])(
+    "preserves the only %s fallback while another role fills the incident bound",
+    (preservedRole) => {
+      const busyRole = preservedRole === "default" ? "smol" : "default"
+      let state = apply(
+        createRuntimeIncidentState(0),
+        fallbackEvent({ fallbackRole: preservedRole }),
+        1,
+      )
+      for (let index = 0; index < MAX_RUNTIME_INCIDENTS; index += 1) {
+        state = apply(
+          state,
+          fallbackEvent({
+            fallbackRole: busyRole,
+            model: `provider/fallback-${index}`,
+            fallbackTo: `provider/fallback-${index}`,
+          }),
+          10 + index,
+        )
+      }
+
+      expect(state.incidents).toHaveLength(MAX_RUNTIME_INCIDENTS)
+      state = apply(
+        state,
+        runtimeEvent({
+          kind: "modelChange",
+          modelRole: busyRole,
+          resolvedModelIsFallback: false,
+        }),
+        1_000,
+      )
+      state = clearResolvedRuntimeIncidents(state, 1_100)
+      expect(state.incidents).toHaveLength(1)
+      expect(state.incidents[0]).toMatchObject({ role: preservedRole, status: "active" })
+      expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+    },
+  )
+
+  it("preserves an independent fallback role when a new error reaches the bound", () => {
+    let state = apply(createRuntimeIncidentState(0), fallbackEvent(), 1)
+    for (let index = 0; index < MAX_RUNTIME_INCIDENTS - 1; index += 1) {
+      state = apply(
+        state,
+        fallbackEvent({
+          fallbackRole: "smol",
+          model: `provider/fallback-${index}`,
+          fallbackTo: `provider/fallback-${index}`,
+        }),
+        10 + index,
+      )
+    }
+    state = apply(state, errorEvent(), 1_000)
+
+    expect(state.incidents).toHaveLength(MAX_RUNTIME_INCIDENTS)
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("error")
+    state = apply(state, runtimeEvent({ activity: "idle" }), 1_100)
+    state = apply(
+      state,
+      runtimeEvent({
+        kind: "modelChange",
+        modelRole: "smol",
+        resolvedModelIsFallback: false,
+      }),
+      1_200,
+    )
+    expect(runtimeHealthStatus(state, "terminal-1")).toBe("fallback")
+    expect(state.incidents.find((incident) => incident.role === "default")).toMatchObject({
+      status: "active",
+    })
+  })
+
   it("keeps a long multiline reason exact without a second cache", () => {
     const reason = `Cloud API error (429):\n${"  quota detail ".repeat(120)}\nfinal line`
     const state = apply(createRuntimeIncidentState(0), errorEvent({ errorMessage: reason }), 1_000)

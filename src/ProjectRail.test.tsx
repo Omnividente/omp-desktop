@@ -3,6 +3,7 @@
 import { act, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { t } from "./i18n"
 import { ProjectRail } from "./ProjectRail"
 import type { SessionListProps } from "./SessionList"
 import type { WorkspaceSummary } from "./types"
@@ -58,14 +59,19 @@ function sessionList(): SessionListProps {
 function RemovalFixture({
   remove,
   lastWorkspace = false,
+  language = "ru",
 }: {
   remove: () => Promise<boolean>
   lastWorkspace?: boolean
+  language?: SessionListProps["lang"]
 }) {
   const [workspaces, setWorkspaces] = useState(
     lastWorkspace
       ? [workspace]
-      : [workspace, { ...workspace, key: "other", name: "Other", path: "D:/Projects/Other" }],
+      : [
+          workspace,
+          { ...workspace, key: "other", name: "Other", path: "D:/Projects/Other", pinned: false },
+        ],
   )
   const [busy, setBusy] = useState<string | null>(null)
   return (
@@ -74,12 +80,11 @@ function RemovalFixture({
       <ProjectRail
         autoHidePaused={false}
         autoOpen={false}
-        dropActive={false}
         mode={lastWorkspace ? "collapsed" : "expanded"}
         modeSaving={false}
         workspaces={workspaces}
         selectedWorkspace={workspaces[0] ?? null}
-        sessionList={sessionList()}
+        sessionList={{ ...sessionList(), lang: language }}
         renamingWorkspaceKey={null}
         workspaceNameValue=""
         workspaceBusyKey={busy}
@@ -118,6 +123,25 @@ describe("ProjectRail workspace actions", () => {
     container.remove()
   })
 
+  it.each([
+    ["ru", "В списке недавних проектов"],
+    ["en", "In recent projects"],
+    ["zh", "在最近项目中"],
+  ] as const)(
+    "describes recent project membership without changing the button name (%s)",
+    (language, description) => {
+      act(() => root.render(<RemovalFixture remove={async () => false} language={language} />))
+      const [recent, discovered] = container.querySelectorAll<HTMLButtonElement>(".project-item")
+      expect(recent.getAttribute("aria-label")).toBe(`App, 2 ${t(language, "sessShort")}`)
+      expect(recent.title).toBe(`App\nD:/Projects/App\n${description}`)
+      const dot = recent.querySelector<HTMLElement>(".pin-dot")
+      expect(dot?.title).toBe(description)
+      expect(dot?.getAttribute("aria-hidden")).toBe("true")
+      expect(discovered.title).toBe("Other\nD:/Projects/Other")
+      expect(discovered.querySelector(".pin-dot")).toBeNull()
+    },
+  )
+
   it("restores the edit control after Escape without reclaiming a newer focus", () => {
     let moveFocusOnCancel = false
     const render = (renamingWorkspaceKey: string | null) => {
@@ -131,7 +155,6 @@ describe("ProjectRail workspace actions", () => {
     const common = {
       autoHidePaused: false,
       autoOpen: false,
-      dropActive: false,
       mode: "expanded" as const,
       modeSaving: false,
       onAutoOpenChange: vi.fn(),
@@ -276,7 +299,6 @@ describe("ProjectRail Enter rename focus", () => {
           <ProjectRail
             autoHidePaused={false}
             autoOpen={false}
-            dropActive={false}
             mode={mode}
             modeSaving={false}
             workspaces={[workspace]}
@@ -399,7 +421,6 @@ describe("ProjectRail project search", () => {
         <ProjectRail
           autoHidePaused={false}
           autoOpen={autoOpen}
-          dropActive={false}
           mode={mode}
           modeSaving={false}
           workspaces={projects}
@@ -489,15 +510,41 @@ describe("ProjectRail project search", () => {
       expect(select).not.toHaveBeenCalled()
     },
   )
-  it("does not clear an IME composition with Escape", () => {
+  it.each([
+    { isComposing: true, keyCode: 0 },
+    { isComposing: false, keyCode: 229 },
+  ])("preserves project search on IME Escape ($isComposing/$keyCode)", (marker) => {
     render()
     type("Archive")
-    act(() =>
-      search().dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, isComposing: true }),
-      ),
-    )
-    expect(search().value).toBe("Archive")
+    const input = search()
+    const composing = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+      ...marker,
+    })
+    expect(composing.isComposing).toBe(marker.isComposing)
+    expect(composing.keyCode).toBe(marker.keyCode)
+    act(() => input.dispatchEvent(composing))
+    expect.soft(input.value).toBe("Archive")
+    expect.soft(composing.defaultPrevented).toBe(false)
+    expect.soft(rows()).toHaveLength(1)
+    expect.soft(rows()[0]?.textContent).toContain("D:/Archive/App")
+    expect.soft(document.activeElement).toBe(input)
+    expect.soft(select).not.toHaveBeenCalled()
+    // A regular Escape still clears the query without moving focus or selection.
+    type("Archive")
+    const ordinary = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => input.dispatchEvent(ordinary))
+    expect(input.value).toBe("")
+    expect(ordinary.defaultPrevented).toBe(true)
+    expect(rows()).toHaveLength(3)
+    expect(document.activeElement).toBe(input)
+    expect(select).not.toHaveBeenCalled()
   })
   it.each(["collapsed", "autoHide"] as const)(
     "keeps every project reachable when the %s rail hides search",
@@ -537,7 +584,6 @@ describe("ProjectRail auto-hide search reveal", () => {
         <ProjectRail
           autoHidePaused={false}
           autoOpen={open}
-          dropActive={false}
           mode="autoHide"
           modeSaving={false}
           workspaces={[workspace, target]}
@@ -662,7 +708,6 @@ describe("ProjectRail project order", () => {
         <ProjectRail
           autoHidePaused={false}
           autoOpen={autoOpen}
-          dropActive={false}
           mode={mode}
           modeSaving={false}
           workspaces={workspaces}
@@ -820,5 +865,158 @@ describe("ProjectRail project order", () => {
     expect(order().disabled).toBe(true)
     act(() => rows()[0].click())
     expect(selectWorkspace).toHaveBeenCalledExactlyOnceWith("z")
+  })
+})
+
+describe("ProjectRail superseded hover timers", () => {
+  let container: HTMLDivElement
+  let root: Root
+  const changed = vi.fn()
+  const render = (autoOpen: boolean, mode: "autoHide" | "expanded" | "collapsed" = "autoHide") => {
+    act(() =>
+      root.render(
+        <>
+          <button className="outside-rail">Outside rail</button>
+          <ProjectRail
+            autoHidePaused={false}
+            autoOpen={autoOpen}
+            mode={mode}
+            modeSaving={false}
+            workspaces={[workspace]}
+            selectedWorkspace={workspace}
+            sessionList={sessionList()}
+            renamingWorkspaceKey={null}
+            workspaceNameValue=""
+            workspaceBusyKey={null}
+            onAutoOpenChange={changed}
+            onModeChange={vi.fn()}
+            onOpenFolder={vi.fn()}
+            onSelectWorkspace={vi.fn()}
+            onStartWorkspaceRename={vi.fn()}
+            onSubmitWorkspaceRename={vi.fn()}
+            onWorkspaceNameChange={vi.fn()}
+            onWorkspaceRenameKeyDown={vi.fn()}
+            onRemoveWorkspace={vi.fn()}
+          />
+        </>,
+      ),
+    )
+  }
+  const enter = () => {
+    act(() =>
+      container.querySelector(".project-rail")!.dispatchEvent(
+        new MouseEvent("mouseover", {
+          bubbles: true,
+          relatedTarget: null,
+        }),
+      ),
+    )
+  }
+  const leave = () => {
+    act(() =>
+      container.querySelector(".project-rail")!.dispatchEvent(
+        new MouseEvent("mouseout", {
+          bubbles: true,
+          relatedTarget: container.querySelector(".outside-rail"),
+        }),
+      ),
+    )
+  }
+  beforeEach(() => {
+    vi.useFakeTimers()
+    changed.mockClear()
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+  })
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  it("keeps a newer controlled reopen after a pending pointer leave", () => {
+    render(true)
+    act(() => container.querySelector<HTMLButtonElement>(".outside-rail")!.focus())
+    leave()
+    render(false)
+    render(true)
+    act(() => vi.advanceTimersByTime(320))
+    expect(changed).not.toHaveBeenCalled()
+    expect(container.querySelector(".project-rail")!.classList.contains("is-revealed")).toBe(true)
+  })
+
+  it("keeps a newer controlled collapse after a pending pointer enter", () => {
+    render(false)
+    enter()
+    render(true)
+    render(false)
+    act(() => vi.advanceTimersByTime(220))
+    expect(changed).not.toHaveBeenCalled()
+    expect(container.querySelector(".project-rail")!.classList.contains("is-compact")).toBe(true)
+  })
+
+  it.each(["expanded", "collapsed"] as const)(
+    "discards pending pointer enter when mode changes to %s",
+    (mode) => {
+      render(false)
+      enter()
+      render(false, mode)
+      act(() => vi.advanceTimersByTime(220))
+      expect(changed).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["expanded", "collapsed"] as const)(
+    "discards pending pointer leave when mode changes to %s",
+    (mode) => {
+      render(true)
+      leave()
+      render(true, mode)
+      act(() => vi.advanceTimersByTime(320))
+      expect(changed).not.toHaveBeenCalled()
+    },
+  )
+
+  it("preserves ordinary hover delays without newer controlled state", () => {
+    render(false)
+    enter()
+    act(() => vi.advanceTimersByTime(219))
+    expect(changed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(changed).toHaveBeenLastCalledWith(true)
+    render(true)
+    changed.mockClear()
+    leave()
+    act(() => vi.advanceTimersByTime(319))
+    expect(changed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(changed).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
+  it("invalidates an already queued old callback without cancelling a newer timer", () => {
+    const scheduled = vi.spyOn(window, "setTimeout")
+    render(true)
+    leave()
+    const obsolete = scheduled.mock.calls.find(([, delay]) => delay === 320)![0]
+    expect(typeof obsolete).toBe("function")
+    render(false)
+    render(true)
+    leave()
+    act(() => {
+      if (typeof obsolete === "function") obsolete()
+    })
+    expect(changed).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(320))
+    expect(changed).toHaveBeenCalledExactlyOnceWith(false)
+  })
+
+  it("clears a pending timer when unmounted", () => {
+    render(false)
+    enter()
+    act(() => root.render(null))
+    act(() => vi.advanceTimersByTime(220))
+    expect(changed).not.toHaveBeenCalled()
   })
 })

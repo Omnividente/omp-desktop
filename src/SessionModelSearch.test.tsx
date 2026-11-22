@@ -152,6 +152,53 @@ describe("running-session model search", () => {
     expect(props.onSwitch).toHaveBeenCalledExactlyOnceWith("tab-a", target.selector, "high")
   })
 
+  it.each(["name", "provider", "id", "selector"] as const)(
+    "matches canonical Unicode in %s without changing selection",
+    (field) => {
+      for (const form of ["NFC", "NFD"] as const) {
+        const stored = "Café".normalize(form)
+        const searched = "Café".normalize(form === "NFC" ? "NFD" : "NFC")
+        const entry = model("unicode-target", { [field]: stored })
+        render({ ompConfig: { ...snapshot(), models: [primary, entry] } })
+        if (!input()) openSearch()
+        query(` ${searched.toUpperCase()} `)
+        expect(select().querySelector("optgroup option")?.getAttribute("value")).toBe(
+          entry.selector,
+        )
+        expect(values()).toEqual([primary.selector, entry.selector])
+        expect(select().value).toBe(primary.selector)
+        expect(props.onSwitch).not.toHaveBeenCalled()
+        expect(entry[field]).toBe(stored)
+      }
+    },
+  )
+
+  it("keeps canonically equivalent selectors distinct and sends the exact selection", () => {
+    const first = model("Café")
+    const second = model("Cafe\u0301")
+    render({ ompConfig: { ...snapshot(), models: [primary, first, second] } })
+    openSearch()
+    query("CAFÉ")
+    expect(values()).toEqual([primary.selector, first.selector, second.selector])
+    expect(props.onSwitch).not.toHaveBeenCalled()
+    choose(first.selector)
+    choose(second.selector)
+    expect(props.onSwitch).toHaveBeenNthCalledWith(1, "tab-a", first.selector, "high")
+    expect(props.onSwitch).toHaveBeenNthCalledWith(2, "tab-a", second.selector, "high")
+    expect(props.onSwitch).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not remove accents or fold compatibility characters while searching", () => {
+    const accented = model("accented", { name: "Café" })
+    const fullwidth = model("fullwidth", { name: "ＣＡＦＥ" })
+    render({ ompConfig: { ...snapshot(), models: [primary, accented, fullwidth] } })
+    openSearch()
+    query("cafe")
+    expect(select().querySelector("optgroup")).toBeNull()
+    expect(select().value).toBe(primary.selector)
+    expect(props.onSwitch).not.toHaveBeenCalled()
+  })
+
   it.each(["ru", "en"] as const)(
     "retains current and unknown selections with no matches (%s)",
     (lang) => {

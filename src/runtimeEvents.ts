@@ -35,17 +35,17 @@ export function runtimeFeedbackDedupeKey(
   const scope = [event.terminalId, event.kind, event.modelRole ?? ""]
 
   if (feedback.kind === "fallback") {
-    return [
+    return JSON.stringify([
       "runtime-fallback",
       ...scope,
       event.fallbackRole ?? "",
       event.fallbackFrom ?? "",
       event.fallbackTo ?? event.model ?? "",
       feedback.model,
-    ].join("|")
+    ])
   }
 
-  return ["runtime-error", ...scope, feedback.message].join("|")
+  return JSON.stringify(["runtime-error", ...scope, feedback.message])
 }
 
 function providerFromSelector(selector: string | null | undefined): string | null {
@@ -71,10 +71,9 @@ export function suppressTransientProxyError(
     return false
   }
 
+  // Local PTY, watcher, and persistence failures are not proxy-account retries.
   const failed =
-    event.kind === "modelError" ||
-    event.kind === "runtimeError" ||
-    (event.kind === "activity" && event.activity === "error")
+    event.kind === "modelError" || (event.kind === "activity" && event.activity === "error")
   if (!failed) return false
 
   const provider = providerFromSelector(event.model ?? currentModel)
@@ -87,7 +86,23 @@ export function suppressTransientProxyError(
   return true
 }
 
-export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent): TerminalTab {
+export type PendingRuntimeTab = Pick<TerminalTab, "id"> &
+  Partial<
+    Pick<
+      TerminalTab,
+      | "currentModel"
+      | "currentModelRole"
+      | "currentThinking"
+      | "currentThinkingConfigured"
+      | "activity"
+      | "completedResponseVersion"
+    >
+  >
+
+export function applyRuntimeEventToTab<T extends PendingRuntimeTab>(
+  tab: T,
+  event: PtyRuntimeEvent,
+): T {
   if (tab.id !== event.terminalId) return tab
 
   return {
@@ -108,4 +123,18 @@ export function applyRuntimeEventToTab(tab: TerminalTab, event: PtyRuntimeEvent)
         ? (tab.completedResponseVersion ?? 0) + 1
         : tab.completedResponseVersion,
   }
+}
+
+/** Temporary launch state only. Bound unrelated orphan identities without retaining event arrays. */
+export function rememberPendingRuntimeTab(
+  pending: Map<string, PendingRuntimeTab>,
+  event: PtyRuntimeEvent,
+) {
+  if (!pending.has(event.terminalId) && pending.size >= 64) {
+    pending.delete(pending.keys().next().value!)
+  }
+  pending.set(
+    event.terminalId,
+    applyRuntimeEventToTab(pending.get(event.terminalId) ?? { id: event.terminalId }, event),
+  )
 }

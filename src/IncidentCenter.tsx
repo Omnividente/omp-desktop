@@ -1,10 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react"
 import { errorMessage, saveTerminalCapture } from "./api"
 import { Icon } from "./Icon"
+import { matchesIncidentSearch } from "./incidentSearch"
 import { t, type Lang } from "./i18n"
+import { localeTag } from "./uiUtils"
 import {
   runtimeIncidentsLatestFirst,
   type RuntimeIncident,
+  type RuntimeIncidentKind,
   type RuntimeIncidentResolutionReason,
 } from "./runtimeIncidents"
 import type { TerminalCapture, TerminalTab } from "./types"
@@ -37,8 +40,13 @@ export function IncidentCenter({
   onFocusTerminal,
 }: IncidentCenterProps) {
   const captureHelpId = useId()
+  const searchHelpId = useId()
+  const searchRef = useRef<HTMLInputElement>(null)
+  const [search, setSearch] = useState("")
+  const hasSearch = search.trim().length > 0
   const [filter, setFilter] = useState<IncidentFilter>("active")
   const [terminalFilter, setTerminalFilter] = useState("")
+  const [kindFilter, setKindFilter] = useState<RuntimeIncidentKind | "all">("all")
   const [captures, setCaptures] = useState<Record<string, CaptureState>>({})
   const initialFocusRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLElement>(null)
@@ -66,9 +74,11 @@ export function IncidentCenter({
       latestFirst.filter(
         (incident) =>
           (filter === "all" || incident.status === filter) &&
-          (!selectedTerminal || incident.terminalId === selectedTerminal),
+          (!selectedTerminal || incident.terminalId === selectedTerminal) &&
+          (kindFilter === "all" || incident.kind === kindFilter) &&
+          matchesIncidentSearch(incident, tabById.get(incident.terminalId)?.label, search),
       ),
-    [filter, latestFirst, selectedTerminal],
+    [filter, kindFilter, latestFirst, selectedTerminal, tabById, search],
   )
   const resolvedCount = incidents.filter((incident) => incident.status === "resolved").length
   const activeCount = incidents.filter((incident) => incident.status === "active").length
@@ -108,6 +118,7 @@ export function IncidentCenter({
     initialFocusRef.current?.focus()
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return
       if (event.key === "Escape") {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -212,6 +223,42 @@ export function IncidentCenter({
         </p>
 
         <div className="incident-center-toolbar">
+          <div className="incident-search-controls">
+            <label className="incident-search">
+              <span>{t(language, "incidentSearchLabel")}</span>
+              <input
+                aria-describedby={searchHelpId}
+                autoComplete="off"
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                ref={searchRef}
+                spellCheck={false}
+                type="search"
+                value={search}
+              />
+            </label>
+            <button
+              className="button secondary"
+              disabled={!search}
+              onClick={() => {
+                setSearch("")
+                searchRef.current?.focus()
+              }}
+              type="button"
+            >
+              {t(language, "incidentSearchClear")}
+            </button>
+          </div>
+          <p className="incident-search-help" id={searchHelpId}>
+            {t(language, "incidentSearchHelp")}
+            {hasSearch && (
+              <span aria-atomic="true" role="status">
+                {t(language, "incidentSearchCount").replace(
+                  "{count}",
+                  String(visibleIncidents.length),
+                )}
+              </span>
+            )}
+          </p>
           <div
             aria-label={t(language, "incidentFilterLabel")}
             className="incident-filter"
@@ -260,6 +307,20 @@ export function IncidentCenter({
               ))}
             </select>
           </label>
+          <label className="incident-kind-filter">
+            <span>{t(language, "incidentKindFilter")}</span>
+            <select
+              onChange={(event) =>
+                setKindFilter(event.currentTarget.value as RuntimeIncidentKind | "all")
+              }
+              value={kindFilter}
+            >
+              <option value="all">{t(language, "incidentAllKinds")}</option>
+              <option value="fallback">{t(language, "incidentFallback")}</option>
+              <option value="modelError">{t(language, "incidentModelError")}</option>
+              <option value="runtimeError">{t(language, "incidentRuntimeError")}</option>
+            </select>
+          </label>
           <button
             className="button secondary incident-clear-button"
             disabled={resolvedCount === 0}
@@ -279,13 +340,17 @@ export function IncidentCenter({
                   language,
                   incidents.length === 0
                     ? "incidentNoIncidents"
-                    : filter === "resolved"
-                      ? selectedTerminal
-                        ? "incidentNoResolvedForTerminal"
-                        : "incidentNoResolvedIncidents"
-                      : selectedTerminal
-                        ? "incidentNoActiveForTerminal"
-                        : "incidentNoActiveIncidents",
+                    : hasSearch
+                      ? "incidentNoSearchResults"
+                      : kindFilter !== "all"
+                        ? "incidentNoMatchingIncidents"
+                        : filter === "resolved"
+                          ? selectedTerminal
+                            ? "incidentNoResolvedForTerminal"
+                            : "incidentNoResolvedIncidents"
+                          : selectedTerminal
+                            ? "incidentNoActiveForTerminal"
+                            : "incidentNoActiveIncidents",
                 )}
               </strong>
             </div>
@@ -418,7 +483,7 @@ export function IncidentCenter({
                         <p className="incident-capture-result" title={capture.capture.path}>
                           {t(language, "incidentCaptureSaved")
                             .replace("{size}", formatCaptureSize(capture.capture.bytes))
-                            .replace("{path}", capture.capture.path)}
+                            .replace("{path}", () => capture.capture.path)}
                         </p>
                         {capture.capture.truncated && (
                           <p className="incident-capture-truncation">
@@ -468,7 +533,7 @@ function formatCaptureSize(bytes: number): string {
 }
 
 function formatTimestamp(timestamp: number, language: Lang): string {
-  return new Intl.DateTimeFormat(language === "en" ? "en" : "ru", {
+  return new Intl.DateTimeFormat(localeTag(language), {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(timestamp)

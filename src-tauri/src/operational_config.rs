@@ -29,6 +29,7 @@ fn category(key: &str) -> Option<&'static str> {
                 "omitThinking",
                 "externalThinking",
                 "inlineToolDescriptors",
+                "encourageEdits",
                 "includeModelInPrompt",
                 "includeWorkspaceTree",
                 "skillful",
@@ -933,6 +934,53 @@ mod tests {
         mask_owned_entries(&mut before, "task.disabledAgents", &owned);
         mask_owned_entries(&mut after, "task.disabledAgents", &owned);
         assert_eq!(before, after);
+    }
+
+    #[test]
+    fn catalog_exposes_encourage_edits_only_from_supported_runtime_metadata() {
+        let raw = json!({
+            "encourageEdits": {
+                "type": "boolean",
+                "value": true,
+                "description": "Synthetic runtime edit guidance"
+            },
+            "encourageEdits.secret": {"type": "boolean", "value": true}
+        });
+        let catalog = build_catalog(&raw, "");
+        assert_eq!(catalog.len(), 1);
+        assert_eq!(catalog[0].key, "encourageEdits");
+        assert_eq!(catalog[0].category, "agent");
+        assert_eq!(catalog[0].r#type, "boolean");
+        assert_eq!(catalog[0].value, json!(true));
+        assert_eq!(catalog[0].description, "Synthetic runtime edit guidance");
+
+        let mut changes = BTreeMap::from([(
+            "encourageEdits".to_owned(),
+            OmpOperationalChange {
+                expected_value: json!(true),
+                value: json!(false),
+                reset: false,
+            },
+        )]);
+        assert!(validate_changes(&catalog, &changes).is_ok());
+        changes.get_mut("encourageEdits").unwrap().value = json!("false");
+        assert!(validate_changes(&catalog, &changes).is_err());
+        changes.get_mut("encourageEdits").unwrap().value = json!(false);
+        changes.get_mut("encourageEdits").unwrap().expected_value = json!(false);
+        assert!(validate_changes(&catalog, &changes).is_err());
+
+        let disabled = build_catalog(
+            &json!({"encourageEdits": {"type":"boolean", "value":false}}),
+            "",
+        );
+        assert_eq!(disabled[0].value, json!(false));
+        for unsupported in [
+            json!({}),
+            json!({"encourageEdits": {"type":"string", "value":"private"}}),
+            json!({"encourageEdits": {"type":"boolean", "value":true, "redacted":true}}),
+        ] {
+            assert!(build_catalog(&unsupported, "").is_empty());
+        }
     }
 
     #[test]

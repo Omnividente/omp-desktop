@@ -4,9 +4,11 @@ import type { SessionSummary, SessionTranscript } from "./types"
 import type { Lang } from "./i18n"
 import { Icon } from "./Icon"
 import { t } from "./i18n"
+import { localeTag } from "./uiUtils"
 import { useVirtualList } from "./useVirtualList"
-import { MarkdownContent, markdownContent } from "./MarkdownContent"
-import { TranscriptSearch } from "./transcriptSearch"
+import { MarkdownContent } from "./MarkdownContent"
+import { TranscriptContentCache } from "./transcriptContentCache"
+import { tryCreateTranscriptSearch } from "./transcriptSearch"
 import { CopyButton } from "./CopyButton"
 import { loadedDialogue } from "./loadedDialogue"
 import { ContentActionMenu } from "./ContentActionMenu"
@@ -232,15 +234,26 @@ export function TranscriptModal({
     [transcript, transcriptLoading, transcriptError, transcriptSession.filePath, lang],
   )
   const totalOriginal = transcript?.entries.length ?? 0
+  const contentCache = useMemo(() => new TranscriptContentCache(), [])
   const contents = useMemo(
     () =>
-      visibleEntries.map((entry) =>
-        markdownContent(
-          (transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? "",
-          sourceMode,
-        ),
+      contentCache.project(
+        transcriptSession.filePath,
+        transcript === null
+          ? null
+          : visibleEntries.map(
+              (entry) => (transcriptMode === "dialogue" ? entry.dialogueText : entry.text) ?? "",
+            ),
+        sourceMode,
       ),
-    [visibleEntries, transcriptMode, sourceMode],
+    [
+      contentCache,
+      transcript,
+      transcriptSession.filePath,
+      visibleEntries,
+      transcriptMode,
+      sourceMode,
+    ],
   )
   const userOutline = useMemo(() => transcriptUserMessages(visibleEntries), [visibleEntries])
   const userMessages = userOutline.messages
@@ -257,27 +270,29 @@ export function TranscriptModal({
   // Changing an idle search option must not move the reader's current position.
   const searchMatchCase = Boolean(transcriptSearch) && matchCase
   const search = useMemo(
-    () => new TranscriptSearch(contents, transcriptSearch, searchMatchCase),
+    () => tryCreateTranscriptSearch(contents, transcriptSearch, searchMatchCase),
     [contents, transcriptSearch, searchMatchCase],
   )
   const [navigation, setNavigation] = useState({ search, index: 0 })
   if (navigation.search !== search) setNavigation({ search, index: 0 })
-  const currentIndex = search.count ? (navigation.search === search ? navigation.index : 0) : -1
+  const currentIndex = search?.count ? (navigation.search === search ? navigation.index : 0) : -1
   // Retain only bounded highlight windows for currently mounted virtual rows.
   const renderedMatches = useMemo(
     () =>
-      new Map(virtualItems.map((vi) => [vi.index, search.matchesForEntry(vi.index, currentIndex)])),
+      new Map(
+        virtualItems.map((vi) => [vi.index, search?.matchesForEntry(vi.index, currentIndex) ?? []]),
+      ),
     [search, virtualItems, currentIndex],
   )
   const currentMatch = useMemo(
     () =>
-      currentIndex < 0
+      currentIndex < 0 || !search
         ? null
         : { index: currentIndex, entryIndex: search.entryIndex(currentIndex) },
     [search, currentIndex],
   )
   const navigate = (direction: number) => {
-    if (!search.count) return
+    if (!search?.count) return
     setNavigation({
       search,
       index: (currentIndex + direction + search.count) % search.count,
@@ -542,6 +557,7 @@ export function TranscriptModal({
             key={transcript.session.filePath}
             session={transcript.session}
             lang={lang}
+            onError={onError}
           />
         )}
         {transcript?.truncated && (
@@ -576,6 +592,7 @@ export function TranscriptModal({
                 aria-label={t(lang, "transcriptSearch")}
                 ref={searchRef}
                 onKeyDown={(event) => {
+                  if (event.keyCode === 229) return
                   if (
                     event.key === "Escape" &&
                     transcriptSearch &&
@@ -618,12 +635,16 @@ export function TranscriptModal({
               >
                 Aa
               </button>
-              <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
-                {currentIndex + 1} / {search.count}
-              </span>
+              {search ? (
+                <span aria-live="polite" role="status" aria-label={t(lang, "transcriptMatchCount")}>
+                  {currentIndex + 1} / {search.count}
+                </span>
+              ) : (
+                <span role="alert">{t(lang, "transcriptSearchUnavailable")}</span>
+              )}
               <button
                 type="button"
-                disabled={!search.count}
+                disabled={!search?.count}
                 onClick={() => navigate(-1)}
                 aria-label={t(lang, "transcriptPreviousMatch")}
                 title={t(lang, "transcriptPreviousMatch")}
@@ -632,14 +653,16 @@ export function TranscriptModal({
               </button>
               <button
                 type="button"
-                disabled={!search.count}
+                disabled={!search?.count}
                 onClick={() => navigate(1)}
                 aria-label={t(lang, "transcriptNextMatch")}
                 title={t(lang, "transcriptNextMatch")}
               >
                 ↓
               </button>
-              {transcriptSearch && !search.count && <span>{t(lang, "transcriptNoMatches")}</span>}
+              {transcriptSearch && search?.count === 0 && (
+                <span>{t(lang, "transcriptNoMatches")}</span>
+              )}
             </div>
             <div
               aria-label={t(lang, "transcriptFilter")}
@@ -977,7 +1000,7 @@ function formatTimestampLocal(timestamp: string | number, lang: Lang): string {
     typeof timestamp === "number" && timestamp < 10_000_000_000 ? timestamp * 1_000 : timestamp
   const date = new Date(numeric)
   if (Number.isNaN(date.getTime())) return String(timestamp)
-  return new Intl.DateTimeFormat(lang === "en" ? "en" : "ru", {
+  return new Intl.DateTimeFormat(localeTag(lang), {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(date)

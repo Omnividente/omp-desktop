@@ -790,13 +790,25 @@ async fn fetch_asset(
         asset.size as usize,
     )
     .await?;
-    if bytes.len() as u64 != asset.size
-        || format!("sha256:{:x}", Sha256::digest(&bytes)) != asset.digest
-    {
+    if !metadata_asset_matches(&bytes, asset) {
         return Err("Metadata asset digest/size mismatch".to_owned());
     }
     Ok(bytes)
 }
+
+fn metadata_asset_matches(bytes: &[u8], asset: &ReleaseAsset) -> bool {
+    if bytes.len() as u64 != asset.size {
+        return false;
+    }
+    let mut digest = String::with_capacity(71);
+    digest.push_str("sha256:");
+    for byte in Sha256::digest(bytes) {
+        use std::fmt::Write as _;
+        write!(&mut digest, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    digest == asset.digest
+}
+
 fn public_key(app: &AppHandle) -> Result<String, String> {
     app.config()
         .plugins
@@ -1165,6 +1177,23 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+
+    #[test]
+    fn metadata_bytes_require_exact_size_and_lowercase_sha256() {
+        let mut asset = complete_release().assets.remove(0);
+        asset.size = 3;
+        // SHA-256's standard "abc" vector contains zero-prefixed bytes.
+        asset.digest =
+            "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad".to_owned();
+        assert!(metadata_asset_matches(b"abc", &asset));
+        assert!(!metadata_asset_matches(b"abd", &asset));
+        assert!(!metadata_asset_matches(b"abcd", &asset));
+        asset.size = 2;
+        assert!(!metadata_asset_matches(b"abc", &asset));
+        asset.size = 3;
+        asset.digest.make_ascii_uppercase();
+        assert!(!metadata_asset_matches(b"abc", &asset));
     }
 
     #[test]

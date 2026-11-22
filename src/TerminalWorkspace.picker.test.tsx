@@ -5,7 +5,8 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TerminalWorkspace } from "./TerminalWorkspace"
 import type { TerminalTab } from "./types"
-import type { Lang } from "./i18n"
+import { t, type Lang } from "./i18n"
+import type { RuntimeHealthStatus } from "./runtimeIncidents"
 
 const mounted = vi.hoisted(() => vi.fn())
 const unmounted = vi.hoisted(() => vi.fn())
@@ -53,9 +54,11 @@ const initialTabs = Array.from({ length: 30 }, (_, index) => tab(index))
 function Harness({
   tabs = initialTabs,
   language = "en",
+  runtimeStatusByTerminal = {},
 }: {
   tabs?: TerminalTab[]
   language?: Lang
+  runtimeStatusByTerminal?: Record<string, RuntimeHealthStatus>
 }) {
   const [activeId, setActiveId] = useState("terminal-0")
   return (
@@ -77,7 +80,7 @@ function Harness({
         ompVersion: null,
         sessionRoot: "/synthetic/sessions",
       }}
-      runtimeStatusByTerminal={{}}
+      runtimeStatusByTerminal={runtimeStatusByTerminal}
       selectedSession={null}
       selectedWorkspace={null}
       tabs={tabs}
@@ -328,6 +331,97 @@ describe("open terminal tab search", () => {
     expect(results()).toHaveLength(30)
     expect(focus).not.toHaveBeenCalled()
     expect(effect).not.toHaveBeenCalled()
+  })
+
+  it.each(["en", "ru"] as const)(
+    "shows known session activity separately from process state in %s",
+    (language) => {
+      const tabs = initialTabs.map((entry, index) => ({
+        ...entry,
+        label: "Same task",
+        cwd: "/synthetic/same project",
+        activity: index === 1 || index === 2 ? ("thinking" as const) : entry.activity,
+        status: index === 4 ? ("exited" as const) : entry.status,
+        kind: index === 5 ? ("utility" as const) : entry.kind,
+      }))
+      const runtimeStatusByTerminal = {
+        "terminal-2": "error",
+        "terminal-3": "fallback",
+        "terminal-4": "error",
+      } as const
+      act(() => root.render(<Harness {...{ tabs, language, runtimeStatusByTerminal }} />))
+      const before = JSON.stringify(tabs)
+      const mounts = mounted.mock.calls.length
+      const unmounts = unmounted.mock.calls.length
+      open()
+      expect(results()).toHaveLength(30)
+      expect(results()[0].textContent).toContain(t(language, "terminalTabPickerStateRunning"))
+      expect(results()[0].querySelectorAll("small")).toHaveLength(2)
+      expect(results()[1].textContent).toContain(t(language, "sessionThinkingTitle"))
+      expect(results()[2].textContent).toContain(t(language, "sessionErrorTitle"))
+      expect(results()[2].textContent).not.toContain(t(language, "sessionThinkingTitle"))
+      expect(results()[3].textContent).toContain(t(language, "sessionFallbackTitle"))
+      expect(results()[4].textContent).toContain(t(language, "terminalTabPickerStateExited"))
+      expect(results()[4].textContent).not.toContain(t(language, "sessionErrorTitle"))
+      expect(results()[5].querySelectorAll("small")).toHaveLength(2)
+      expect(results().some((result) => result.querySelector("[aria-live]"))).toBe(false)
+      filterProcessState("running")
+      expect(results()).toHaveLength(29)
+      expect(results()[2].textContent).toContain(t(language, "sessionErrorTitle"))
+      filterProcessState("exited")
+      expect(results()).toHaveLength(1)
+      expect(results()[0].textContent).not.toContain(t(language, "sessionErrorTitle"))
+      expect(mounted).toHaveBeenCalledTimes(mounts)
+      expect(unmounted).toHaveBeenCalledTimes(unmounts)
+      expect(focus).not.toHaveBeenCalled()
+      expect(effect).not.toHaveBeenCalled()
+      expect(JSON.stringify(tabs)).toBe(before)
+    },
+  )
+
+  it("updates known status without changing the focused result, query, process filter or terminal mounts", () => {
+    const tabs = initialTabs.map((entry) =>
+      entry.id === "terminal-29" ? { ...entry, activity: "thinking" as const } : entry,
+    )
+    act(() => root.render(<Harness tabs={tabs} />))
+    open()
+    search("project-29")
+    filterProcessState("running")
+    const result = results()[0]
+    result.focus()
+    const mounts = mounted.mock.calls.length
+    const unmounts = unmounted.mock.calls.length
+    for (const status of ["fallback", "error", "normal"] as const) {
+      act(() =>
+        root.render(<Harness tabs={tabs} runtimeStatusByTerminal={{ "terminal-29": status }} />),
+      )
+      expect(results()).toHaveLength(1)
+      expect(results()[0]).toBe(result)
+      expect(document.activeElement).toBe(result)
+      expect(result.textContent).toContain(
+        t(
+          "en",
+          status === "error"
+            ? "sessionErrorTitle"
+            : status === "fallback"
+              ? "sessionFallbackTitle"
+              : "sessionThinkingTitle",
+        ),
+      )
+      expect(input().value).toBe("project-29")
+      expect(
+        container.querySelector<HTMLSelectElement>(".terminal-tab-picker-state select")?.value,
+      ).toBe("running")
+    }
+    act(() => root.render(<Harness tabs={initialTabs} />))
+    expect(result.querySelectorAll("small")).toHaveLength(2)
+    expect(document.activeElement).toBe(result)
+    expect(mounted).toHaveBeenCalledTimes(mounts)
+    expect(unmounted).toHaveBeenCalledTimes(unmounts)
+    expect(focus).not.toHaveBeenCalled()
+    expect(effect).not.toHaveBeenCalled()
+    act(() => result.click())
+    expect(focus).toHaveBeenCalledExactlyOnceWith("terminal-29")
   })
 
   it("matches canonical text and case without changing the labels or paths", () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from "react"
 import { Icon } from "./Icon"
-import { ModelPassport } from "./ModelPassport"
+import { ModelComparison, ModelPassport } from "./ModelPassport"
 import { catalogModelForSelector } from "./modelPassportMetadata"
 import { statusLabel, t, thinkingLevelLabel, type Lang } from "./i18n"
 import type { OmpModelInfo } from "./types"
@@ -122,7 +122,10 @@ export function ModelPicker({
     () =>
       models.map((model) => ({
         model,
-        searchText: [model.name, model.provider, model.id, model.selector].join(" ").toLowerCase(),
+        searchText: [model.name, model.provider, model.id, model.selector]
+          .join(" ")
+          .normalize("NFC")
+          .toLowerCase(),
         sortKey: `${model.provider}/${model.name}`,
       })),
     [models],
@@ -152,7 +155,7 @@ export function ModelPicker({
     [modelEntries],
   )
   const filteredEntries = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
+    const normalized = query.trim().normalize("NFC").toLowerCase()
     return sortedEntries.filter(
       (entry) =>
         (!imageInputOnly || entry.model.input?.includes("image")) &&
@@ -220,6 +223,24 @@ export function ModelPicker({
     closePicker()
   }
 
+  const focusOption = (index: number) => {
+    const option = optionRefs.current[index]
+    if (!option) return
+    option.focus({ preventScroll: true })
+    // Reveal only inside the catalog, not the surrounding settings dialog or page.
+    const listbox = option.parentElement
+    if (!listbox) return
+    const bounds = listbox.getBoundingClientRect()
+    const optionBounds = option.getBoundingClientRect()
+    const top = bounds.top + listbox.clientTop
+    if (optionBounds.top < top) listbox.scrollTop += optionBounds.top - top
+    else if (optionBounds.bottom > top + listbox.clientHeight)
+      listbox.scrollTop += Math.min(
+        optionBounds.top - top,
+        optionBounds.bottom - top - listbox.clientHeight,
+      )
+  }
+
   const handleListboxKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (filteredEntries.length === 0) return
@@ -240,7 +261,7 @@ export function ModelPicker({
     if (nextIndex !== null) {
       event.preventDefault()
       setActiveIndex(nextIndex)
-      optionRefs.current[nextIndex]?.focus({ preventScroll: true })
+      focusOption(nextIndex)
     }
   }
 
@@ -346,7 +367,7 @@ export function ModelPicker({
                 event.preventDefault()
                 const nextIndex = event.key === "ArrowDown" ? 0 : filteredEntries.length - 1
                 setActiveIndex(nextIndex)
-                optionRefs.current[nextIndex]?.focus({ preventScroll: true })
+                focusOption(nextIndex)
               }}
               placeholder={t(language, "searchModelsPlaceholder")}
               spellCheck={false}
@@ -420,6 +441,12 @@ export function ModelPicker({
               <div className="model-picker-empty">{t(language, "noModelsFound")}</div>
             )}
           </div>
+
+          <ModelComparison
+            selected={selectedModel}
+            candidate={filteredEntries[activeIndex]?.model}
+            language={language}
+          />
 
           {selectorSuggestions && (
             <label className="model-picker-shortcuts">

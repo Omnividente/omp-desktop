@@ -64,6 +64,7 @@ describe.each(["OMP", "Codex"] as const)("%s import keyboard navigation", (kind)
     onClosed?: () => void
   } = {}) {
     const common = {
+      targetPath: "/synthetic/target",
       importing,
       language: "en" as const,
       mode: "skip" as const,
@@ -231,6 +232,7 @@ it("keeps distant Codex sessions keyboard-reachable and selectable without mount
     const [selected, setSelected] = useState<Record<string, boolean>>({})
     return (
       <CodexImportModal
+        targetPath="/synthetic/target"
         language="en"
         loading={false}
         importing={false}
@@ -402,6 +404,7 @@ it("scrolls deferred Codex discovery and preserves reload/close boundaries", asy
     }, [])
     return (
       <CodexImportModal
+        targetPath="/synthetic/target"
         language="en"
         loading={reloading || loaded.length === 0}
         importing={false}

@@ -11,6 +11,8 @@ interface ResourceHealthPanelProps {
   error: string | null
   language: Lang
   onClose: () => void
+  onFocusTerminal: (terminalId: string, processId: number) => boolean
+  onRefresh: () => void
   returnFocusRef: RefObject<HTMLButtonElement | null>
   snapshot: ResourceHealthSnapshot | null
   tabs: readonly Pick<TerminalTab, "id" | "label" | "cwd" | "processId" | "status">[]
@@ -20,11 +22,14 @@ export function ResourceHealthPanel({
   error,
   language,
   onClose,
+  onFocusTerminal,
+  onRefresh,
   returnFocusRef,
   snapshot,
   tabs,
 }: ResourceHealthPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
+  const restoreTriggerFocusRef = useRef(true)
   const panelRef = useRef<HTMLElement>(null)
   const tabById = useMemo(() => new Map(tabs.map((tab) => [tab.id, tab])), [tabs])
 
@@ -62,6 +67,7 @@ export function ResourceHealthPanel({
     closeRef.current?.focus()
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.keyCode === 229) return
       if (event.key === "Escape") {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -100,9 +106,17 @@ export function ResourceHealthPanel({
         else element.setAttribute("aria-hidden", previousAriaHidden)
         if (!hadInert) element.removeAttribute("inert")
       }
-      window.requestAnimationFrame(() => returnFocusTarget?.focus())
+      if (restoreTriggerFocusRef.current) {
+        window.requestAnimationFrame(() => returnFocusTarget?.focus())
+      }
     }
   }, [onClose, returnFocusRef])
+
+  const focusTerminal = (terminalId: string, processId: number) => {
+    if (!restoreTriggerFocusRef.current || !onFocusTerminal(terminalId, processId)) return
+    restoreTriggerFocusRef.current = false
+    onClose()
+  }
 
   const closeOnBackdrop = (event: MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) onClose()
@@ -284,6 +298,17 @@ export function ResourceHealthPanel({
                         )}
                       </div>
                       <strong>{formatBytes(process.residentBytes)}</strong>
+                      {currentTab && (
+                        <button
+                          aria-label={`${t(language, "resourceOpenTerminal")}: ${currentTab.label} · ${currentTab.cwd}`}
+                          className="button secondary resource-open-terminal"
+                          onClick={() => focusTerminal(currentTab.id, process.processId)}
+                          type="button"
+                        >
+                          <Icon name="terminal" size={13} />
+                          {t(language, "resourceOpenTerminal")}
+                        </button>
+                      )}
                     </div>
                   )
                 })}
@@ -293,16 +318,28 @@ export function ResourceHealthPanel({
           </div>
         )}
 
-        {snapshot && (
-          <footer className="resource-panel-footer">
-            {t(language, "resourceMeasuredAt").replace(
-              "{time}",
-              new Date(snapshot.sampledAt).toLocaleTimeString(
-                language === "ru" ? "ru-RU" : "en-US",
-              ),
-            )}
-          </footer>
-        )}
+        <footer className="resource-panel-footer">
+          <button
+            className="button secondary"
+            aria-disabled={!snapshot && !error}
+            onClick={() => {
+              if (snapshot || error) onRefresh()
+            }}
+            type="button"
+          >
+            {t(language, "resourceRefresh")}
+          </button>
+          {snapshot && (
+            <span>
+              {t(language, "resourceMeasuredAt").replace(
+                "{time}",
+                new Date(snapshot.sampledAt).toLocaleTimeString(
+                  language === "ru" ? "ru-RU" : language === "zh" ? "zh-CN" : "en-US",
+                ),
+              )}
+            </span>
+          )}
+        </footer>
       </section>
     </div>
   )

@@ -25,6 +25,26 @@ afterEach(() => {
 })
 
 describe("backend error codes", () => {
+  it.each([
+    ["ru", "Не удалось зафиксировать название сессии"],
+    ["en", "Failed to save the session title"],
+    ["zh", "保存会话标题失败"],
+  ] as const)(
+    "localizes native session-title save failures in %s without exposing details",
+    (lang, expected) => {
+      const error = {
+        code: "session_title_pin_failed",
+        message: "Не удалось зафиксировать название сессии",
+        details: "/synthetic/private/settings.json: write failed",
+      }
+      expect(errorMessage(error, lang)).toBe(expected)
+      expect(errorMessage(JSON.stringify(error), lang)).toBe(expected)
+      expect(errorMessage(error, lang, { includeDetails: true })).toBe(
+        `${expected}: ${error.details}`,
+      )
+    },
+  )
+
   it("classifies a terminal restart that failed after stopping the old process", () => {
     const error = "[terminal_restart_stopped] Не удалось запустить OMP"
 
@@ -59,6 +79,19 @@ describe("backend error codes", () => {
 
     expect(errorMessage(error, "ru")).toBe("Сначала остановите активную сессию OMP")
     expect(errorMessage(error, "en")).toBe("Stop the active OMP session before deleting it")
+  })
+
+  it("keeps Chinese error classification and literal details without a Russian fallback", () => {
+    const details = " /synthetic/路径/$&/history.jsonl "
+    const error = { code: "settings_save_failed", message: "Сбой сохранения", details }
+    expect(errorMessage(error, "zh")).toBe("保存设置失败")
+    expect(errorMessage(error, "zh", { includeDetails: true })).toBe(
+      `保存设置失败: ${details.trim()}`,
+    )
+    expect(errorMessage(undefined, "zh")).toBe("未知错误")
+    expect(errorMessage({ code: "future_error", message: "Literal native detail" }, "zh")).toBe(
+      "Literal native detail",
+    )
   })
 
   it("exposes bounded failure reasons only when a caller requests details", () => {

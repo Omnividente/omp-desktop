@@ -76,3 +76,45 @@ it("preserves escaped literal brackets in a label", () => {
   const links = contentLinks(String.raw`[a\[b](local://path)`)
   expect(links.map(({ label, uri }) => [label, uri])).toEqual([[String.raw`a\[b`, "local://path"]])
 })
+
+it.each(["http://[::1]", "https://[2001:db8::1]"])(
+  "preserves the closing bracket of bare IPv6 authority %s",
+  (uri) => {
+    for (const suffix of ["", ".", ",", ";", "]", ")", " trailing text"]) {
+      const links = contentLinks(`${uri}${suffix}`)
+      expect(links).toEqual([{ start: 0, end: uri.length, label: uri, uri }])
+    }
+    const links = contentLinks(`${uri}[Label](local://path)`)
+    expect(links.map(({ uri }) => uri)).toEqual([uri, "local://path"])
+    expect(links[0].end).toBe(links[1].start)
+  },
+)
+
+it.each([
+  "http://[::1]/path",
+  "http://[::1]:8080",
+  "http://[::1]?q=value",
+  "http://[::1]#section",
+  "http://[::ffff:192.0.2.1]",
+])("does not shorten an IPv6 URL continuation: %s", (uri) => {
+  expect(contentLinks(uri).map(({ uri }) => uri)).toEqual([uri])
+})
+
+it.each([
+  "http://example.test/report",
+  "https://example.test/report",
+  "file:///tmp/report.md",
+  "local://report.md",
+  "artifact://12",
+])("keeps asterisk delimiters out of bare destination %s", (uri) => {
+  for (const suffix of ["*", "**", "*note", "*. trailing text"]) {
+    expect(contentLinks(`**${uri}${suffix}`)).toEqual([
+      { start: 2, end: 2 + uri.length, label: uri, uri },
+    ])
+  }
+})
+
+it("preserves literal asterisks in explicitly labelled destinations", () => {
+  const uri = "local://report*.md"
+  expect(contentLinks(`[Report](${uri})`).map(({ uri }) => uri)).toEqual([uri])
+})

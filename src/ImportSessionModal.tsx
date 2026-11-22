@@ -1,6 +1,7 @@
 import { useRef } from "react"
 import { Icon } from "./Icon"
 import { ImportModeSelect } from "./ImportModeSelect"
+import { ImportProject } from "./ImportProject"
 import { t, type Lang } from "./i18n"
 import type { ImportMode } from "./types"
 import { useModalFocus } from "./useModalFocus"
@@ -9,6 +10,7 @@ interface ImportSessionModalProps {
   importing: boolean
   language: Lang
   mode: ImportMode
+  targetPath: string | null
   path: string
   onClose: () => void
   onImport: () => void
@@ -19,6 +21,7 @@ export function ImportSessionModal({
   importing,
   language,
   mode,
+  targetPath,
   path,
   onClose,
   onImport,
@@ -58,6 +61,7 @@ export function ImportSessionModal({
           </button>
         </header>
         <div className="settings-scroll">
+          <ImportProject language={language} targetPath={targetPath} />
           <p className="field-help">{path}</p>
           <ImportModeSelect
             disabled={importing}
@@ -70,7 +74,12 @@ export function ImportSessionModal({
           <button className="button secondary" disabled={importing} onClick={close} type="button">
             {t(language, "cancel")}
           </button>
-          <button className="button primary" disabled={importing} onClick={onImport} type="button">
+          <button
+            className="button primary"
+            disabled={importing || !targetPath}
+            onClick={onImport}
+            type="button"
+          >
             {importing ? t(language, "saving") : t(language, "importFile")}
           </button>
         </footer>

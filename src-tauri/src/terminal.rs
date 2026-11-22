@@ -125,9 +125,9 @@ impl Drop for WindowsJobObject {
     }
 }
 
-/// Префикс имени файла breadcrumb, который OMP-агент пишет для привязки terminal_id к сессии.
+/// Префикс fallback breadcrumb для TERM_SESSION_ID; Unix предпочитает имя выделенного PTY.
 /// Wire contract (не менять без доказанного стабильного OMP RPC):
-///   Файл: <terminal-sessions>/apple-{terminal_id}
+///   Файл: <terminal-sessions>/<TTY key>, например pts-42, или apple-{terminal_id}.
 ///   Содержимое (две строки, без кавычек):
 ///     <cwd проекта>\n
 ///     <полный путь к session.jsonl>\n
@@ -494,6 +494,7 @@ struct TerminalProcess {
     session_lease: Option<SessionLease>,
     terminal_sessions_dir: PathBuf,
     breadcrumb_snapshot: HashMap<PathBuf, u128>,
+    breadcrumb_name: String,
     output: SharedTerminalOutput,
     exit_pending: bool,
     exited: bool,
@@ -607,7 +608,7 @@ impl Drop for TerminalProcess {
         }
         if !self.exited && !self.exit_pending {
             if let Some(killer) = self.killer.as_mut() {
-                let _ = kill_terminal_process(killer.as_mut());
+                let _ = killer.kill();
             }
         }
     }
@@ -626,7 +627,7 @@ impl PreparedSessionDeletion<'_> {
         &self.key
     }
 
-    pub(crate) fn commit(self) -> Result<(), String> {
+    pub(crate) fn commit(self) -> Result<crate::session_deletion::DeleteOutcome, String> {
         crate::sessions::delete_session(&self.canonical, &self.root, &self._lease)
     }
 }
@@ -643,11 +644,11 @@ impl TerminalState {
         let active = {
             let processes = lock_processes(self);
             processes
-                .iter()
-                .filter(|(_, process)| !process.exited)
-                .map(|(terminal_id, process)| {
+                .values()
+                .filter(|process| !process.exited)
+                .map(|process| {
                     (
-                        terminal_id.clone(),
+                        process.breadcrumb_name.clone(),
                         process.resume_path.clone(),
                         process.pending_resume_path.clone(),
                         process.cwd.clone(),
@@ -658,7 +659,7 @@ impl TerminalState {
                 .collect::<Vec<_>>()
         };
         let mut active_paths = HashSet::new();
-        for (terminal_id, resume_path, pending_path, cwd, directory, snapshot) in active {
+        for (breadcrumb_name, resume_path, pending_path, cwd, directory, snapshot) in active {
             for path in [resume_path.as_deref(), pending_path.as_deref()]
                 .into_iter()
                 .flatten()
@@ -667,7 +668,7 @@ impl TerminalState {
             }
             // A fresh writer can materialize its first JSONL before the discovery tick.
             if let Some(path) = resolve_resume_path_for_current(
-                &terminal_id,
+                &breadcrumb_name,
                 &cwd,
                 &directory,
                 &snapshot,
@@ -697,7 +698,7 @@ impl TerminalState {
     }
     fn is_session_active(&self, path: &str) -> bool {
         let key = path_key(path);
-        lock_processes(self).iter().any(|(terminal_id, process)| {
+        lock_processes(self).values().any(|process| {
             !process.exited
                 && ([
                     process.resume_path.as_deref(),
@@ -707,7 +708,7 @@ impl TerminalState {
                 .flatten()
                 .any(|path| path_key(path) == key)
                     || resolve_resume_path_for_current(
-                        terminal_id,
+                        &process.breadcrumb_name,
                         &process.cwd,
                         &process.terminal_sessions_dir,
                         &process.breadcrumb_snapshot,
@@ -755,7 +756,7 @@ impl TerminalState {
     ) -> Result<String, String> {
         let deletion = self.prepare_inactive_session_deletion(path, root, force_session_lease)?;
         let key = deletion.key().to_owned();
-        deletion.commit()?;
+        crate::session_deletion::settle(deletion.commit(), || Ok(()))?;
         Ok(key)
     }
 }
@@ -789,20 +790,6 @@ fn try_lock_session_files(state: &TerminalState) -> Option<std::sync::MutexGuard
         Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
         Err(std::sync::TryLockError::WouldBlock) => None,
     }
-}
-
-fn kill_terminal_process(killer: &mut dyn ChildKiller) -> std::io::Result<()> {
-    let result = killer.kill();
-    #[cfg(windows)]
-    if result
-        .as_ref()
-        .is_err_and(|error| error.raw_os_error() == Some(0))
-    {
-        // portable-pty 0.9.0 checks the Win32 TerminateProcess BOOL in reverse
-        // for cloned killers. Upstream main fixes this, but no fixed crate exists yet.
-        return Ok(());
-    }
-    result
 }
 
 #[derive(Debug, Deserialize)]
@@ -1204,7 +1191,7 @@ fn set_terminal_primary_provider_pin_blocking(
 ) -> Result<TerminalStarted, String> {
     let terminals = app.state::<TerminalState>();
     let settings_state = app.state::<SettingsState>();
-    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+    let (known_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot, breadcrumb_name) = {
         let processes = lock_processes(&terminals);
         let process = processes
             .get(&request.terminal_id)
@@ -1229,6 +1216,7 @@ fn set_terminal_primary_provider_pin_blocking(
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
+            process.breadcrumb_name.clone(),
         )
     };
 
@@ -1239,7 +1227,7 @@ fn set_terminal_primary_provider_pin_blocking(
             .clone()
             .or_else(|| {
                 resolve_resume_path(
-                    &request.terminal_id,
+                    &breadcrumb_name,
                     &cwd,
                     &terminal_sessions_dir,
                     &breadcrumb_snapshot,
@@ -1332,7 +1320,14 @@ fn switch_terminal_blocking(
 ) -> Result<TerminalRuntime, TerminalSwitchError> {
     validate_switch_request(&request).map_err(TerminalSwitchError::from)?;
     let terminals = app.state::<TerminalState>();
-    let (known_resume_path, pending_resume_path, cwd, terminal_sessions_dir, breadcrumb_snapshot) = {
+    let (
+        known_resume_path,
+        pending_resume_path,
+        cwd,
+        terminal_sessions_dir,
+        breadcrumb_snapshot,
+        breadcrumb_name,
+    ) = {
         let processes = lock_processes(&terminals);
         let process = processes.get(&request.terminal_id).ok_or_else(|| {
             TerminalSwitchError::new(
@@ -1371,6 +1366,7 @@ fn switch_terminal_blocking(
             process.cwd.clone(),
             process.terminal_sessions_dir.clone(),
             process.breadcrumb_snapshot.clone(),
+            process.breadcrumb_name.clone(),
         )
     };
     let resume_path = known_resume_path
@@ -1378,7 +1374,7 @@ fn switch_terminal_blocking(
         .or_else(|| pending_resume_path.clone())
         .or_else(|| {
             resolve_resume_path(
-                &request.terminal_id,
+                &breadcrumb_name,
                 &cwd,
                 &terminal_sessions_dir,
                 &breadcrumb_snapshot,
@@ -1396,7 +1392,7 @@ fn switch_terminal_blocking(
             .as_deref()
             .is_some_and(|pending| path_key(pending) == path_key(&resume_path))
             || is_pending_fresh_breadcrumb(
-                &request.terminal_id,
+                &breadcrumb_name,
                 &cwd,
                 &terminal_sessions_dir,
                 &resume_path,
@@ -2328,6 +2324,11 @@ fn spawn_terminal_process(
     let pair = pty_system
         .openpty(size)
         .map_err(|error| format!("Не удалось создать PTY: {error}"))?;
+    #[cfg(unix)]
+    let breadcrumb_name =
+        breadcrumb_name_for_terminal(&terminal_id, pair.master.tty_name().as_deref());
+    #[cfg(not(unix))]
+    let breadcrumb_name = breadcrumb_name_for_terminal(&terminal_id, None);
     #[cfg(windows)]
     let containment = match WindowsJobObject::new() {
         Ok(job) => job,
@@ -2462,6 +2463,7 @@ fn spawn_terminal_process(
         session_lease,
         terminal_sessions_dir,
         breadcrumb_snapshot,
+        breadcrumb_name,
         output: output.clone(),
         exit_pending: false,
         exited: false,
@@ -2546,23 +2548,34 @@ fn breadcrumb_modified(path: &Path) -> Option<u128> {
         .map(|duration| duration.as_nanos())
 }
 
+fn breadcrumb_name_for_terminal(terminal_id: &str, tty_name: Option<&Path>) -> String {
+    // OMP prefers its actual stdin TTY identity over TERM_SESSION_ID on Unix.
+    // Only the PTY allocated for this process is eligible; never scan other terminals.
+    tty_name
+        .and_then(Path::to_str)
+        .and_then(|path| path.strip_prefix("/dev/"))
+        .filter(|path| !path.is_empty())
+        .map(|path| path.replace('/', "-"))
+        .unwrap_or_else(|| format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"))
+}
+
 fn resolve_resume_path(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
 ) -> Option<String> {
-    resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, None)
+    resolve_resume_path_for_current(breadcrumb_name, cwd, directory, snapshot, None)
 }
 
 fn resolve_resume_path_for_current(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
     current_path: Option<&str>,
 ) -> Option<String> {
-    let direct = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    let direct = directory.join(breadcrumb_name);
     if !breadcrumb_changed(&direct, snapshot) {
         return None;
     }
@@ -2599,12 +2612,12 @@ fn read_breadcrumb(path: &Path, cwd: &str) -> Option<String> {
 }
 
 fn is_pending_fresh_breadcrumb(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     expected_path: &str,
 ) -> bool {
-    let breadcrumb = directory.join(format!("{BREADCRUMB_FILE_PREFIX}{terminal_id}"));
+    let breadcrumb = directory.join(breadcrumb_name);
     read_breadcrumb_state(&breadcrumb, cwd).is_some_and(|(session_path, fresh)| {
         fresh
             && path_key(&session_path) == path_key(expected_path)
@@ -2623,14 +2636,14 @@ enum SessionDiscovery {
 }
 
 fn discover_session(
-    terminal_id: &str,
+    breadcrumb_name: &str,
     cwd: &str,
     directory: &Path,
     snapshot: &HashMap<PathBuf, u128>,
     current_path: Option<&str>,
 ) -> Option<SessionDiscovery> {
     let resume_path =
-        resolve_resume_path_for_current(terminal_id, cwd, directory, snapshot, current_path)?;
+        resolve_resume_path_for_current(breadcrumb_name, cwd, directory, snapshot, current_path)?;
     if !Path::new(&resume_path).is_file() {
         return Some(SessionDiscovery::PendingFresh { resume_path });
     }
@@ -2680,10 +2693,10 @@ fn apply_handoff_session_titles(
             &mut previous_session,
             &transaction.candidate().session_title_pins,
         );
-        let archive_label = if transaction.candidate().language == "en" {
-            "archive"
-        } else {
-            "архив"
+        let archive_label = match transaction.candidate().language.as_str() {
+            "en" => "archive",
+            "zh" => "归档",
+            _ => "архив",
         };
         let previous_path_string = previous_path.to_string_lossy().into_owned();
         let active_path_string = active_path.to_string_lossy().into_owned();
@@ -2750,10 +2763,11 @@ fn poll_resume_path_locked(terminal_id: &str, state: &TerminalState) -> ResumePa
             process.breadcrumb_snapshot.clone(),
             process.resume_path.clone(),
             process.output.clone(),
+            process.breadcrumb_name.clone(),
         )
     };
     let Some(discovery) = discover_session(
-        terminal_id,
+        &context.5,
         &context.0,
         &context.1,
         &context.2,
@@ -2859,7 +2873,7 @@ fn finish_resume_path_poll(app: &AppHandle, terminal_id: &str, poll: ResumePathP
             let state = app.state::<TerminalState>();
             if let Some(process) = lock_processes(&state).get_mut(terminal_id) {
                 if let Some(killer) = process.killer.as_mut() {
-                    let _ = kill_terminal_process(killer.as_mut());
+                    let _ = killer.kill();
                 }
             }
             return true;
@@ -4418,7 +4432,8 @@ fn stop_terminal_for_restart(terminal_id: &str, terminals: &TerminalState) -> Re
                 .killer
                 .as_mut()
                 .ok_or_else(|| "Процесс OMP нельзя остановить".to_owned())?;
-            kill_terminal_process(killer.as_mut())
+            killer
+                .kill()
                 .map_err(|error| format!("Не удалось остановить процесс OMP: {error}"))?;
             process.exit_pending = true;
         }
@@ -4447,7 +4462,11 @@ pub fn close_terminal(
     terminal_id: String,
     terminals: State<'_, TerminalState>,
 ) -> Result<(), String> {
-    let process = lock_processes(&terminals).remove(&terminal_id);
+    close_terminal_in_state(&terminal_id, &terminals)
+}
+
+fn close_terminal_in_state(terminal_id: &str, terminals: &TerminalState) -> Result<(), String> {
+    let process = lock_processes(terminals).remove(terminal_id);
     drop(process);
     Ok(())
 }
@@ -4654,27 +4673,22 @@ fn run_output_pipeline<Output, Exit>(
     exit(event);
 }
 
-fn finalize_terminal_exit(
-    app: &AppHandle,
+fn finalize_terminal_exit_in_state(
+    state: &TerminalState,
     terminal_id: &str,
     output: &SharedTerminalOutput,
-    event: PtyExitEvent,
-) {
-    let runtime_error = event
-        .output_truncated
-        .then(|| event.error.clone())
-        .flatten();
+    event: &PtyExitEvent,
+) -> bool {
     let session_lease = {
-        let state = app.state::<TerminalState>();
-        let mut processes = lock_processes(&state);
+        let mut processes = lock_processes(state);
         let Some(process) = processes
             .get_mut(terminal_id)
             .filter(|process| Arc::ptr_eq(&process.output, output))
         else {
-            return;
+            return false;
         };
         if process.exited {
-            return;
+            return false;
         }
         process.exit_pending = false;
         process.exited = true;
@@ -4688,10 +4702,24 @@ fn finalize_terminal_exit(
         process.session_lease.take()
     };
     drop(session_lease);
+    true
+}
 
+fn finalize_terminal_exit(
+    app: &AppHandle,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    event: PtyExitEvent,
+) {
+    if !finalize_terminal_exit_in_state(&app.state::<TerminalState>(), terminal_id, output, &event)
+    {
+        return;
+    }
     if lock_terminal_output(output).has_attachment() {
-        if let Some(error) = runtime_error {
-            emit_runtime_error(app, terminal_id, error);
+        if event.output_truncated {
+            if let Some(error) = event.error.clone() {
+                emit_runtime_error(app, terminal_id, error);
+            }
         }
         let _ = app.emit("pty-exit", event);
     }
@@ -4736,6 +4764,16 @@ fn forward_output_batches(
     let _ = finalized_sender.send(());
 }
 
+fn read_terminal_chunk(reader: &mut dyn Read, buffer: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        match reader.read(buffer) {
+            // An interrupted read consumes no bytes and does not end the PTY stream.
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => return result,
+        }
+    }
+}
+
 fn spawn_reader(
     app: AppHandle,
     terminal_id: String,
@@ -4769,7 +4807,7 @@ fn spawn_reader(
         .spawn(move || {
             let mut buffer = [0_u8; 8192];
             loop {
-                match reader.read(&mut buffer) {
+                match read_terminal_chunk(reader.as_mut(), &mut buffer) {
                     Ok(0) => break,
                     Ok(read) => {
                         if output_sender.send(buffer[..read].to_vec()).is_err() {
@@ -4796,6 +4834,63 @@ fn spawn_reader(
     })
 }
 
+fn terminal_child_exit_event(
+    terminal_id: &str,
+    status: std::io::Result<portable_pty::ExitStatus>,
+) -> PtyExitEvent {
+    match status {
+        Ok(status) => PtyExitEvent {
+            terminal_id: terminal_id.to_owned(),
+            exit_code: Some(status.exit_code()),
+            success: status.success(),
+            error: status.signal().map(|signal| format!("Сигнал: {signal}")),
+            output_truncated: false,
+        },
+        Err(error) => PtyExitEvent {
+            terminal_id: terminal_id.to_owned(),
+            exit_code: None,
+            success: false,
+            error: Some(error.to_string()),
+            output_truncated: false,
+        },
+    }
+}
+
+fn release_terminal_io_after_wait(
+    state: &TerminalState,
+    terminal_id: &str,
+    output: &SharedTerminalOutput,
+    wait_failed: bool,
+) -> bool {
+    let (master, writer, mut killer) = {
+        let mut processes = lock_processes(state);
+        let Some(process) = processes
+            .get_mut(terminal_id)
+            .filter(|process| Arc::ptr_eq(&process.output, output))
+        else {
+            return false;
+        };
+        process.exit_pending = true;
+        (
+            process.master.take(),
+            process.writer.take(),
+            process.killer.take(),
+        )
+    };
+    if wait_failed {
+        if let Some(killer) = killer.as_mut() {
+            let _ = killer.kill();
+        }
+    }
+    if let Some(writer) = writer.as_ref() {
+        writer.close();
+    }
+    drop(writer);
+    drop(master);
+    drop(killer);
+    true
+}
+
 fn spawn_waiter<F>(
     app: AppHandle,
     terminal_id: String,
@@ -4810,22 +4905,7 @@ where
         .spawn(move || {
             let status = wait();
             let wait_failed = status.is_err();
-            let event = match status {
-                Ok(status) => PtyExitEvent {
-                    terminal_id: terminal_id.clone(),
-                    exit_code: Some(status.exit_code()),
-                    success: status.success(),
-                    error: status.signal().map(|signal| format!("Сигнал: {signal}")),
-                    output_truncated: false,
-                },
-                Err(error) => PtyExitEvent {
-                    terminal_id: terminal_id.clone(),
-                    exit_code: None,
-                    success: false,
-                    error: Some(error.to_string()),
-                    output_truncated: false,
-                },
-            };
+            let event = terminal_child_exit_event(&terminal_id, status);
 
             // Preserve the last breadcrumb for very short-lived sessions without
             // putting filesystem work back into the PTY output hot path. A pin
@@ -4842,34 +4922,14 @@ where
                 }
             }
 
-            let (master, writer, mut killer) = {
-                let state = app.state::<TerminalState>();
-                let mut processes = lock_processes(&state);
-                let Some(process) = processes
-                    .get_mut(&terminal_id)
-                    .filter(|process| Arc::ptr_eq(&process.output, &exit_signal.output))
-                else {
-                    return;
-                };
-                process.exit_pending = true;
-                (
-                    process.master.take(),
-                    process.writer.take(),
-                    process.killer.take(),
-                )
-            };
-
-            if wait_failed {
-                if let Some(killer) = killer.as_mut() {
-                    let _ = kill_terminal_process(killer.as_mut());
-                }
+            if !release_terminal_io_after_wait(
+                &app.state::<TerminalState>(),
+                &terminal_id,
+                &exit_signal.output,
+                wait_failed,
+            ) {
+                return;
             }
-            if let Some(writer) = writer.as_ref() {
-                writer.close();
-            }
-            drop(writer);
-            drop(master);
-            drop(killer);
 
             let fallback_event = event.clone();
             if let Err(error) = exit_signal.event_sender.send(event) {
@@ -5241,21 +5301,25 @@ mod tests {
                 .join(std::path::Path::new(&path).file_name().unwrap())
                 .to_string_lossy()
                 .into_owned();
-            for active_kind in ["resume", "pending", "breadcrumb"] {
+            for active_kind in ["resume", "pending", "breadcrumb", "tty-breadcrumb"] {
                 let mut process = terminal_process(None, None);
                 match active_kind {
                     "resume" => process.resume_path = Some(alias.clone()),
                     "pending" => process.pending_resume_path = Some(alias.clone()),
                     _ => {
                         process.terminal_sessions_dir = root.clone();
+                        if active_kind == "tty-breadcrumb" {
+                            process.breadcrumb_name = "pts-42".to_owned();
+                        }
                         fs::write(
-                            root.join("apple-terminal-1"),
+                            root.join(&process.breadcrumb_name),
                             format!("/tmp/project\n{alias}\nfresh\n"),
                         )
                         .unwrap();
                     }
                 }
                 lock_processes(&state).insert("terminal-1".to_owned(), process);
+                assert!(state.is_session_active(&path), "{active_kind}");
                 let refused = state
                     .import_sessions(&[request.clone()], &session_root)
                     .remove(0);
@@ -5586,10 +5650,11 @@ mod tests {
     }
 
     use super::{
-        append_switch_input, begin_terminal_switch, breadcrumb_modified, build_omp_command,
-        cli_path_arg, decode_terminal_binary, discard_switch_input_recovery_from_state,
-        discover_session, drain_output_batches, encode_session_dir_name, feed_runtime_lines,
-        finalize_switch_result, initial_agent_args_with_config, initial_terminal_args_with_config,
+        append_switch_input, begin_terminal_switch, breadcrumb_modified,
+        breadcrumb_name_for_terminal, build_omp_command, cli_path_arg, decode_terminal_binary,
+        discard_switch_input_recovery_from_state, discover_session, drain_output_batches,
+        encode_session_dir_name, feed_runtime_lines, finalize_switch_result,
+        initial_agent_args_with_config, initial_terminal_args_with_config,
         is_pending_fresh_breadcrumb, lock_processes, lock_session_files, lock_terminal_output,
         model_switch_input, normalize_thinking_level, output_event_name, pending_fresh_switch_plan,
         poll_resume_path_locked, poll_runtime_file, publish_discovered_session, read_runtime_tail,
@@ -5605,11 +5670,9 @@ mod tests {
         MAX_RUNTIME_EVENT_LINE, MAX_SWITCH_INPUT_BUFFER, OMP_THINKING_CYCLE_ESC,
         PTY_OUTPUT_BATCH_INTERVAL, PTY_OUTPUT_BATCH_LIMIT,
     };
+    use super::{native_pty_system, CommandBuilder, PtySize};
     #[cfg(windows)]
-    use super::{
-        kill_terminal_process, native_pty_system, CommandBuilder, PtySize, RuntimeFileIdentity,
-        WindowsJobObject,
-    };
+    use super::{RuntimeFileIdentity, WindowsJobObject};
     #[cfg(windows)]
     use std::time::Instant;
     use std::{
@@ -5618,7 +5681,7 @@ mod tests {
         ffi::OsStr,
         fs,
         io::{self, Seek, SeekFrom, Write},
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::{mpsc, Arc, Mutex},
         thread,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -5733,7 +5796,7 @@ mod tests {
                 return;
             };
             if !matches!(child.try_wait(), Ok(Some(_))) {
-                let _ = kill_terminal_process(self.killer.as_mut());
+                let _ = self.killer.kill();
             }
             let _ = child.wait();
         }
@@ -5776,6 +5839,7 @@ mod tests {
             session_lease: None,
             terminal_sessions_dir: PathBuf::new(),
             breadcrumb_snapshot: HashMap::new(),
+            breadcrumb_name: "apple-terminal-1".to_owned(),
             output: Arc::new(Mutex::new(TerminalOutputState::new(7))),
             exit_pending: false,
             exited: false,
@@ -6078,6 +6142,108 @@ mod tests {
             .err()
             .expect("future sequence must be rejected");
         assert!(error.starts_with("[terminal_sequence_invalid] "));
+    }
+
+    struct ScriptedPtyReader {
+        reads: std::vec::IntoIter<io::Result<Vec<u8>>>,
+        calls: usize,
+    }
+
+    impl io::Read for ScriptedPtyReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.calls += 1;
+            let bytes = self.reads.next().expect("unexpected read")?;
+            assert!(bytes.len() <= buffer.len());
+            buffer[..bytes.len()].copy_from_slice(&bytes);
+            Ok(bytes.len())
+        }
+    }
+
+    #[test]
+    fn terminal_reader_retries_interruptions_without_losing_output() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(vec![0xf0, 0x9f]),
+                Err(io::ErrorKind::Interrupted.into()),
+                Err(io::ErrorKind::Interrupted.into()),
+                Ok(vec![0x99, 0x82, b'\n']),
+                Ok(Vec::new()),
+            ]
+            .into_iter(),
+            calls: 0,
+        };
+        let mut buffer = [0_u8; 8192];
+        let mut output = Vec::new();
+        loop {
+            let read = super::read_terminal_chunk(&mut reader, &mut buffer).unwrap();
+            if read == 0 {
+                break;
+            }
+            output.extend_from_slice(&buffer[..read]);
+        }
+        assert_eq!(output, [0xf0, 0x9f, 0x99, 0x82, b'\n']);
+        assert_eq!(reader.calls, 6);
+    }
+
+    #[test]
+    fn terminal_reader_preserves_immediate_eof() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![Ok(Vec::new()), Ok(b"not read".to_vec())].into_iter(),
+            calls: 0,
+        };
+        assert_eq!(
+            super::read_terminal_chunk(&mut reader, &mut [0_u8; 32]).unwrap(),
+            0
+        );
+        assert_eq!(reader.calls, 1);
+        assert_eq!(reader.reads.len(), 1);
+    }
+
+    #[test]
+    fn terminal_reader_preserves_eof_after_interruption() {
+        let mut reader = ScriptedPtyReader {
+            reads: vec![Err(io::ErrorKind::Interrupted.into()), Ok(Vec::new())].into_iter(),
+            calls: 0,
+        };
+        assert_eq!(
+            super::read_terminal_chunk(&mut reader, &mut [0_u8; 32]).unwrap(),
+            0
+        );
+        assert_eq!(reader.calls, 2);
+    }
+
+    #[test]
+    fn terminal_reader_returns_other_errors_without_retrying() {
+        for kind in [
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::TimedOut,
+            io::ErrorKind::Other,
+        ] {
+            let mut reader = ScriptedPtyReader {
+                reads: vec![
+                    Ok(b"before".to_vec()),
+                    Err(io::ErrorKind::Interrupted.into()),
+                    Err(io::Error::new(kind, "synthetic read failure")),
+                    Ok(b"not read".to_vec()),
+                ]
+                .into_iter(),
+                calls: 0,
+            };
+            let mut buffer = [0_u8; 32];
+            assert_eq!(
+                super::read_terminal_chunk(&mut reader, &mut buffer).unwrap(),
+                6
+            );
+            assert_eq!(&buffer[..6], b"before");
+            let error = super::read_terminal_chunk(&mut reader, &mut buffer).unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(error.to_string(), "synthetic read failure");
+            assert_eq!(reader.calls, 3);
+            assert_eq!(reader.reads.len(), 1);
+        }
     }
 
     struct BlockingWriter {
@@ -6448,7 +6614,7 @@ mod tests {
             "writer fixture should fill the ConPTY input buffer"
         );
 
-        kill_terminal_process(killer.as_mut()).expect("sleeping child should be killable");
+        killer.kill().expect("sleeping child should be killable");
         writer.close();
         finished_receiver
             .recv_timeout(Duration::from_secs(5))
@@ -6882,7 +7048,7 @@ mod tests {
         .expect("fresh breadcrumb should be writable");
 
         assert!(is_pending_fresh_breadcrumb(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &root,
             &session_file.to_string_lossy(),
@@ -6890,7 +7056,7 @@ mod tests {
 
         fs::write(&session_file, "session data").expect("session file should materialize");
         assert!(!is_pending_fresh_breadcrumb(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &root,
             &session_file.to_string_lossy(),
@@ -7231,6 +7397,99 @@ mod tests {
         );
         assert!(session_title_from_line(br#"{"type":"title_change","title":"   "}"#).is_none());
         assert!(session_title_from_line(br#"{"type":"message","title":"ignored"}"#).is_none());
+    }
+
+    #[test]
+    fn breadcrumb_identity_matches_tty_before_environment_fallback() {
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", Some(Path::new("/dev/pts/42"))),
+            "pts-42"
+        );
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", Some(Path::new("/dev/ttys003"))),
+            "ttys003"
+        );
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", None),
+            "apple-terminal-1"
+        );
+        assert_eq!(
+            breadcrumb_name_for_terminal("terminal-1", Some(Path::new("invalid"))),
+            "apple-terminal-1"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_pty_breadcrumb_matches_child_and_discovers_only_own_session() {
+        let root = std::env::temp_dir().join(format!(
+            "omp-pty-breadcrumb-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let own_name =
+            breadcrumb_name_for_terminal("synthetic-terminal", pair.master.tty_name().as_deref());
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.arg("-c");
+        command.arg("p=$(tty); p=${p#/dev/}; printf '%s' \"$p\" | tr / -");
+        command.env("TERM_SESSION_ID", "synthetic-terminal");
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        assert!(child.wait().unwrap().success());
+        let mut bytes = vec![0_u8; own_name.len()];
+        reader.read_exact(&mut bytes).unwrap();
+        assert_eq!(String::from_utf8_lossy(&bytes), own_name);
+        assert_ne!(own_name, "apple-synthetic-terminal");
+        let session_path = root.join("own.jsonl");
+        fs::write(
+            &session_path,
+            "{\"type\":\"session\",\"id\":\"own\",\"cwd\":\"/tmp/project\"}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join(&own_name),
+            format!("/tmp/project\n{}\n", session_path.display()),
+        )
+        .unwrap();
+        assert!(discover_session(
+            "apple-synthetic-terminal",
+            "/tmp/project",
+            &root,
+            &HashMap::new(),
+            None
+        )
+        .is_none());
+        let Some(SessionDiscovery::Ready { session, .. }) =
+            discover_session(&own_name, "/tmp/project", &root, &HashMap::new(), None)
+        else {
+            panic!("actual PTY breadcrumb must discover the session")
+        };
+        assert_eq!(session.id, "own");
+        let stale = super::snapshot_breadcrumbs(&root);
+        assert!(discover_session(&own_name, "/tmp/project", &root, &stale, None).is_none());
+        fs::write(
+            root.join("pts-other"),
+            format!("/tmp/project\n{}\n", session_path.display()),
+        )
+        .unwrap();
+        fs::remove_file(root.join(&own_name)).unwrap();
+        assert!(
+            discover_session(&own_name, "/tmp/project", &root, &HashMap::new(), None).is_none()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -8544,7 +8803,7 @@ mod tests {
         .expect("breadcrumb fixture should be writable");
 
         assert!(discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8561,7 +8820,7 @@ mod tests {
             resume_path: resolved,
             session,
         }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8595,7 +8854,7 @@ mod tests {
         .expect("fresh breadcrumb should be writable");
 
         let Some(SessionDiscovery::PendingFresh { resume_path }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8612,7 +8871,7 @@ mod tests {
         .expect("lazy session should materialize");
         assert!(matches!(
             discover_session(
-                "terminal-1",
+                "apple-terminal-1",
                 "/tmp/project",
                 &directory,
                 &HashMap::new(),
@@ -8660,7 +8919,7 @@ mod tests {
             resume_path: resolved_old,
             session: old_session,
         }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8683,7 +8942,7 @@ mod tests {
             resume_path: resolved_new,
             session: new_session,
         }) = discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8697,7 +8956,7 @@ mod tests {
 
         let new_path_string = new_path.to_string_lossy().into_owned();
         assert!(discover_session(
-            "terminal-1",
+            "apple-terminal-1",
             "/tmp/project",
             &directory,
             &HashMap::new(),
@@ -8755,14 +9014,14 @@ mod tests {
         ]);
         let current_path = current_session.to_string_lossy().into_owned();
         let resolved = resolve_resume_path_for_current(
-            "terminal-2",
+            "apple-terminal-2",
             "/tmp/project",
             &directory,
             &snapshot,
             Some(&current_path),
         );
         let new_terminal_resolved = resolve_resume_path_for_current(
-            "terminal-3",
+            "apple-terminal-3",
             "/tmp/project",
             &directory,
             &snapshot,
@@ -8913,4 +9172,6 @@ mod tests {
             vec!["network_unavailable"]
         );
     }
+
+    include!("terminal_lifecycle_tests.rs");
 }

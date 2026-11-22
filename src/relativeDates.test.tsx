@@ -96,8 +96,8 @@ const rowProps: Omit<ComponentProps<typeof SessionRow>, "lang" | "session"> = {
 }
 // The live local formatter is an independent oracle. Rejoining parts preserves
 // Intl literals, including Russian narrow no-break spaces.
-function calendarLabel(timestamp: number, lang: "en" | "ru"): string {
-  return new Intl.DateTimeFormat(lang, {
+function calendarLabel(timestamp: number, lang: "en" | "ru" | "zh"): string {
+  return new Intl.DateTimeFormat(lang === "zh" ? "zh-CN" : lang, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -165,7 +165,7 @@ describe("relative date calendar presentation", () => {
       const renderedSession = { ...session, updatedAt: timestamp }
       for (const timezone of ["UTC", "America/Los_Angeles", "Pacific/Kiritimati"]) {
         vi.stubEnv("TZ", timezone)
-        for (const lang of ["en", "ru", "en"] as const) {
+        for (const lang of ["en", "ru", "zh", "en"] as const) {
           await act(async () =>
             root!.render(
               <>
@@ -200,6 +200,7 @@ describe("relative date calendar presentation", () => {
                   onOpenFolder={vi.fn()}
                 />
                 <CodexImportModal
+                  targetPath="/synthetic/target"
                   language={lang}
                   loading={false}
                   importing={false}

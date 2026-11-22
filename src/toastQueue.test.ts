@@ -319,6 +319,43 @@ describe("independent notice and error events", () => {
 })
 
 describe("long and multi-line messages", () => {
+  it.each(["😀", "𠮷"])("does not split %s at the UTF-16 display limit", (character) => {
+    const prefix = "x".repeat(MAX_TOAST_CHARS - 1)
+    const message = `${prefix}${character} details`
+    const [toast] = enqueueToast(createToastState(), { kind: "error", message }, 1_000).items
+
+    expect(toast.message).toBe(`${prefix}…`)
+    expect(toast.truncated).toBe(true)
+    expect(toast.fullMessage).toBe(message)
+  })
+
+  it("keeps complete supplementary characters before and at the display limit", () => {
+    const exact = `${"x".repeat(MAX_TOAST_CHARS - 2)}😀`
+    expect(clampToastMessage(exact)).toEqual({ message: exact, truncated: false })
+    expect(clampToastMessage(`${exact} details`)).toEqual({
+      message: `${exact}…`,
+      truncated: true,
+    })
+    const before = `${"x".repeat(MAX_TOAST_CHARS - 3)}😀y`
+    expect(clampToastMessage(`${before} details`).message).toBe(`${before}…`)
+  })
+
+  it("preserves the existing BMP bound and trims a space exposed by the safe cut", () => {
+    const bmp = "Ж".repeat(MAX_TOAST_CHARS)
+    expect(clampToastMessage(`${bmp} details`).message).toBe(`${bmp}…`)
+    const prefix = "x".repeat(MAX_TOAST_CHARS - 2)
+    expect(clampToastMessage(`${prefix} 😀 details`).message).toBe(`${prefix}…`)
+  })
+
+  it("applies the safe boundary after line normalization", () => {
+    const firstLine = "x".repeat(MAX_TOAST_CHARS - 3)
+    const message = `${firstLine}\r\ny😀 details\r\nthird\r\nfourth`
+    expect(clampToastMessage(message)).toEqual({
+      message: `${firstLine}\ny…`,
+      truncated: true,
+    })
+  })
+
   it("leaves ordinary short messages untouched", () => {
     expect(clampToastMessage("Session deleted")).toEqual({
       message: "Session deleted",

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
-import { afterEach, expect, it } from "vitest"
-import { replaceTerminalRow } from "./terminalDomRows"
+import { afterEach, expect, it, vi } from "vitest"
+import { beginTerminalRows, renderTerminalRow, replaceTerminalRow } from "./terminalDomRows"
 
 function rowFixture() {
   const container = document.createElement("div")
@@ -84,4 +84,110 @@ it("handles split and merged style runs, erased rows and subsequent output", () 
   expect(row.textContent).toBe("")
   replaceTerminalRow(row, [span("after clear")])
   expect(row.textContent).toBe("after clear")
+})
+
+function cachedRowFixture(selected = true) {
+  const row = rowFixture()
+  const line = {
+    _data: new Uint32Array([65, 0, 0]),
+    _combined: {},
+    _extendedAttrs: {},
+  }
+  const focus = { isFocused: true }
+  const createRow = vi.fn(() => [
+    span(
+      "selected text",
+      "",
+      selected ? `background-color: ${focus.isFocused ? "green" : "gray"};` : "",
+    ),
+  ])
+  const renderer = {
+    _rowContainer: row.parentElement!,
+    _rowFactory: {
+      _coreService: { isCursorHidden: false, isCursorInitialized: true },
+      _coreBrowserService: focus,
+      _characterJoinerService: { _characterJoiners: [] },
+      _decorationService: {
+        get decorations() {
+          return [][Symbol.iterator]()
+        },
+      },
+      createRow,
+    },
+  }
+  const widthCache = {}
+  const render = (isCursorRow = false) => {
+    beginTerminalRows(renderer)
+    renderTerminalRow(
+      row,
+      renderer,
+      line,
+      0,
+      isCursorRow,
+      "bar",
+      "outline",
+      0,
+      false,
+      10,
+      widthCache,
+      -1,
+      -1,
+    )
+  }
+  return { row, focus, createRow, render }
+}
+
+it("refreshes selected non-cursor rows when terminal focus changes", () => {
+  const { row, focus, createRow, render } = cachedRowFixture()
+  render()
+  render()
+  expect(createRow).toHaveBeenCalledTimes(1)
+  expect((row.firstElementChild as HTMLElement).style.backgroundColor).toBe("green")
+
+  focus.isFocused = false
+  render()
+  expect(createRow).toHaveBeenCalledTimes(2)
+  expect((row.firstElementChild as HTMLElement).style.backgroundColor).toBe("gray")
+  render()
+  expect(createRow).toHaveBeenCalledTimes(2)
+
+  // An explicit row refresh after focus returns must also use current colors.
+  focus.isFocused = true
+  render()
+  expect(createRow).toHaveBeenCalledTimes(3)
+  expect((row.firstElementChild as HTMLElement).style.backgroundColor).toBe("green")
+})
+
+it("keeps unchanged unselected DOM nodes when focus changes", () => {
+  const { row, focus, createRow, render } = cachedRowFixture(false)
+  render()
+  const original = row.firstChild
+  const observer = new MutationObserver(() => undefined)
+  observer.observe(row, { childList: true, subtree: true })
+  focus.isFocused = false
+  render()
+
+  expect(createRow).toHaveBeenCalledTimes(2)
+  expect(row.firstChild).toBe(original)
+  expect(observer.takeRecords()).toEqual([])
+  observer.disconnect()
+})
+
+it("continues to refresh cursor rows and bypass caching without the Linux marker", () => {
+  const cursor = cachedRowFixture()
+  cursor.render(true)
+  cursor.focus.isFocused = false
+  cursor.render(true)
+  expect(cursor.createRow).toHaveBeenCalledTimes(2)
+  expect((cursor.row.firstElementChild as HTMLElement).style.backgroundColor).toBe("gray")
+
+  const stock = cachedRowFixture()
+  stock.row.parentElement!.removeAttribute("data-omp-reuse-dom-rows")
+  stock.render()
+  stock.render()
+  expect(stock.createRow).toHaveBeenCalledTimes(2)
+  stock.focus.isFocused = false
+  stock.render()
+  expect(stock.createRow).toHaveBeenCalledTimes(3)
+  expect((stock.row.firstElementChild as HTMLElement).style.backgroundColor).toBe("gray")
 })

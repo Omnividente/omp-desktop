@@ -3,14 +3,16 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { writeText } from "@tauri-apps/plugin-clipboard-manager"
-import { attachTerminal, resizeTerminal, writeTerminal } from "./api"
+import { listen } from "@tauri-apps/api/event"
+import { attachTerminal, resizeTerminal, writeTerminal, writeTerminalBinary } from "./api"
 import { TerminalView } from "./TerminalView"
-import type { PtyOutputEvent, TerminalTab } from "./types"
+import type { PtyOutputEvent, PtyExitEvent, TerminalTab } from "./types"
 import { forgetTerminalContinuity } from "./terminalContinuity"
 
 const terminalState = vi.hoisted(() => ({
   selection: "",
   keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
+  binaryHandler: null as ((data: string) => void) | null,
   dataHandler: null as ((data: string) => void) | null,
   selectionRange: { start: { x: 2, y: 0 }, end: { x: 6, y: 0 } },
   initialScrollDuration: undefined as unknown,
@@ -19,6 +21,7 @@ const terminalState = vi.hoisted(() => ({
   clear: vi.fn(),
   selectionChanged: null as (() => void) | null,
   scrollChanged: null as (() => void) | null,
+  exitListener: null as ((event: { payload: PtyExitEvent }) => void) | null,
   outputListener: null as ((event: { payload: PtyOutputEvent }) => void) | null,
   writeCallbacks: [] as Array<() => void>,
   written: [] as string[],
@@ -36,6 +39,8 @@ vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
 }))
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (name: string, callback: (event: { payload: PtyOutputEvent }) => void) => {
+    if (name === "pty-exit")
+      terminalState.exitListener = callback as unknown as (event: { payload: PtyExitEvent }) => void
     if (name.startsWith("pty-output:")) terminalState.outputListener = callback
     return () => undefined
   }),
@@ -92,7 +97,8 @@ vi.mock("@xterm/xterm", () => ({
       terminalState.dataHandler = handler
       return { dispose() {} }
     }
-    onBinary() {
+    onBinary(handler: (data: string) => void) {
+      terminalState.binaryHandler = handler
       return { dispose() {} }
     }
     hasSelection() {
@@ -329,6 +335,87 @@ it("does not intercept keyup, keypress or composing events", () => {
   expect(terminalKey("Backspace", { isComposing: true }).allowed).toBe(true)
   expect(writeTerminal).not.toHaveBeenCalled()
   expect(terminalState.selection).toBe("selected")
+})
+
+it("does not let the selection menu consume IME-marked keys or move terminal focus", () => {
+  const input = container.querySelector<HTMLTextAreaElement>(".mock-terminal-input")!
+  act(() => input.focus())
+  showSelection("Synthetic selection")
+  const item = menuButton("Copy")
+  for (const target of [input, item]) {
+    act(() => target.focus())
+    for (const key of ["Escape", "Tab", "ArrowDown", "ArrowUp"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        keyCode: 229,
+        bubbles: true,
+        cancelable: true,
+      })
+      act(() => target.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(false)
+      expect(document.activeElement).toBe(target)
+      expect(document.querySelector('[role="menu"]')).not.toBeNull()
+      expect(terminalState.selection).toBe("Synthetic selection")
+    }
+  }
+  expect(writeText).not.toHaveBeenCalled()
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalState.paste).not.toHaveBeenCalled()
+  const escape = new KeyboardEvent("keydown", {
+    key: "Escape",
+    bubbles: true,
+    cancelable: true,
+  })
+  act(() => item.dispatchEvent(escape))
+  expect(escape.defaultPrevented).toBe(true)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.activeElement).toBe(input)
+})
+
+it.each([
+  ["KeyC", { key: "c", ctrlKey: true }],
+  ["KeyC", { key: "c", metaKey: true }],
+  ["Insert", { key: "Insert", ctrlKey: true }],
+  ["KeyV", { key: "v", ctrlKey: true }],
+  ["KeyV", { key: "v", ctrlKey: true, shiftKey: true }],
+  ["Insert", { key: "Insert", shiftKey: true }],
+  ["KeyA", { key: "a", ctrlKey: true }],
+  ["Backspace", { key: "Backspace" }],
+  ["Delete", { key: "Delete" }],
+  ["KeyZ", { key: "z", ctrlKey: true }],
+  ["Enter", { key: "Enter", ctrlKey: true }],
+] as const)("leaves IME-marked %s to xterm without Desktop actions", (code, modifiers) => {
+  terminalState.selection = "synthetic selection"
+  const { event, allowed } = terminalKey(code, { ...modifiers, keyCode: 229 })
+  expect(event.isComposing).toBe(false)
+  expect(event.keyCode).toBe(229)
+  expect(allowed).toBe(true)
+  expect(event.defaultPrevented).toBe(false)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeText).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalState.selection).toBe("synthetic selection")
+})
+
+it("keeps the existing clear arm untouched through an IME-marked deletion", () => {
+  expect(terminalKey("KeyA", { key: "a", ctrlKey: true }).allowed).toBe(false)
+  terminalState.clear.mockClear()
+  const { event, allowed } = terminalKey("Backspace", { key: "Backspace", keyCode: 229 })
+  expect(allowed).toBe(true)
+  expect(event.defaultPrevented).toBe(false)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  expect(terminalKey("Backspace", { key: "Backspace" }).allowed).toBe(false)
+  expect(writeTerminal).toHaveBeenCalledExactlyOnceWith(tab.id, "\x03")
+})
+
+it("does not arm a later clear from IME-marked select all", () => {
+  const { allowed } = terminalKey("KeyA", { key: "a", ctrlKey: true, keyCode: 229 })
+  expect(allowed).toBe(true)
+  expect(terminalKey("Backspace", { key: "Backspace" }).allowed).toBe(true)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(terminalState.clear).not.toHaveBeenCalled()
 })
 
 it("gives a new visible selection precedence over an earlier Ctrl+A clear arm", () => {
@@ -602,6 +689,121 @@ it("does not take focus from open tab search during attachment, activation or de
   }
 })
 
+it.each(["linux", "windows"] as const)(
+  "does not take modal input focus when a delayed %s attachment finishes",
+  async (platform) => {
+    const baseline = await vi.mocked(attachTerminal).mock.results[0].value
+    let resolveAttachment!: (value: typeof baseline) => void
+    vi.mocked(attachTerminal).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveAttachment = resolve
+      }),
+    )
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      return frames.push(callback)
+    })
+    const dialog = document.createElement("section")
+    dialog.setAttribute("role", "dialog")
+    dialog.setAttribute("aria-modal", "true")
+    const input = document.createElement("input")
+    dialog.appendChild(input)
+    try {
+      await act(async () =>
+        root.render(
+          <TerminalView
+            tab={{ ...tab, id: `modal-attach-${platform}` }}
+            active
+            focusRequestSequence={0}
+            language="en"
+            terminalFontFamily="monospace"
+            terminalFontSize={14}
+            platform={platform}
+            onExit={() => undefined}
+            onError={() => undefined}
+            onReady={() => undefined}
+          />,
+        ),
+      )
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      document.body.appendChild(dialog)
+      input.focus()
+      terminalState.focus.mockClear()
+      await act(async () => resolveAttachment(baseline))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input)
+    } finally {
+      dialog.remove()
+    }
+  },
+)
+
+it.each(["linux", "windows"] as const)(
+  "consumes %s focus requests made in a modal and permits a later request",
+  async (platform) => {
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      return frames.push(callback)
+    })
+    const dialog = document.createElement("section")
+    dialog.setAttribute("role", "dialog")
+    dialog.setAttribute("aria-modal", "true")
+    const input = document.createElement("input")
+    dialog.appendChild(input)
+    const outside = document.createElement("button")
+    document.body.appendChild(outside)
+    const render = (active: boolean, sequence: number) =>
+      root.render(
+        <TerminalView
+          tab={tab}
+          active={active}
+          focusRequestSequence={sequence}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform={platform}
+          onExit={() => undefined}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      )
+    try {
+      await act(async () => render(false, 0))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      document.body.appendChild(dialog)
+      input.focus()
+      terminalState.focus.mockClear()
+      await act(async () => render(true, 1))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input)
+
+      await act(async () => render(true, 2))
+      dialog.remove()
+      outside.focus()
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(outside)
+
+      await act(async () => render(true, 3))
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(document.activeElement).toBe(container.querySelector(".mock-terminal-input"))
+      terminalState.focus.mockClear()
+
+      await act(async () => render(true, 4))
+      document.body.appendChild(dialog)
+      input.focus()
+      await act(async () => frames.splice(0).forEach((frame) => frame(0)))
+      expect(terminalState.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(input)
+    } finally {
+      dialog.remove()
+      outside.remove()
+    }
+  },
+)
+
 it("returns to the latest output only while scrolled back", async () => {
   const buffer = terminalState.instance!.buffer.active
   expect(container.querySelector(".terminal-scroll-bottom")).toBeNull()
@@ -793,3 +995,252 @@ it.each([
   await renderMotionTerminal()
   expect(terminalState.instance?.options.smoothScrollDuration).toBe(90)
 })
+
+it("blocks input synchronously on exit but preserves selection copy and replacement input", async () => {
+  const onExit = vi.fn()
+  const render = async (current: TerminalTab) =>
+    act(async () =>
+      root.render(
+        <TerminalView
+          tab={current}
+          active
+          focusRequestSequence={0}
+          language="en"
+          terminalFontFamily="monospace"
+          terminalFontSize={14}
+          platform="linux"
+          onExit={onExit}
+          onError={() => undefined}
+          onReady={() => undefined}
+        />,
+      ),
+    )
+  await render({ ...tab, status: "exited" })
+  act(() => {
+    terminalState.dataHandler!("already-exited")
+    terminalState.binaryHandler!("x")
+  })
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+  await render(tab)
+  const oldInput = terminalState.dataHandler!
+  const oldBinary = terminalState.binaryHandler!
+  act(() => {
+    terminalState.exitListener!({
+      payload: {
+        terminalId: tab.id,
+        exitCode: 0,
+        success: true,
+        error: null,
+      },
+    })
+    // No parent status render yet: the event itself must fence old input.
+    oldInput("late")
+    oldBinary("x")
+  })
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+  await render({ ...tab, status: "exited" })
+  showSelection("saved transcript")
+  await act(async () => menuButton("Copy").click())
+  expect(writeText).toHaveBeenCalledExactlyOnceWith("saved transcript")
+  expect(terminalState.selection).toBe("saved transcript")
+  expect(terminalState.clear).not.toHaveBeenCalled()
+  await render({ ...tab, id: "replacement-live", status: "running" })
+  act(() => {
+    oldInput("obsolete")
+    oldBinary("x")
+    terminalState.dataHandler!("new")
+    terminalState.binaryHandler!("y")
+  })
+  expect(writeTerminal).toHaveBeenCalledExactlyOnceWith("replacement-live", "new")
+  expect(writeTerminalBinary).toHaveBeenCalledExactlyOnceWith("replacement-live", btoa("y"))
+})
+
+it("blocks a received exit while attachment replay is pending without losing replay", async () => {
+  const snapshot = await vi.mocked(attachTerminal).mock.results[0].value
+  let resolve!: (value: Awaited<ReturnType<typeof attachTerminal>>) => void
+  vi.mocked(attachTerminal).mockReturnValueOnce(
+    new Promise((done) => {
+      resolve = done
+    }),
+  )
+  const pendingTab = { ...tab, id: "attachment-pending" }
+  const onExit = vi.fn()
+  const onReady = vi.fn()
+  await act(async () =>
+    root.render(
+      <TerminalView
+        tab={pendingTab}
+        active
+        focusRequestSequence={0}
+        language="en"
+        terminalFontFamily="monospace"
+        terminalFontSize={14}
+        platform="linux"
+        onExit={onExit}
+        onError={() => undefined}
+        onReady={onReady}
+      />,
+    ),
+  )
+  const event = { payload: { terminalId: pendingTab.id, exitCode: 0, success: true, error: null } }
+  act(() => {
+    terminalState.exitListener!(event)
+    terminalState.dataHandler!("late")
+    terminalState.binaryHandler!("x")
+  })
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+  expect(onExit).not.toHaveBeenCalled()
+  await act(async () => resolve({ ...snapshot, data: btoa("final replay") }))
+  expect(terminalState.written).toContain("final replay")
+  expect(onExit).toHaveBeenCalledExactlyOnceWith(event.payload)
+  expect(onReady).not.toHaveBeenCalled()
+  act(() => {
+    terminalState.exitListener!(event)
+    terminalState.dataHandler!("still late")
+    terminalState.binaryHandler!("x")
+  })
+  expect(onExit).toHaveBeenCalledTimes(1)
+  expect(writeTerminal).not.toHaveBeenCalled()
+  expect(writeTerminalBinary).not.toHaveBeenCalled()
+})
+
+it.each(["attach", "output listener", "exit listener"])(
+  "does not send blind input after %s fails and recovers on a different live terminal",
+  async (stage) => {
+    const failure = new Error("Synthetic connection failure")
+    if (stage === "attach") vi.mocked(attachTerminal).mockRejectedValueOnce(failure)
+    else {
+      if (stage === "exit listener")
+        vi.mocked(listen).mockImplementationOnce(vi.mocked(listen).getMockImplementation()!)
+      vi.mocked(listen).mockRejectedValueOnce(failure)
+    }
+    const onError = vi.fn()
+    const onReady = vi.fn()
+    const renderTab = async (id: string) =>
+      act(async () =>
+        root.render(
+          <TerminalView
+            tab={{ ...tab, id }}
+            active
+            focusRequestSequence={0}
+            language="en"
+            terminalFontFamily="monospace"
+            terminalFontSize={14}
+            platform="linux"
+            onExit={() => undefined}
+            onError={onError}
+            onReady={onReady}
+          />,
+        ),
+      )
+    await renderTab("failed-attachment")
+    expect(onError).toHaveBeenCalledWith("Error: Synthetic connection failure")
+    expect(onReady).not.toHaveBeenCalled()
+    const oldData = terminalState.dataHandler!
+    const oldBinary = terminalState.binaryHandler!
+    act(() => {
+      oldData("unsafe prompt\r")
+      oldBinary("x")
+    })
+    expect(writeTerminal).not.toHaveBeenCalled()
+    expect(writeTerminalBinary).not.toHaveBeenCalled()
+    expect(attachTerminal).toHaveBeenCalledTimes(stage === "attach" ? 2 : 1)
+    showSelection("Synthetic retained text")
+    await act(async () => menuButton("Copy").click())
+    expect(writeText).toHaveBeenCalledWith("Synthetic retained text")
+    await renderTab("fresh-attachment")
+    act(() => {
+      oldData("late old\r")
+      oldBinary("z")
+      terminalState.dataHandler!("new\r")
+      terminalState.binaryHandler!("y")
+    })
+    expect(writeTerminal).toHaveBeenCalledExactlyOnceWith("fresh-attachment", "new\r")
+    expect(writeTerminalBinary).toHaveBeenCalledExactlyOnceWith("fresh-attachment", btoa("y"))
+    expect(onReady).toHaveBeenCalledExactlyOnceWith("fresh-attachment")
+  },
+)
+
+it.each(["exit listener", "attachment"])(
+  "cleans failed initialization after %s rejects",
+  async (stage) => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<never>((_resolve, fail) => {
+      reject = fail
+    })
+    const stopOutput = vi.fn(),
+      stopExit = vi.fn()
+    let output!: (event: { payload: PtyOutputEvent }) => void
+    let exit!: (event: { payload: PtyExitEvent }) => void
+    vi.mocked(listen)
+      .mockImplementationOnce(async (_name, callback) => {
+        output = callback as typeof output
+        return stopOutput
+      })
+      .mockImplementationOnce(async (_name, callback) => {
+        exit = callback as unknown as typeof exit
+        if (stage === "exit listener") return pending
+        return stopExit
+      })
+    if (stage === "attachment") vi.mocked(attachTerminal).mockReturnValueOnce(pending)
+    const onError = vi.fn(),
+      onExit = vi.fn(),
+      onReady = vi.fn()
+    const render = async (id: string) =>
+      act(async () =>
+        root.render(
+          <TerminalView
+            tab={{ ...tab, id }}
+            active
+            focusRequestSequence={0}
+            language="en"
+            terminalFontFamily="monospace"
+            terminalFontSize={14}
+            platform="linux"
+            onError={onError}
+            onExit={onExit}
+            onReady={onReady}
+          />,
+        ),
+      )
+    await render("cleanup-failed")
+    const event = {
+      terminalId: "cleanup-failed",
+      generation: 1,
+      seq: 1,
+      data: btoa("synthetic queued"),
+    } as PtyOutputEvent
+    const exitEvent = {
+      terminalId: "cleanup-failed",
+      exitCode: 0,
+      success: true,
+      error: null,
+    }
+    act(() => {
+      output({ payload: event })
+      if (stage === "attachment") exit({ payload: exitEvent })
+    })
+    await act(async () => reject(new Error("Synthetic initialization failure")))
+    expect(onError).toHaveBeenCalledOnce()
+    expect(stopOutput).toHaveBeenCalledOnce()
+    expect(stopExit).toHaveBeenCalledTimes(stage === "attachment" ? 1 : 0)
+    const writes = terminalState.written.length
+    act(() => {
+      output({ payload: { ...event, seq: 2 } })
+      exit({ payload: exitEvent })
+    })
+    expect(terminalState.written).toHaveLength(writes)
+    expect(onExit).not.toHaveBeenCalled()
+    expect(onReady).not.toHaveBeenCalled()
+    await render("cleanup-healthy")
+    expect(onReady).toHaveBeenCalledExactlyOnceWith("cleanup-healthy")
+    act(() => terminalState.dataHandler!("synthetic healthy\r"))
+    expect(writeTerminal).toHaveBeenCalledExactlyOnceWith("cleanup-healthy", "synthetic healthy\r")
+    await act(async () => root.render(null))
+    expect(stopOutput).toHaveBeenCalledOnce()
+    expect(stopExit).toHaveBeenCalledTimes(stage === "attachment" ? 1 : 0)
+  },
+)

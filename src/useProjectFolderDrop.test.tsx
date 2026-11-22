@@ -5,168 +5,172 @@ import type { DragDropEvent } from "@tauri-apps/api/webview"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { useProjectFolderDrop } from "./useProjectFolderDrop"
 
-const { subscriptions, unlisten } = vi.hoisted(() => ({
-  subscriptions: [] as Array<(event: { payload: DragDropEvent }) => void>,
-  unlisten: vi.fn(),
+const native = vi.hoisted(() => ({
+  listen: vi.fn(),
+  size: vi.fn(),
+  scale: vi.fn(),
+  stop: vi.fn(),
 }))
-
 vi.mock("@tauri-apps/api/webview", () => ({
-  getCurrentWebview: () => ({
-    onDragDropEvent: (handler: (event: { payload: DragDropEvent }) => void) => {
-      subscriptions.push(handler)
-      return Promise.resolve(unlisten)
-    },
-  }),
+  getCurrentWebview: () => ({ onDragDropEvent: native.listen, size: native.size }),
+}))
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => ({ scaleFactor: native.scale }),
 }))
 
-import { isProjectDropPoint, useProjectFolderDrop } from "./useProjectFolderDrop"
-
-;(
-  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true
-
-const elementFromPoint = vi.fn<(x: number, y: number) => Element | null>()
-
-function DropFixture({ onDrop }: { onDrop: (paths: string[]) => void }) {
-  const active = useProjectFolderDrop(onDrop)
+function Fixture({ platform, add }: { platform: string; add: (paths: string[]) => void }) {
+  const active = useProjectFolderDrop(platform, (paths) => () => add(paths))
   return (
-    <>
-      <aside className="project-rail" data-project-drop-target="">
-        <span className="rail-child" />
+    <main>
+      <aside data-project-drop-target="">
+        <span>{active ? "Drop to add project" : "Projects"}</span>
       </aside>
-      <span className={active ? "drop-active" : "drop-idle"} />
-    </>
+      <section>Outside</section>
+    </main>
   )
 }
 
-describe("useProjectFolderDrop", () => {
+const physical = { width: 2000, height: 1300 }
+const paths = ["/fixture/项目 ", "/fixture/other"]
+const point = (x: number) => new PhysicalPosition(x, 200)
+
+describe("project folder drop", () => {
   let container: HTMLDivElement
   let root: Root
-  let rail: HTMLElement
-  let originalDevicePixelRatio: PropertyDescriptor | undefined
+  let receive: (event: { payload: DragDropEvent }) => void
+  let previousHitTest: PropertyDescriptor | undefined
+  const add = vi.fn()
+  const outside = () => container.querySelector("section")
+  const rail = () => container.querySelector("aside span")
 
   beforeEach(() => {
-    originalDevicePixelRatio = Object.getOwnPropertyDescriptor(window, "devicePixelRatio")
-    subscriptions.length = 0
-    unlisten.mockClear()
-    elementFromPoint.mockReset()
+    vi.clearAllMocks()
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+    vi.stubGlobal("innerWidth", 1333)
+    vi.stubGlobal("innerHeight", 866)
+    vi.stubGlobal("devicePixelRatio", 2)
+    native.listen.mockImplementation(async (handler: typeof receive) => {
+      receive = handler
+      return native.stop
+    })
+    native.size.mockReset().mockResolvedValue(physical)
+    native.scale.mockReset().mockResolvedValue(2)
+    container = document.createElement("div")
+    document.body.append(container)
+    root = createRoot(container)
+    previousHitTest = Object.getOwnPropertyDescriptor(document, "elementFromPoint")
     Object.defineProperty(document, "elementFromPoint", {
       configurable: true,
-      value: elementFromPoint,
+      value: (x: number) => (x < 320 ? rail() : outside()),
     })
-    container = document.createElement("div")
-    document.body.appendChild(container)
-    root = createRoot(container)
   })
 
-  afterEach(() => {
-    act(() => root.unmount())
-    container.remove()
-    if (originalDevicePixelRatio) {
-      Object.defineProperty(window, "devicePixelRatio", originalDevicePixelRatio)
-    } else {
-      Reflect.deleteProperty(window, "devicePixelRatio")
-    }
-  })
-
-  async function mount(onDrop: (paths: string[]) => void) {
-    await act(async () => root.render(<DropFixture onDrop={onDrop} />))
-    await act(async () => {
-      await Promise.resolve()
-    })
-    rail = container.querySelector<HTMLElement>("aside.project-rail")!
-    expect(subscriptions).toHaveLength(1)
-    return subscriptions[0]!
-  }
-
-  const emit = async (
-    handler: (event: { payload: DragDropEvent }) => void,
-    payload: DragDropEvent,
-  ) => {
-    await act(async () => handler({ payload }))
-  }
-
-  it("highlights the rail while the native cursor is over it and clears on leave", async () => {
-    const handler = await mount(vi.fn())
-    elementFromPoint.mockReturnValue(rail)
-    await emit(handler, {
-      type: "enter",
-      paths: ["D:/projects/app"],
-      position: new PhysicalPosition(12, 30),
-    })
-    expect(container.querySelector(".drop-active")).not.toBeNull()
-
-    elementFromPoint.mockReturnValue(null)
-    await emit(handler, { type: "over", position: new PhysicalPosition(900, 300) })
-    expect(container.querySelector(".drop-active")).toBeNull()
-
-    elementFromPoint.mockReturnValue(rail)
-    await emit(handler, { type: "over", position: new PhysicalPosition(12, 30) })
-    expect(container.querySelector(".drop-active")).not.toBeNull()
-
-    await emit(handler, { type: "leave" })
-    expect(container.querySelector(".drop-active")).toBeNull()
-  })
-
-  it("adds projects only when the folder is dropped on the rail", async () => {
-    const onDrop = vi.fn()
-    const handler = await mount(onDrop)
-
-    elementFromPoint.mockReturnValue(null)
-    await emit(handler, {
-      type: "drop",
-      paths: ["D:/ignored"],
-      position: new PhysicalPosition(900, 300),
-    })
-    expect(onDrop).not.toHaveBeenCalled()
-    expect(container.querySelector(".drop-active")).toBeNull()
-
-    elementFromPoint.mockReturnValue(rail)
-    await emit(handler, {
-      type: "drop",
-      paths: ["D:/projects/app"],
-      position: new PhysicalPosition(20, 40),
-    })
-    expect(onDrop).toHaveBeenCalledWith(["D:/projects/app"])
-    expect(container.querySelector(".drop-active")).toBeNull()
-  })
-
-  it("converts physical pixels from the native event into CSS pixels", async () => {
-    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 })
-    const handler = await mount(vi.fn())
-    elementFromPoint.mockReturnValue(rail)
-    await emit(handler, {
-      type: "enter",
-      paths: ["D:/projects/app"],
-      position: new PhysicalPosition(40, 60),
-    })
-    expect(elementFromPoint).toHaveBeenCalledWith(20, 30)
-  })
-
-  it("removes the native listener when unmounted", async () => {
-    await mount(vi.fn())
+  afterEach(async () => {
     await act(async () => root.unmount())
-    expect(unlisten).toHaveBeenCalledOnce()
-  })
-})
-
-describe("isProjectDropPoint", () => {
-  it("accepts rail descendants and rejects other elements", () => {
-    const rail = document.createElement("aside")
-    rail.setAttribute("data-project-drop-target", "")
-    const child = document.createElement("span")
-    rail.appendChild(child)
-    expect(isProjectDropPoint({ x: 10, y: 10 }, 1, () => child)).toBe(true)
-    expect(isProjectDropPoint({ x: 10, y: 10 }, 1, () => document.createElement("div"))).toBe(false)
-    expect(isProjectDropPoint({ x: 10, y: 10 }, 1, () => null)).toBe(false)
+    container.remove()
+    if (previousHitTest) Object.defineProperty(document, "elementFromPoint", previousHitTest)
+    else Reflect.deleteProperty(document, "elementFromPoint")
+    vi.unstubAllGlobals()
   })
 
-  it("falls back to CSS pixels when no usable scale factor is reported", () => {
-    const hitTest = vi.fn<(x: number, y: number) => Element | null>(() => null)
-    isProjectDropPoint({ x: 5, y: 7 }, 0, hitTest)
-    isProjectDropPoint({ x: 5, y: 7 }, -1, hitTest)
-    expect(hitTest).toHaveBeenNthCalledWith(1, 5, 7)
-    expect(hitTest).toHaveBeenNthCalledWith(2, 5, 7)
+  const render = async (platform: string) => {
+    await act(async () => root.render(<Fixture platform={platform} add={add} />))
+  }
+  const send = async (payload: DragDropEvent) => {
+    await act(async () => receive({ payload }))
+  }
+
+  it.each([
+    ["linux", 275, 160],
+    ["windows", 550, 320],
+  ])(
+    "uses the actual %s viewport instead of dividing drag positions by DPR",
+    async (platform, miss, hit) => {
+      await render(platform)
+      await send({ type: "enter", position: point(miss), paths })
+      expect(container.textContent).not.toContain("Drop to add project")
+      await send({ type: "drop", position: point(miss), paths })
+      expect(add).not.toHaveBeenCalled()
+      await send({ type: "enter", position: point(miss), paths })
+      for (let i = 0; i < 3; ++i) await send({ type: "over", position: point(hit) })
+      expect(native.size).toHaveBeenCalledTimes(2)
+      expect(container.textContent).toContain("Drop to add project")
+      await send({ type: "drop", position: point(hit), paths })
+      expect(add).toHaveBeenCalledExactlyOnceWith(paths)
+      expect(container.textContent).not.toContain("Drop to add project")
+      expect(native.scale.mock.calls.length).toBe(platform === "linux" ? 3 : 0)
+    },
+  )
+
+  it("accepts a quick release before the enter measurement without waiting for another gesture", async () => {
+    await render("linux")
+    let finish!: (size: typeof physical) => void
+    native.size.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await send({ type: "enter", position: point(160), paths })
+    await send({ type: "drop", position: point(160), paths })
+    expect(add).not.toHaveBeenCalled()
+    await act(async () => finish(physical))
+    expect(add).toHaveBeenCalledExactlyOnceWith(paths)
+    expect(container.textContent).not.toContain("Drop to add project")
+  })
+
+  it("preserves release order when the next gesture's bounds arrive first", async () => {
+    await render("linux")
+    await send({ type: "enter", position: point(160), paths })
+    let finish!: (size: typeof physical) => void
+    native.size.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await send({ type: "drop", position: point(160), paths })
+    const next = ["/fixture/newer"]
+    await send({ type: "enter", position: point(160), paths: next })
+    await send({ type: "drop", position: point(160), paths: next })
+    expect(add).not.toHaveBeenCalled()
+    await act(async () => finish(physical))
+    expect(add.mock.calls).toEqual([[paths], [next]])
+  })
+
+  it("cancels an in-flight drop when viewport changes or the target is covered", async () => {
+    await render("linux")
+    await send({ type: "enter", position: point(160), paths })
+    let finish!: (size: typeof physical) => void
+    native.size.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await send({ type: "drop", position: point(160), paths })
+    await act(async () => {
+      window.dispatchEvent(new Event("resize"))
+      finish(physical)
+    })
+    expect(add).not.toHaveBeenCalled()
+    await send({ type: "enter", position: point(160), paths })
+    container.querySelector("main")!.setAttribute("inert", "")
+    await send({ type: "drop", position: point(160), paths })
+    expect(add).not.toHaveBeenCalled()
+  })
+
+  it("ignores a release whose target changes width before the first measurement returns", async () => {
+    await render("linux")
+    const bounds = vi.spyOn(container.querySelector("aside")!, "getBoundingClientRect")
+    bounds.mockReturnValue(new DOMRect(0, 0, 210, 800))
+    let finish!: (size: typeof physical) => void
+    native.size.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await send({ type: "enter", position: point(160), paths })
+    await send({ type: "drop", position: point(160), paths })
+    bounds.mockReturnValue(new DOMRect(0, 0, 320, 800))
+    await act(async () => finish(physical))
+    expect(add).not.toHaveBeenCalled()
+  })
+
+  it("discards late enter geometry and cleans up a completed subscription", async () => {
+    await render("linux")
+    let finish!: (size: typeof physical) => void
+    native.size.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    await send({ type: "enter", position: point(160), paths })
+    await send({ type: "leave" })
+    await act(async () => finish(physical))
+    expect(container.textContent).not.toContain("Drop to add project")
+    await send({ type: "drop", position: point(160), paths })
+    expect(add).not.toHaveBeenCalled()
+    await render("unsupported")
+    expect(native.stop).toHaveBeenCalledTimes(1)
   })
 })

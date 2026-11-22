@@ -147,13 +147,16 @@ export function renderTerminalRow(
   const enabled = row.parentElement?.hasAttribute("data-omp-reuse-dom-rows")
   const state = enabled ? rendererStates.get(renderer) : undefined
   const snapshot = state?.cacheable ? rowSnapshots.get(row) : undefined
+  // Focus also changes selection colors on rows without the cursor.
   const flags = isCursorRow
     ? 1 |
       (factory._coreService.isCursorHidden ? 2 : 0) |
       (factory._coreService.isCursorInitialized ? 4 : 0) |
       (factory._coreBrowserService.isFocused ? 8 : 0) |
       (cursorBlink ? 16 : 0)
-    : 0
+    : factory._coreBrowserService.isFocused
+      ? 8
+      : 0
   const activeCursorX = isCursorRow ? cursorX : -1
   const activeCursorStyle = isCursorRow ? cursorStyle : undefined
   const inactiveCursorStyle = isCursorRow ? cursorInactiveStyle : undefined
