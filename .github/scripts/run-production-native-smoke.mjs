@@ -638,17 +638,30 @@ async function durableSettings(predicate, label) {
     return predicate(settings) ? settings : null
   })
 }
-async function terminalObservation(label, patterns) {
-  const observation = await native(
-    {
-      operation: "terminal-ocr",
-      pid: activePid,
-      label,
-      patterns,
-      tesseract: required("PRODUCTION_NATIVE_TESSERACT"),
-    },
-    true,
-  )
+async function terminalObservation(label, patterns, revealDraft) {
+  const readPixels = () =>
+    native(
+      {
+        operation: "terminal-ocr",
+        pid: activePid,
+        label,
+        patterns,
+        tesseract: required("PRODUCTION_NATIVE_TESSERACT"),
+      },
+      true,
+    )
+  let observation
+  try {
+    observation = await readPixels()
+  } catch (error) {
+    const failedRead = result.lastNativeOperation
+    if (failedRead.failure !== "native-terminal-text-missing" || !revealDraft) throw error
+    if (!(await revealDraft(label))) {
+      result.lastNativeOperation = failedRead
+      throw error
+    }
+    observation = await readPixels()
+  }
   await native({
     operation: "observe",
     pid: activePid,
@@ -878,36 +891,51 @@ async function completedAnswerJourney(fixture) {
     project: fixture.project,
   }
   const before = await native(request, true)
+  if (windows) await proof("answer-real-pty-before.json", before.runtime)
   const answer = fixture.messages.find((message) => message.role === "assistant").text
   await native(
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
     true,
   )
+  let dismissedLateNotice = false
+  const revealDraft = windows
+    ? async (label) => {
+        if (dismissedLateNotice) return false
+        // The runtime update toast can arrive after typing and cover the only prompt row.
+        // Do not retype, refocus the console, resize the window or dismiss a Desktop update.
+        const notice = await native({ operation: "dismiss-runtime-update-notice", pid: activePid })
+        if (!notice.runtimeNoticeDismissed) return false
+        dismissedLateNotice = true
+        await proof("answer-runtime-notice-dismissed.json", { observation: label, ...notice })
+        return true
+      }
+    : undefined
+  const observeDraft = (label, patterns) => terminalObservation(label, patterns, revealDraft)
   const draft = "\\bnative\\s*focus\\s*draft"
   // This fresh input remains unsubmitted. Reset keys can interrupt an active PTY.
   await native({ operation: "terminal-text", pid: activePid, text: "nativefocusdraft" })
-  await terminalObservation("answer-default-collapsed-live-console", [`${draft}\\b`])
+  await observeDraft("answer-default-collapsed-live-console", [`${draft}\\b`])
   await click("Show answer")
   await observe(["Collapse answer", answer], "answer-explicit-expanded-synthetic", { copyText: false })
-  await terminalObservation("answer-expanded-preserves-live-console-draft", [
-    `${draft}\\b`,
-  ])
+  await observeDraft("answer-expanded-preserves-live-console-draft", [`${draft}\\b`])
   await click("Collapse answer")
   await native(
     { operation: "observe", pid: activePid, texts: ["Show answer"], absentTexts: [answer] },
     true,
   )
-  await terminalObservation("answer-recollapsed-preserves-live-console-draft", [
-    `${draft}\\b`,
-  ])
+  await observeDraft("answer-recollapsed-preserves-live-console-draft", [`${draft}\\b`])
   // Require the original draft plus all new characters in the same visible input.
   await native({ operation: "terminal-text", pid: activePid, text: "nativeaftertoggle" })
-  await terminalObservation("answer-explicit-focus-after-toggle", [
+  await observeDraft("answer-explicit-focus-after-toggle", [
     `${draft}\\s*native\\s*after\\s*toggle\\b`,
   ])
   const after = await native(request)
   assert.equal(after.runtime.pid, before.runtime.pid, "Answer controls replaced the actual runtime")
   assert.equal(after.runtime.sha256, before.runtime.sha256)
+  if (windows) {
+    assert(Number.isFinite(before.runtime.createTime) && before.runtime.createTime > 0)
+    assert.equal(after.runtime.createTime, before.runtime.createTime, "Windows reused the OMP PID")
+  }
   await proof("minimal-251-native-synthetic-answer.json", {
     status: "PASS",
     defaultCollapsed: true,
