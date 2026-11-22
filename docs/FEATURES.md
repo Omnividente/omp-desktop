@@ -11,6 +11,8 @@ Start with [installation](../README.md#installation). See also [privacy and prov
 
 - Project sidebar with persisted recent workspaces.
 
+- To add projects, drop folders from the file manager onto the project sidebar. Drops outside the sidebar are ignored. **Open folder** remains available without drag and drop.
+
 - On Home, the separate Read button beside each recent session opens its saved history without launching OMP. Resuming a session remains a separate action.
 
 - Home distinguishes the latest session from an explicitly selected resume target. Recent-session launch actions are disabled when OMP is unavailable or another launch is pending; the independent Read action remains available.

@@ -4,6 +4,7 @@ import type { StartupWorkspaceWarning } from "./types"
 import type { KeyboardEvent as ReactKeyboardEvent, SetStateAction } from "react"
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { useDesktopTheme } from "./useDesktopTheme"
+import { useProjectFolderDrop } from "./useProjectFolderDrop"
 import { getVersion } from "@tauri-apps/api/app"
 import { listen } from "@tauri-apps/api/event"
 import { confirm, open } from "@tauri-apps/plugin-dialog"
@@ -267,6 +268,8 @@ function App() {
   const currentWorkspacePathRef = useRef(selectedWorkspacePath)
   currentWorkspacePathRef.current = selectedWorkspacePath
   const workspaceSelectionRequestRef = useRef(0)
+  const projectDropRequestRef = useRef(0)
+  const projectDropSelectionRef = useRef<{ request: number; workspace: number } | null>(null)
   const workspaceSaveQueueRef = useRef<Promise<void> | null>(null)
   const workspaceSaveRequestRef = useRef(0)
   const [workspaceSaveRetry, setWorkspaceSaveRetry] = useState(0)
@@ -935,41 +938,44 @@ function App() {
     rail.querySelector<HTMLButtonElement>(".rail-open-folder")?.focus()
   }, [])
 
-  const refresh = useCallback(async () => {
-    ++settingsRecoveryActionRef.current.request
-    setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
-    const request = ++refreshRequestRef.current
-    const revision = payloadRevisionRef.current
-    const current = () =>
-      mountedRef.current &&
-      request === refreshRequestRef.current &&
-      revision === payloadRevisionRef.current
-    setRefreshing(true)
-    try {
-      const next = await loadBootstrap()
-      if (current()) {
-        acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
-        applyPayload(next)
+  const refresh = useCallback(
+    async (reconcile?: (next: BootstrapPayload) => BootstrapPayload) => {
+      ++settingsRecoveryActionRef.current.request
+      setSettingsRecoveryBusy(settingsRecoveryActionRef.current.active !== null)
+      const request = ++refreshRequestRef.current
+      const revision = payloadRevisionRef.current
+      const current = () =>
+        mountedRef.current &&
+        request === refreshRequestRef.current &&
+        revision === payloadRevisionRef.current
+      setRefreshing(true)
+      try {
+        const next = await loadBootstrap()
+        if (current()) {
+          acceptStartupWorkspaceWarning(next.startupWorkspaceWarning ?? null)
+          applyPayload(reconcile ? reconcile(next) : next)
+        }
+      } catch (error) {
+        if (!current()) return
+        const recovery = settingsUnavailableDetails(error)
+        if (recovery) {
+          setSettingsRecoveryActionError(null)
+          setSettingsRecoveryRefreshError(null)
+          settingsRecoveryRef.current = recovery
+          setSettingsRecovery(recovery)
+          setStartupError(recovery.message)
+        } else {
+          const message = errorMessage(error, langRef.current)
+          setStartupError(message)
+          if (settingsRecoveryRef.current) setSettingsRecoveryRefreshError(message)
+          else showError(message)
+        }
+      } finally {
+        if (mountedRef.current && request === refreshRequestRef.current) setRefreshing(false)
       }
-    } catch (error) {
-      if (!current()) return
-      const recovery = settingsUnavailableDetails(error)
-      if (recovery) {
-        setSettingsRecoveryActionError(null)
-        setSettingsRecoveryRefreshError(null)
-        settingsRecoveryRef.current = recovery
-        setSettingsRecovery(recovery)
-        setStartupError(recovery.message)
-      } else {
-        const message = errorMessage(error, langRef.current)
-        setStartupError(message)
-        if (settingsRecoveryRef.current) setSettingsRecoveryRefreshError(message)
-        else showError(message)
-      }
-    } finally {
-      if (mountedRef.current && request === refreshRequestRef.current) setRefreshing(false)
-    }
-  }, [acceptStartupWorkspaceWarning, applyPayload, showError])
+    },
+    [acceptStartupWorkspaceWarning, applyPayload, showError],
+  )
 
   const runSettingsRecoveryAction = useCallback(
     async (action: "folder" | "retry" | "defaults") => {
@@ -1721,6 +1727,79 @@ function App() {
       }
     }
   }, [acceptStartupWorkspaceWarning, applyPayload, lang, refresh, showError])
+
+  const prepareDroppedProjects = useCallback(
+    (paths: string[]) => {
+      const allowed = () =>
+        mountedRef.current &&
+        !startupWorkspaceWarningRef.current &&
+        !settingsRecoveryRef.current &&
+        !isInstallingClientUpdate()
+      if (!allowed()) return
+      // A later drop may supersede an earlier drop, but neither may take back
+      // navigation that happened after the user released it.
+      const workspaceSelection = () => {
+        const previous = projectDropSelectionRef.current
+        const request = workspaceSelectionRequestRef.current
+        return previous?.request === request ? previous.workspace : request
+      }
+      const workspace = workspaceSelection()
+      const session = sessionSelectionRequestRef.current
+      const tab = tabSelectionRequestRef.current
+      const discoveries = new Map(discoveredSessionsRef.current)
+      const keepNewSessions = (next: BootstrapPayload) => {
+        for (const [terminalId, discovered] of discoveredSessionsRef.current) {
+          if (
+            discoveries.get(terminalId) !== discovered &&
+            next.workspaces.some((item) => item.key === discovered.projectKey) &&
+            !next.sessions.some((item) => item.filePath === discovered.filePath)
+          ) {
+            next = mergeSessionIntoPayload(next, discovered, next.runtime.platform)
+          }
+        }
+        return next
+      }
+
+      return async () => {
+        if (!allowed()) return
+        // Keep the original spelling. The backend validates directories and deduplicates aliases.
+        const unique = [...new Set(paths.filter((path) => path.length > 0))]
+        if (unique.length === 0) return
+        const drop = ++projectDropRequestRef.current
+        const revision = ++payloadRevisionRef.current
+        // Enqueue the whole gesture before any later bootstrap command can interleave.
+        const results = await Promise.allSettled(unique.map((path) => addWorkspace(path)))
+        if (!mountedRef.current || drop !== projectDropRequestRef.current) return
+
+        let last = results.length - 1
+        while (last >= 0 && results[last].status !== "fulfilled") --last
+        const added = results[last]
+        const failure = results.find((result) => result.status === "rejected")
+        if (added?.status === "fulfilled" && revision === payloadRevisionRef.current && allowed()) {
+          const select =
+            workspace === workspaceSelection() &&
+            session === sessionSelectionRequestRef.current &&
+            tab === tabSelectionRequestRef.current
+          // The write's reply may predate a PTY event that already made a session visible.
+          applyPayload(keepNewSessions(added.value), select ? unique[last] : undefined)
+          if (select) {
+            projectDropSelectionRef.current = {
+              request: ++workspaceSelectionRequestRef.current,
+              workspace,
+            }
+            setSelectedSessionPath(null)
+            setSearch("")
+          }
+        } else {
+          // A write may have succeeded even when its reply is obsolete or rejected.
+          void refresh(keepNewSessions)
+        }
+        if (failure) showError(errorMessage(failure.reason, langRef.current))
+      }
+    },
+    [applyPayload, isInstallingClientUpdate, refresh, showError],
+  )
+  const projectDropActive = useProjectFolderDrop(payload?.runtime.platform, prepareDroppedProjects)
 
   const resolveStartup = useCallback(
     async (action: "retry" | "continue") => {
@@ -3013,6 +3092,7 @@ function App() {
             transcriptSession !== null
           }
           autoOpen={railAutoOpen}
+          dropActive={projectDropActive}
           mode={railMode}
           modeSaving={railModeSaving}
           onAutoOpenChange={setRailAutoOpen}

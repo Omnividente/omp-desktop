@@ -11,6 +11,7 @@ import { confirm, open } from "@tauri-apps/plugin-dialog"
 import { listen, type EventCallback } from "@tauri-apps/api/event"
 import { installClientUpdate } from "./clientUpdater"
 import { t } from "./i18n"
+import type { useProjectFolderDrop } from "./useProjectFolderDrop"
 import type {
   BootstrapPayload,
   DesktopUpdateStatus,
@@ -32,8 +33,17 @@ const updaterAction = vi.hoisted(() => ({ install: null as (() => void) | null }
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }))
 const terminalReady = vi.hoisted(() => new Map<string, (terminalId: string) => void>())
 const terminalExits = vi.hoisted(() => new Map<string, (event: PtyExitEvent) => void>())
+const folderDrop = vi.hoisted(() => ({
+  prepare: null as Parameters<typeof useProjectFolderDrop>[1] | null,
+}))
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
+vi.mock("./useProjectFolderDrop", () => ({
+  useProjectFolderDrop(_platform: string, prepare: Parameters<typeof useProjectFolderDrop>[1]) {
+    folderDrop.prepare = prepare
+    return false
+  },
+}))
 
 vi.mock("./useClientUpdater", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./useClientUpdater")>()
@@ -4940,6 +4950,110 @@ describe("App lifecycle serialization", () => {
       expect(api.bootstrap).toHaveBeenCalledTimes(1)
     },
   )
+
+  it("adds folders from a mixed drop without trimming native paths or repeating identical paths", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A"))
+    vi.mocked(api.addWorkspace)
+      .mockRejectedValueOnce(new Error("Not a folder"))
+      .mockResolvedValueOnce(workspacePayload("A", "项目 "))
+    await act(async () => root.render(<App />))
+    await act(async () =>
+      folderDrop.prepare!([
+        "C:/fixture/not-a-folder.txt",
+        "C:/fixture/项目 ",
+        "C:/fixture/项目 ",
+      ])?.(),
+    )
+    expect(vi.mocked(api.addWorkspace).mock.calls).toEqual([
+      ["C:/fixture/not-a-folder.txt"],
+      ["C:/fixture/项目 "],
+    ])
+    expect(element(".project-item.is-active").textContent).toContain("项目")
+    expect(container.textContent).toContain("Not a folder")
+  })
+
+  it.each(["geometry check", "workspace write"])(
+    "keeps a newer project selection during the drop's %s",
+    async (pending) => {
+      const result = deferred<BootstrapPayload>()
+      vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A", "B"))
+      vi.mocked(api.addWorkspace).mockReturnValue(result.promise)
+      await act(async () => root.render(<App />))
+      const accept = folderDrop.prepare!(["C:/fixture/C"])!
+      if (pending === "workspace write") {
+        await act(async () => {
+          void accept()
+        })
+      }
+      await act(async () => element('.project-item[aria-label^="B,"]').click())
+      if (pending === "geometry check") {
+        await act(async () => {
+          void accept()
+        })
+      }
+      await act(async () => result.resolve(workspacePayload("A", "B", "C")))
+      expect(element(".project-item.is-active").textContent).toContain("B")
+      expect(container.querySelector('.project-item[aria-label^="C,"]')).not.toBeNull()
+    },
+  )
+
+  it("selects the last released project even when the preceding drop is accepted first", async () => {
+    vi.mocked(api.bootstrap).mockResolvedValue(workspacePayload("A"))
+    vi.mocked(api.addWorkspace)
+      .mockResolvedValueOnce(workspacePayload("A", "B"))
+      .mockResolvedValueOnce(workspacePayload("A", "B", "C"))
+    await act(async () => root.render(<App />))
+    const first = folderDrop.prepare!(["C:/fixture/B"])!
+    const second = folderDrop.prepare!(["C:/fixture/C"])!
+    await act(async () => first())
+    expect(element(".project-item.is-active").textContent).toContain("B")
+    await act(async () => second())
+    expect(element(".project-item.is-active").textContent).toContain("C")
+    expect(container.querySelector('.project-item[aria-label^="B,"]')).not.toBeNull()
+  })
+
+  it("keeps a new terminal session while applying the latest dropped projects", async () => {
+    const first = deferred<BootstrapPayload>()
+    const second = deferred<BootstrapPayload>()
+    const refresh = deferred<BootstrapPayload>()
+    vi.mocked(api.bootstrap)
+      .mockResolvedValueOnce(workspacePayload("A"))
+      .mockReturnValueOnce(refresh.promise)
+    vi.mocked(api.addWorkspace)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    await act(async () => root.render(<App />))
+    await act(async () => {
+      void folderDrop.prepare!(["C:/fixture/B"])?.()
+      void folderDrop.prepare!(["C:/fixture/C"])?.()
+    })
+    const discovered = {
+      ...workspacePayload("A").sessions[0],
+      id: "new-pty-session",
+      title: "New terminal session",
+      filePath: "C:/fixture/sessions/new-pty.jsonl",
+    }
+    const receive = vi
+      .mocked(listen)
+      .mock.calls.find(([name]) => name === "pty-session")![1] as EventCallback<PtySessionEvent>
+    await act(async () =>
+      receive({
+        event: "pty-session",
+        id: 1,
+        payload: { terminalId: started.terminalId, session: discovered },
+      }),
+    )
+    await act(async () => first.resolve(workspacePayload("A", "B")))
+    const projects = workspacePayload("A", "B", "C")
+    await act(async () => second.resolve(projects))
+    await act(async () => refresh.resolve(projects))
+    expect(element(".project-item.is-active").textContent).toContain("A")
+    expect(container.querySelector('.project-item[aria-label^="B,"]')).not.toBeNull()
+    expect(container.querySelector('.project-item[aria-label^="C,"]')).not.toBeNull()
+    expect(element('.session-select[aria-pressed="true"]').getAttribute("aria-label")).toBe(
+      "New terminal session",
+    )
+  })
 
   it("keeps the latest requested workspace while reconciling an older successful mutation", async () => {
     const first = deferred<BootstrapPayload>()
