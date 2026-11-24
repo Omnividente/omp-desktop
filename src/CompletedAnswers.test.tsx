@@ -153,6 +153,59 @@ it("keeps new answers collapsed after batched thinking/idle without stealing foc
   expect(container.querySelector("h1")?.textContent).toBe("First answer")
 })
 
+it("keeps the collapsed panel visible before any answer is loaded", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!))
+  await render()
+  const section = container.querySelector<HTMLElement>(".completed-answers")
+  expect(section).not.toBeNull()
+  expect(container.textContent).toContain(t("en", "completedAnswer"))
+  expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+  expect(container.querySelector("h1")).toBeNull()
+  expect(container.querySelector("button")).toBeNull()
+})
+
+it("disables the read retry while work is running", async () => {
+  vi.mocked(readSessionAnswers).mockRejectedValueOnce(new Error("Synthetic read failed"))
+  await render()
+  expect(button("Reread file").disabled).toBe(false)
+
+  await render({ ...tab, activity: "thinking" })
+  expect(button("Reread file").disabled).toBe(true)
+})
+
+it("keeps the collapsed panel visible while OMP is running", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# First answer"))
+  await render()
+  expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
+
+  await render({ ...tab, activity: "thinking" })
+  const toggle = button("Show answer")
+  expect(toggle.getAttribute("aria-expanded")).toBe("false")
+  expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+  expect(container.querySelector("h1")).toBeNull()
+  expect(readSessionAnswers).toHaveBeenCalledTimes(1)
+
+  await act(async () => toggle.click())
+  expect(toggle.getAttribute("aria-expanded")).toBe("true")
+  expect(container.querySelector("h1")?.textContent).toBe("First answer")
+})
+
+it("shows the panel header while running before any answer is loaded", async () => {
+  let resolveRead!: (value: SessionTranscript) => void
+  vi.mocked(readSessionAnswers).mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveRead = resolve
+    }),
+  )
+  await render()
+  await render({ ...tab, activity: "thinking" })
+  expect(container.querySelector(".completed-answers")).not.toBeNull()
+  expect(container.textContent).toContain(t("en", "completedAnswer"))
+  expect(container.querySelector("button")).toBeNull()
+  await act(async () => resolveRead(transcript(tab.sessionPath!, "# Late answer")))
+  expect(container.textContent).not.toContain("Late answer")
+})
+
 it("navigates from the current answer when a refresh and a click are batched", async () => {
   const path = tab.sessionPath!
   vi.mocked(readSessionAnswers).mockResolvedValueOnce(
@@ -187,7 +240,8 @@ it("ignores a pending read when work resumes and after switching sessions", asyn
   await render()
   await render({ ...tab, activity: "thinking" })
   await act(async () => resolveOld(transcript(tab.sessionPath!, "# Stale answer")))
-  expect(container.querySelector(".completed-answers")).toBeNull()
+  expect(container.querySelector(".completed-answers")).not.toBeNull()
+  expect(container.textContent).not.toContain("Stale answer")
 
   let resolveInactive!: (value: SessionTranscript) => void
   vi.mocked(readSessionAnswers).mockReturnValueOnce(
@@ -630,7 +684,9 @@ it("keeps unrequested content deferred across read error retry and busy transiti
     expect(container.querySelector('[role="alert"]')).toBeNull()
     expect(lexer).not.toHaveBeenCalled()
     await render({ ...tab, activity: "thinking", completedResponseVersion: 1 })
-    expect(container.querySelector(".completed-answers")).toBeNull()
+    expect(button("Show answer").getAttribute("aria-expanded")).toBe("false")
+    expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+    expect(container.querySelector("h1")).toBeNull()
     vi.mocked(readSessionAnswers).mockResolvedValueOnce(
       transcript(tab.sessionPath!, "# After busy"),
     )
