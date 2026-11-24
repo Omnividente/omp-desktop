@@ -164,6 +164,15 @@ it("keeps the collapsed panel visible before any answer is loaded", async () => 
   expect(container.querySelector("button")).toBeNull()
 })
 
+it("disables the read retry while work is running", async () => {
+  vi.mocked(readSessionAnswers).mockRejectedValueOnce(new Error("Synthetic read failed"))
+  await render()
+  expect(button("Reread file").disabled).toBe(false)
+
+  await render({ ...tab, activity: "thinking" })
+  expect(button("Reread file").disabled).toBe(true)
+})
+
 it("keeps the collapsed panel visible while OMP is running", async () => {
   vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# First answer"))
   await render()

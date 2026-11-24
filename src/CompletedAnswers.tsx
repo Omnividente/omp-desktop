@@ -201,7 +201,11 @@ export function CompletedAnswers({
       {error && (
         <div className="completed-answer-warning" role="alert">
           <span>{error}</span>
-          <button type="button" onClick={() => setRefresh((current) => current + 1)}>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => setRefresh((current) => current + 1)}
+          >
             {t(lang, "transcriptRefresh")}
           </button>
         </div>
