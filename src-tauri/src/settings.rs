@@ -1308,6 +1308,30 @@ mod tests {
     }
 
     #[test]
+    fn completed_answers_expand_fill_defaults_off_and_survives_partial_saves() {
+        let mut settings = AppSettings::default();
+        assert!(!settings.completed_answers_expand_fill);
+
+        let update = serde_json::from_value(serde_json::json!({
+            "completedAnswersExpandFill": true
+        }))
+        .expect("expand-fill patch should deserialize");
+        crate::apply_settings_update(&mut settings, &update);
+        assert!(settings.completed_answers_expand_fill);
+
+        let unrelated = serde_json::from_value(serde_json::json!({"language": "ru"}))
+            .expect("unrelated patch should deserialize");
+        crate::apply_settings_update(&mut settings, &unrelated);
+        assert!(settings.completed_answers_expand_fill);
+
+        let persisted: AppSettings = serde_json::from_slice(
+            &serde_json::to_vec(&settings).expect("settings should serialize"),
+        )
+        .expect("settings should deserialize");
+        assert!(persisted.completed_answers_expand_fill);
+    }
+
+    #[test]
     fn configured_paths_keep_blank_and_null_reset_semantics() {
         for empty in [
             serde_json::Value::Null,

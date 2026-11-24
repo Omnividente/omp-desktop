@@ -423,6 +423,9 @@ export function SettingsPanel({
   const [desktopUpdatePrereleases, setDesktopUpdatePrereleases] = useState(
     settings.desktopUpdatePrereleases,
   )
+  const [completedAnswersExpandFill, setCompletedAnswersExpandFill] = useState(
+    settings.completedAnswersExpandFill,
+  )
   const settingsBaselineRef = useRef(settings)
   const generalDraftRevisionsRef = useRef(new Map<string, number>())
   const markGeneralDraft = (field: string) => {
@@ -699,6 +702,11 @@ export function SettingsPanel({
       previous.desktopUpdatePrereleases !== settings.desktopUpdatePrereleases
     )
       setDesktopUpdatePrereleases(settings.desktopUpdatePrereleases)
+    if (
+      !dirty.has("completed-answers-expand-fill") &&
+      previous.completedAnswersExpandFill !== settings.completedAnswersExpandFill
+    )
+      setCompletedAnswersExpandFill(settings.completedAnswersExpandFill)
     if (!dirty.has("app-font-family") && previous.appFontFamily !== settings.appFontFamily)
       setAppFontFamily(settings.appFontFamily)
     if (!dirty.has("app-font-size") && previous.appFontSize !== settings.appFontSize)
@@ -971,6 +979,7 @@ export function SettingsPanel({
       language !== settings.language ||
       desktopTheme !== (settings.desktopTheme ?? "dark") ||
       desktopUpdatePrereleases !== settings.desktopUpdatePrereleases ||
+      completedAnswersExpandFill !== settings.completedAnswersExpandFill ||
       appFontFamily !== settings.appFontFamily ||
       appFontSize !== settings.appFontSize ||
       terminalFontFamily !== settings.terminalFontFamily ||
@@ -1030,6 +1039,7 @@ export function SettingsPanel({
     disabledProviders,
     desktopTheme,
     desktopUpdatePrereleases,
+    completedAnswersExpandFill,
     appFontFamily,
     appFontSize,
     autoResume,
@@ -1135,6 +1145,7 @@ export function SettingsPanel({
           language,
           desktopTheme,
           desktopUpdatePrereleases,
+          completedAnswersExpandFill,
           appFontFamily,
           appFontSize,
           terminalFontFamily,
@@ -1681,6 +1692,22 @@ export function SettingsPanel({
                     <p className="app-font-preview" style={{ fontSize: `${appFontSize}px` }}>
                       {t(language, "appFontPreview")}
                     </p>
+
+                    <label className="toggle-row" htmlFor="completed-answers-expand-fill">
+                      <input
+                        id="completed-answers-expand-fill"
+                        type="checkbox"
+                        checked={completedAnswersExpandFill}
+                        onChange={(event) => setCompletedAnswersExpandFill(event.target.checked)}
+                        aria-describedby="completed-answers-expand-fill-help"
+                      />
+                      <span>
+                        <strong>{t(language, "completedAnswerExpandFill")}</strong>
+                        <small id="completed-answers-expand-fill-help">
+                          {t(language, "completedAnswerExpandFillHelp")}
+                        </small>
+                      </span>
+                    </label>
                   </section>
 
                   <section className="settings-section">

@@ -90,7 +90,7 @@ let container: HTMLDivElement
 let root: Root
 const onError = vi.fn()
 
-async function render(current = tab, active = true, lang: Lang = "en") {
+async function render(current = tab, active = true, lang: Lang = "en", expandFill = false) {
   await act(async () => {
     root.render(
       <>
@@ -101,6 +101,7 @@ async function render(current = tab, active = true, lang: Lang = "en") {
           busy={current.activity === "thinking"}
           active={active}
           version={current.completedResponseVersion ?? 0}
+          expandFill={expandFill}
           lang={lang}
           onError={onError}
         />
@@ -125,6 +126,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  document.querySelectorAll(".terminal-pane").forEach((node) => node.remove())
 })
 
 it("keeps new answers collapsed after batched thinking/idle without stealing focus", async () => {
@@ -151,6 +153,24 @@ it("keeps new answers collapsed after batched thinking/idle without stealing foc
   expect(container.querySelector("h2")?.textContent).toBe("Second answer")
   await act(async () => button("Previous answer").click())
   expect(container.querySelector("h1")?.textContent).toBe("First answer")
+})
+
+it("fills the pane only when the expand-fill setting is enabled", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  await render(tab, true, "en", false)
+  await act(async () => button("Show answer").click())
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
+
+  await render(tab, true, "en", true)
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    true,
+  )
+  await act(async () => button("Collapse answer").click())
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
 })
 
 it("navigates from the current answer when a refresh and a click are batched", async () => {
@@ -642,4 +662,90 @@ it("keeps unrequested content deferred across read error retry and busy transiti
   } finally {
     lexer.mockRestore()
   }
+})
+
+it("focuses the answer body on expand and returns focus to the terminal on collapse", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render(tab, true, "en", true)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(body.hidden).toBe(false)
+  expect(document.activeElement).toBe(body)
+
+  const hide = button("Collapse answer")
+  hide.focus()
+  await act(async () => hide.click())
+  expect(body.hidden).toBe(true)
+  expect(document.activeElement).toBe(terminalInput)
+})
+
+it("collapses an expanded answer on Escape and returns focus to the terminal", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render(tab, true, "en", true)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+
+  await act(async () => {
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  })
+  expect(body.hidden).toBe(true)
+  expect(document.activeElement).toBe(terminalInput)
+})
+
+it("moves focus with expand-fill off", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render(tab, true, "en", false)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
+  await act(async () => button("Collapse answer").click())
+  expect(document.activeElement).toBe(terminalInput)
+})
+
+it("returns focus to the toggle when no active terminal input exists", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  await render(tab, true, "en", true)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+
+  await act(async () => {
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  })
+  const toggle = button("Show answer")
+  expect(toggle.getAttribute("aria-expanded")).toBe("false")
+  expect(document.activeElement).toBe(toggle)
 })

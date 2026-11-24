@@ -123,6 +123,7 @@ const bootstrap: BootstrapPayload = {
     language: "ru",
     desktopTheme: "dark",
     desktopUpdatePrereleases: false,
+    completedAnswersExpandFill: false,
     appFontFamily: "Inter",
     appFontSize: 16,
     terminalFontFamily: "monospace",

@@ -21,6 +21,7 @@ interface TerminalWorkspaceProps {
   activeTabId: string | null
   focusRequest: { terminalId: string; sequence: number } | null
   language: Lang
+  completedAnswersExpandFill: boolean
   terminalFontFamily: string
   terminalFontSize: number
   launching: string | null
@@ -101,6 +102,7 @@ export function TerminalWorkspace({
   activeTabId,
   focusRequest,
   language,
+  completedAnswersExpandFill,
   terminalFontFamily,
   terminalFontSize,
   launching,
@@ -672,6 +674,7 @@ export function TerminalWorkspace({
                   busy={tab.status === "running" && (tab.activity === "thinking" || tab.switching)}
                   version={tab.completedResponseVersion ?? 0}
                   sessionPath={tab.sessionPath}
+                  expandFill={completedAnswersExpandFill}
                   lang={language}
                   onError={onError}
                 />

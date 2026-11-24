@@ -58,6 +58,7 @@ export interface AppSettings {
   language: Lang
   desktopTheme: DesktopTheme
   desktopUpdatePrereleases: boolean
+  completedAnswersExpandFill: boolean
   appFontFamily: string
   appFontSize: number
   terminalFontFamily: string
@@ -237,6 +238,7 @@ export interface ImportBatchPayload {
 export interface SettingsUpdate {
   desktopTheme?: DesktopTheme | null
   desktopUpdatePrereleases?: boolean | null
+  completedAnswersExpandFill?: boolean | null
   ompExecutable?: string | null
   appFontFamily?: string | null
   appFontSize?: number | null

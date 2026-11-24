@@ -102,7 +102,7 @@ Start with [installation](../README.md#installation). See also [privacy and prov
 
 - Large transcripts use bounded reads: the UI shows the beginning and latest entries and explicitly marks the omitted middle. Malformed records in the read portion and an incomplete final line are reported separately; reading never changes the source file.
 
-- After an answer finishes, a collapsed panel appears above the terminal: Show answer reveals Markdown, tables and code blocks, with code-block copy, whole-message text/Markdown copy, previous-answer navigation and collapse controls. New and restored answers do not force expansion; no Escape or focus interception is added. The full terminal is shown while the next request runs; its process, input and draft stay intact. The panel reads persisted answers from the current session's JSONL rather than parsing terminal output, and excludes tool calls, reasoning and aborted answers. Saved answers are available again when the session is resumed after a Desktop restart.
+- After an answer finishes, a collapsed panel appears above the terminal: Show answer reveals Markdown, tables and code blocks, with code-block copy, whole-message text/Markdown copy, previous-answer navigation and collapse controls. New and restored answers do not force expansion. Expanding focuses the answer body, Escape collapses the panel, and focus returns to the active terminal. When the fill-pane option is enabled in settings, an expanded answer fills the pane and hides the terminal below it until collapsed. The full terminal is shown while the next request runs; its process, input and draft stay intact. The panel reads persisted answers from the current session's JSONL rather than parsing terminal output, and excludes tool calls, reasoning and aborted answers. Saved answers are available again when the session is resumed after a Desktop restart.
 
 - Latest loaded answer jumps to the end of the current completed-answer snapshot and expands the panel. It does not reread the file, acknowledge reading or promise the last answer of a live branch.
 
@@ -154,7 +154,7 @@ Start with [installation](../README.md#installation). See also [privacy and prov
 
 ## Settings and recovery
 
-- Configurable OMP executable, session root, models, language, and fonts. Settings → General → Interface text scale enlarges application text from 100% to 200%, persists across restarts, and does not change the independent terminal font size.
+- Configurable OMP executable, session root, models, language, and fonts. Settings → General → Interface text scale enlarges application text from 100% to 200%, persists across restarts, and does not change the independent terminal font size. Settings → General also offers the «Expand completed answers to fill the pane» option, which is off by default.
 
 - Every integer terminal font size from 8–32 px is selectable. Settings categories support Up/Down, Home/End and one tab stop. Prefers-reduced-motion disables subsequent xterm smooth scrolling without recreating the terminal; Linux still uses zero duration.
 
