@@ -199,6 +199,8 @@ pub struct AppSettings {
     pub desktop_theme: DesktopTheme,
     #[serde(default)]
     pub desktop_update_prereleases: bool,
+    #[serde(default)]
+    pub completed_answers_expand_fill: bool,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default = "default_app_font_family")]
@@ -235,6 +237,7 @@ impl Default for AppSettings {
             rail_mode: RailMode::default(),
             desktop_theme: DesktopTheme::default(),
             desktop_update_prereleases: false,
+            completed_answers_expand_fill: false,
             language: default_language(),
             app_font_family: default_app_font_family(),
             app_font_size: default_app_font_size(),
@@ -269,6 +272,10 @@ impl fmt::Debug for AppSettings {
             .field(
                 "desktop_update_prereleases",
                 &self.desktop_update_prereleases,
+            )
+            .field(
+                "completed_answers_expand_fill",
+                &self.completed_answers_expand_fill,
             )
             .field("language", &self.language)
             .field("app_font_family", &self.app_font_family)
@@ -355,6 +362,8 @@ pub struct SettingsUpdate {
     /// Missing and null leave the committed update channel unchanged.
     #[serde(default)]
     pub desktop_update_prereleases: SettingsPatch<bool>,
+    #[serde(default)]
+    pub completed_answers_expand_fill: SettingsPatch<bool>,
     #[serde(default)]
     pub provider_env: SettingsPatch<HashMap<String, String>>,
 }

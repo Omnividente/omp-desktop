@@ -460,6 +460,9 @@ export const UI_TEXT = {
     appFontSizeHelp:
       "От 100% до 200%. После сохранения увеличивает текст меню, панелей и диалогов. Размер шрифта терминала настраивается отдельно.",
     appFontPreview: "Пример текста: меню, настройки и диалоги",
+    completedAnswerExpandFill: "Разворачивать завершённые ответы на всю область",
+    completedAnswerExpandFillHelp:
+      "Пока ответ развёрнут, терминал под ним скрыт до сворачивания ответа.",
     pathsSection: "Пути и хранение",
     pathsSectionHelp: "Оставьте поля пустыми, чтобы использовать стандартные пути OMP.",
     behaviorSection: "Поведение OMP",
@@ -1300,6 +1303,9 @@ export const UI_TEXT = {
     appFontSizeHelp:
       "From 100% to 200%. Saving scales text in menus, panels, and dialogs. Terminal font size is configured separately.",
     appFontPreview: "Sample text: menus, settings, and dialogs",
+    completedAnswerExpandFill: "Expand completed answers to fill the pane",
+    completedAnswerExpandFillHelp:
+      "When an answer is expanded, the terminal below is hidden until the answer is collapsed.",
     pathsSection: "Paths and storage",
     pathsSectionHelp: "Leave these fields empty to use the standard OMP locations.",
     behaviorSection: "OMP behavior",
@@ -2135,6 +2141,8 @@ export const UI_TEXT = {
     appFontSize: "界面文字缩放",
     appFontSizeHelp: "100% 到 200%。保存后缩放菜单、面板和对话框中的文字。终端字号单独配置。",
     appFontPreview: "示例文本：菜单、设置和对话框",
+    completedAnswerExpandFill: "展开回答时占满窗格",
+    completedAnswerExpandFillHelp: "展开回答时隐藏下方终端，折叠回答后恢复。",
     pathsSection: "路径与存储",
     pathsSectionHelp: "留空这些字段以使用 OMP 的标准路径。",
     behaviorSection: "OMP 行为",

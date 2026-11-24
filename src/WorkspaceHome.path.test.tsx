@@ -200,6 +200,7 @@ it("routes clipboard failures through the real workspace host error callback", a
         activeTabId={null}
         focusRequest={null}
         language="en"
+        completedAnswersExpandFill={false}
         terminalFontFamily="monospace"
         terminalFontSize={14}
         launching={null}

@@ -903,6 +903,9 @@ fn apply_settings_update(snapshot: &mut AppSettings, update: &SettingsUpdate) {
     if let SettingsPatch::Set(Some(include_prereleases)) = update.desktop_update_prereleases {
         snapshot.desktop_update_prereleases = include_prereleases;
     }
+    if let SettingsPatch::Set(Some(expand_fill)) = update.completed_answers_expand_fill {
+        snapshot.completed_answers_expand_fill = expand_fill;
+    }
     if let SettingsPatch::Set(Some(rail_mode)) = update.rail_mode {
         snapshot.rail_mode = rail_mode;
     }

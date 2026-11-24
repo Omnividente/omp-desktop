@@ -13,6 +13,7 @@ interface CompletedAnswersProps {
   busy: boolean
   version: number
   sessionPath: string
+  expandFill: boolean
   lang: Lang
   onError: (message: string) => void
 }
@@ -29,6 +30,7 @@ export function CompletedAnswers({
   busy,
   version,
   sessionPath,
+  expandFill,
   lang,
   onError,
 }: CompletedAnswersProps) {
@@ -125,7 +127,10 @@ export function CompletedAnswers({
   if (busy || (!entry && !error)) return null
 
   return (
-    <section className="completed-answers" aria-label={t(lang, "completedAnswer")}>
+    <section
+      className={`completed-answers${!collapsed && expandFill ? " is-expanded" : ""}`}
+      aria-label={t(lang, "completedAnswer")}
+    >
       <header className="completed-answers-toolbar">
         <strong>{t(lang, "completedAnswer")}</strong>
         {entry && (

@@ -48,6 +48,7 @@ const settings: AppSettings = {
   language: "ru",
   desktopTheme: "dark",
   desktopUpdatePrereleases: false,
+  completedAnswersExpandFill: false,
   appFontFamily: "Inter",
   appFontSize: 16,
   terminalFontFamily: "Cascadia Mono",

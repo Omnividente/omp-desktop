@@ -90,7 +90,7 @@ let container: HTMLDivElement
 let root: Root
 const onError = vi.fn()
 
-async function render(current = tab, active = true, lang: Lang = "en") {
+async function render(current = tab, active = true, lang: Lang = "en", expandFill = false) {
   await act(async () => {
     root.render(
       <>
@@ -101,6 +101,7 @@ async function render(current = tab, active = true, lang: Lang = "en") {
           busy={current.activity === "thinking"}
           active={active}
           version={current.completedResponseVersion ?? 0}
+          expandFill={expandFill}
           lang={lang}
           onError={onError}
         />
@@ -151,6 +152,24 @@ it("keeps new answers collapsed after batched thinking/idle without stealing foc
   expect(container.querySelector("h2")?.textContent).toBe("Second answer")
   await act(async () => button("Previous answer").click())
   expect(container.querySelector("h1")?.textContent).toBe("First answer")
+})
+
+it("fills the pane only when the expand-fill setting is enabled", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  await render(tab, true, "en", false)
+  await act(async () => button("Show answer").click())
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
+
+  await render(tab, true, "en", true)
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    true,
+  )
+  await act(async () => button("Collapse answer").click())
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
 })
 
 it("navigates from the current answer when a refresh and a click are batched", async () => {

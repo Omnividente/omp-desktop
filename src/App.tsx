@@ -3170,6 +3170,7 @@ function App() {
           activeTabId={activeTabId}
           focusRequest={terminalFocusRequest}
           language={lang}
+          completedAnswersExpandFill={payload.settings.completedAnswersExpandFill}
           terminalFontFamily={payload.settings.terminalFontFamily}
           terminalFontSize={payload.settings.terminalFontSize}
           launching={installingClientUpdate ? "desktop-update" : launching}

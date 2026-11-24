@@ -198,6 +198,7 @@ function Harness({
       activeTabId={active}
       focusRequest={focus}
       language="en"
+      completedAnswersExpandFill={false}
       terminalFontFamily="monospace"
       terminalFontSize={14}
       launching={null}
