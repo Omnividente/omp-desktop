@@ -490,7 +490,7 @@ function App() {
   useEffect(() => {
     const root = document.documentElement
     const previousLanguage = root.getAttribute("lang")
-    root.lang = lang
+    root.lang = localeTag(lang)
     return () => {
       if (previousLanguage === null) root.removeAttribute("lang")
       else root.setAttribute("lang", previousLanguage)
