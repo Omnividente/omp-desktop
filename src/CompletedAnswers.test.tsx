@@ -153,6 +153,17 @@ it("keeps new answers collapsed after batched thinking/idle without stealing foc
   expect(container.querySelector("h1")?.textContent).toBe("First answer")
 })
 
+it("keeps the collapsed panel visible before any answer is loaded", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!))
+  await render()
+  const section = container.querySelector<HTMLElement>(".completed-answers")
+  expect(section).not.toBeNull()
+  expect(container.textContent).toContain(t("en", "completedAnswer"))
+  expect(container.querySelector<HTMLElement>(".completed-answer-body")?.hidden).toBe(true)
+  expect(container.querySelector("h1")).toBeNull()
+  expect(container.querySelector("button")).toBeNull()
+})
+
 it("keeps the collapsed panel visible while OMP is running", async () => {
   vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# First answer"))
   await render()
