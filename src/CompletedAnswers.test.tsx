@@ -710,3 +710,42 @@ it("collapses an expanded answer on Escape and returns focus to the terminal", a
   expect(body.hidden).toBe(true)
   expect(document.activeElement).toBe(terminalInput)
 })
+
+it("moves focus with expand-fill off", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render(tab, true, "en", false)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+  expect(container.querySelector(".completed-answers")?.classList.contains("is-expanded")).toBe(
+    false,
+  )
+  await act(async () => button("Collapse answer").click())
+  expect(document.activeElement).toBe(terminalInput)
+})
+
+it("returns focus to the toggle when no active terminal input exists", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  await render(tab, true, "en", true)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+
+  await act(async () => {
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  })
+  const toggle = button("Show answer")
+  expect(toggle.getAttribute("aria-expanded")).toBe("false")
+  expect(document.activeElement).toBe(toggle)
+})

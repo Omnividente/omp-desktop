@@ -102,12 +102,15 @@ export function CompletedAnswers({
   useEffect(() => {
     if (!manageFocusRef.current) return
     manageFocusRef.current = false
-    if (!sectionRef.current?.contains(document.activeElement)) return
     if (collapsed) {
-      document
-        .querySelector<HTMLTextAreaElement>(".terminal-pane.is-active .xterm-helper-textarea")
-        ?.focus()
-    } else {
+      // The focused body may already be hidden here, so do not require it to
+      // still contain the active element before restoring focus.
+      const terminal = document.querySelector<HTMLTextAreaElement>(
+        ".terminal-pane.is-active .xterm-helper-textarea",
+      )
+      if (terminal) terminal.focus()
+      else sectionRef.current?.querySelector<HTMLButtonElement>(".completed-answer-toggle")?.focus()
+    } else if (sectionRef.current?.contains(document.activeElement)) {
       bodyRef.current?.focus()
     }
   }, [collapsed])
