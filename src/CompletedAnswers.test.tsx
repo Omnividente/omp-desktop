@@ -126,6 +126,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  document.querySelectorAll(".terminal-pane").forEach((node) => node.remove())
 })
 
 it("keeps new answers collapsed after batched thinking/idle without stealing focus", async () => {
@@ -661,4 +662,51 @@ it("keeps unrequested content deferred across read error retry and busy transiti
   } finally {
     lexer.mockRestore()
   }
+})
+
+it("focuses the answer body on expand and returns focus to the terminal on collapse", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render(tab, true, "en", true)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(body.hidden).toBe(false)
+  expect(document.activeElement).toBe(body)
+
+  const hide = button("Collapse answer")
+  hide.focus()
+  await act(async () => hide.click())
+  expect(body.hidden).toBe(true)
+  expect(document.activeElement).toBe(terminalInput)
+})
+
+it("collapses an expanded answer on Escape and returns focus to the terminal", async () => {
+  vi.mocked(readSessionAnswers).mockResolvedValue(transcript(tab.sessionPath!, "# Answer"))
+  const pane = document.createElement("div")
+  pane.className = "terminal-pane is-active"
+  const terminalInput = document.createElement("textarea")
+  terminalInput.className = "xterm-helper-textarea"
+  pane.appendChild(terminalInput)
+  document.body.appendChild(pane)
+
+  await render(tab, true, "en", true)
+  const show = button("Show answer")
+  show.focus()
+  await act(async () => show.click())
+  const body = container.querySelector<HTMLElement>(".completed-answer-body")!
+  expect(document.activeElement).toBe(body)
+
+  await act(async () => {
+    body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+  })
+  expect(body.hidden).toBe(true)
+  expect(document.activeElement).toBe(terminalInput)
 })

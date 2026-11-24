@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useId, useMemo, useState, type MouseEvent } from "react"
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+} from "react"
 import { errorMessage, openContentLink, readSessionAnswers } from "./api"
 import { ContentActionMenu } from "./ContentActionMenu"
 import { CopyButton } from "./CopyButton"
@@ -84,8 +93,24 @@ export function CompletedAnswers({
     [source, answers?.contentRequested],
   )
   const collapsed = answers?.collapsed ?? true
+  const sectionRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const manageFocusRef = useRef(false)
 
   useEffect(() => setMenu(null), [active, busy, entry?.id, collapsed])
+
+  useEffect(() => {
+    if (!manageFocusRef.current) return
+    manageFocusRef.current = false
+    if (!sectionRef.current?.contains(document.activeElement)) return
+    if (collapsed) {
+      document
+        .querySelector<HTMLTextAreaElement>(".terminal-pane.is-active .xterm-helper-textarea")
+        ?.focus()
+    } else {
+      bodyRef.current?.focus()
+    }
+  }, [collapsed])
 
   const openLink = useCallback(
     (uri: string, action: "open" | "reveal" = "open") => {
@@ -124,12 +149,33 @@ export function CompletedAnswers({
     })
   }
 
+  const toggle = () => {
+    manageFocusRef.current = true
+    setAnswers(
+      (current) =>
+        current && {
+          ...current,
+          collapsed: !current.collapsed,
+          contentRequested: true,
+        },
+    )
+  }
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
+    if (event.key !== "Escape" || collapsed) return
+    event.preventDefault()
+    manageFocusRef.current = true
+    setAnswers((current) => current && { ...current, collapsed: true })
+  }
+
   if (busy || (!entry && !error)) return null
 
   return (
     <section
       className={`completed-answers${!collapsed && expandFill ? " is-expanded" : ""}`}
       aria-label={t(lang, "completedAnswer")}
+      onKeyDown={handleKeyDown}
+      ref={sectionRef}
     >
       <header className="completed-answers-toolbar">
         <strong>{t(lang, "completedAnswer")}</strong>
@@ -187,16 +233,7 @@ export function CompletedAnswers({
               type="button"
               aria-expanded={!collapsed}
               aria-controls={bodyId}
-              onClick={() =>
-                setAnswers(
-                  (current) =>
-                    current && {
-                      ...current,
-                      collapsed: !current.collapsed,
-                      contentRequested: true,
-                    },
-                )
-              }
+              onClick={toggle}
             >
               {t(lang, collapsed ? "completedAnswerShow" : "completedAnswerHide")}
             </button>
@@ -216,6 +253,7 @@ export function CompletedAnswers({
         id={bodyId}
         hidden={collapsed}
         key={entry?.id}
+        ref={bodyRef}
         tabIndex={0}
       >
         {answers?.transcript.truncated && (
