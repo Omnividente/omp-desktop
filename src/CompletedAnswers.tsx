@@ -122,7 +122,7 @@ export function CompletedAnswers({
     })
   }
 
-  if (busy || (!entry && !error)) return null
+  if (!active) return null
 
   return (
     <section className="completed-answers" aria-label={t(lang, "completedAnswer")}>
