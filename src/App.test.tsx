@@ -3207,6 +3207,25 @@ describe("App lifecycle serialization", () => {
     expect(document.documentElement.hasAttribute("lang")).toBe(false)
   })
 
+  it("marks committed zh bootstrap language with the zh-CN tag", async () => {
+    document.documentElement.lang = "fr"
+    vi.mocked(api.bootstrap).mockResolvedValue({
+      ...bootstrap,
+      settings: { ...bootstrap.settings, language: "zh" },
+    })
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <App />
+        </StrictMode>,
+      ),
+    )
+    expect(document.documentElement.lang).toBe("zh-CN")
+    expect(api.saveSettingsBundle).not.toHaveBeenCalled()
+    await act(async () => root.render(null))
+    expect(document.documentElement.getAttribute("lang")).toBe("fr")
+  })
+
   it.each([
     ["ru", "en"],
     ["en", "ru"],

@@ -3779,7 +3779,7 @@ fn truncate_title(value: &str) -> String {
 
 fn strip_generated_handoff_suffix(title: &str) -> &str {
     let title = title.trim();
-    for marker in [" · handoff", " · archive", " · архив"] {
+    for marker in [" · handoff", " · archive", " · 归档", " · архив"] {
         let Some((base, suffix)) = title.rsplit_once(marker) else {
             continue;
         };
@@ -4457,6 +4457,21 @@ mod tests {
             handoff_session_titles("Release investigation · архив 2", &pins, "архив").unwrap();
         assert_eq!(active, "Release investigation");
         assert_eq!(archive, "Release investigation · архив 3");
+    }
+
+    #[test]
+    fn chinese_archive_marker_is_stripped_from_generated_title() {
+        let mut pins = BTreeMap::new();
+        let (active, archive) =
+            handoff_session_titles("Release investigation", &pins, "归档").unwrap();
+        assert_eq!(active, "Release investigation");
+        assert_eq!(archive, "Release investigation · 归档");
+
+        pins.insert("first".to_owned(), archive);
+        let (active, archive) =
+            handoff_session_titles("Release investigation · 归档", &pins, "归档").unwrap();
+        assert_eq!(active, "Release investigation");
+        assert_eq!(archive, "Release investigation · 归档 2");
     }
 
     #[test]
